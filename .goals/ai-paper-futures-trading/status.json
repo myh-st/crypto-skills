@@ -1,0 +1,25 @@
+{
+  "goal": "ai-paper-futures-trading",
+  "branch": "feature/ai-paper-futures-trading",
+  "base_commit": "887ced89866fb53748519170d19b3080cadab230",
+  "state": "planned",
+  "implementation_started": false,
+  "live_trading_allowed": false,
+  "paper_trading_target": true,
+  "primary_timeframe": "15m",
+  "starting_balance_usdt": 100,
+  "primary_leverage": 3,
+  "shadow_leverage": [1, 2, 3, 5, 10],
+  "required_gates": [
+    "contracts",
+    "storage",
+    "paper_accounting",
+    "risk_engine",
+    "futures_market_data",
+    "provider_settings",
+    "scheduler",
+    "frontend_operations",
+    "export",
+    "offline_ci"
+  ]
+}
