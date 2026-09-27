@@ -1,0 +1,41 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://github.com/myh-st/crypto-skills/schemas/eval-report.schema.json",
+  "title": "Crypto Evaluation Summary Report",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "schema_version",
+    "classification",
+    "evidence_disclaimer",
+    "accuracy_claim",
+    "portfolio_pnl_claim",
+    "dataset",
+    "outcomes_hash",
+    "sampling_audit",
+    "runner",
+    "runtime_limitations",
+    "metrics",
+    "metrics_by_fold",
+    "breakdowns",
+    "baseline_comparison",
+    "sample_counts"
+  ],
+  "properties": {
+    "schema_version": {"type": "string", "enum": ["crypto-eval.report.v1"]},
+    "classification": {"type": "string", "minLength": 1},
+    "evidence_disclaimer": {"type": "string", "minLength": 1},
+    "accuracy_claim": {"type": "string", "enum": ["none"]},
+    "portfolio_pnl_claim": {"type": "string", "enum": ["none"]},
+    "dataset": {"type": "object"},
+    "outcomes_hash": {"type": "string", "minLength": 1},
+    "sampling_audit": {"type": "object"},
+    "runner": {"type": ["object", "null"]},
+    "runtime_limitations": {"type": "array", "items": {"type": "string"}},
+    "metrics": {"type": "object"},
+    "metrics_by_fold": {"type": "object"},
+    "breakdowns": {"type": "object"},
+    "baseline_comparison": {"type": "object"},
+    "sample_counts": {"type": "object"}
+  }
+}

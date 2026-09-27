@@ -87,3 +87,12 @@ drift cannot silently reach production.
 - Order placement requires a separate, explicitly authorized system.
 - Historical evaluation must keep the original decision and later outcome in separate records.
 - A data-quality failure lowers confidence or blocks a lane; it never becomes a bullish, bearish, or neutral signal by assumption.
+
+## Evaluation harness boundary
+
+The separate `crypto_eval` package validates normalized point-in-time cases,
+freezes prediction records, attaches later outcomes in a distinct input, and
+calculates trigger-aware decision-quality metrics and fixed baselines. It does
+not modify the production skill workflow, invoke a model by default, or execute
+trades. See [evaluation.md](evaluation.md) for the CLI, lifecycle, metric
+denominators, and the distinction between validation and accuracy evidence.

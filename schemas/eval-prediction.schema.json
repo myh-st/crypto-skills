@@ -1,0 +1,74 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://github.com/myh-st/crypto-skills/schemas/eval-prediction.schema.json",
+  "title": "Frozen Crypto Evaluation Prediction",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "schema_version",
+    "prediction_id",
+    "prediction_hash",
+    "dataset_id",
+    "dataset_version",
+    "dataset_hash",
+    "case_id",
+    "frozen_at",
+    "runner",
+    "decision"
+  ],
+  "properties": {
+    "schema_version": {"type": "string", "enum": ["crypto-eval.prediction.v1"]},
+    "prediction_id": {"type": "string", "minLength": 1},
+    "prediction_hash": {"type": "string", "minLength": 1},
+    "dataset_id": {"type": "string", "minLength": 1},
+    "dataset_version": {"type": "string", "minLength": 1},
+    "dataset_hash": {"type": "string", "minLength": 1},
+    "case_id": {"type": "string", "minLength": 1},
+    "frozen_at": {"type": "string", "format": "date-time"},
+    "runner": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "name",
+        "version",
+        "mode",
+        "execution_status",
+        "provider",
+        "model_id",
+        "inference_config_hash",
+        "prompt_version",
+        "skill_commit",
+        "variant",
+        "run_id"
+      ],
+      "properties": {
+        "name": {"type": "string", "minLength": 1},
+        "version": {"type": "string", "minLength": 1},
+        "mode": {"type": "string", "minLength": 1},
+        "execution_status": {"type": "string", "enum": ["invoked", "not_invoked"]},
+        "provider": {"type": "string", "minLength": 1},
+        "model_id": {"type": "string", "minLength": 1},
+        "inference_config_hash": {"type": "string", "minLength": 1},
+        "prompt_version": {"type": "string", "minLength": 1},
+        "skill_commit": {"type": ["string", "null"]},
+        "variant": {"type": "string", "enum": ["fixture", "skill", "control"]},
+        "run_id": {"type": "string", "minLength": 1}
+      }
+    },
+    "decision": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["decision_state", "bias", "confidence", "entry", "invalidation", "targets"],
+      "properties": {
+        "decision_state": {"$ref": "decision-state.schema.json"},
+        "bias": {"type": "string", "enum": ["bullish", "bearish", "neutral"]},
+        "confidence": {"type": "string", "enum": ["low", "moderate", "high"]},
+        "entry": {"type": ["object", "null"]},
+        "invalidation": {"type": ["number", "null"]},
+        "targets": {"type": "array", "items": {"type": "number"}},
+        "leverage_stress": {"type": ["string", "null"]},
+        "rationale": {"type": "string"}
+      }
+    }
+  }
+}

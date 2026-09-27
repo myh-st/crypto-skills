@@ -1,0 +1,58 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://github.com/myh-st/crypto-skills/schemas/eval-outcomes.schema.json",
+  "title": "Crypto Evaluation Outcome Market Data",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "schema_version",
+    "dataset_id",
+    "dataset_version",
+    "dataset_hash",
+    "records"
+  ],
+  "properties": {
+    "schema_version": {"type": "string", "enum": ["crypto-eval.outcomes.v1"]},
+    "dataset_id": {"type": "string", "minLength": 1},
+    "dataset_version": {"type": "string", "minLength": 1},
+    "dataset_hash": {"type": "string", "minLength": 1},
+    "records": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": ["status", "known_at"],
+        "properties": {
+          "case_id": {"type": "string"},
+          "source_case_key": {"type": "string", "minLength": 1},
+          "status": {"type": "string", "enum": ["complete", "partial", "unavailable"]},
+          "known_at": {"type": "string", "format": "date-time"},
+          "candles": {
+            "type": "array",
+            "items": {"$ref": "#/$defs/candle"}
+          },
+          "benchmark_candles": {
+            "type": "array",
+            "items": {"$ref": "#/$defs/candle"}
+          }
+        }
+      }
+    }
+  },
+  "$defs": {
+    "candle": {
+      "type": "object",
+      "additionalProperties": true,
+      "required": ["open_time", "close_time", "open", "high", "low", "close", "volume"],
+      "properties": {
+        "open_time": {"type": "string", "format": "date-time"},
+        "close_time": {"type": "string", "format": "date-time"},
+        "open": {"type": "number", "minimum": 0},
+        "high": {"type": "number", "minimum": 0},
+        "low": {"type": "number", "minimum": 0},
+        "close": {"type": "number", "minimum": 0},
+        "volume": {"type": "number", "minimum": 0}
+      }
+    }
+  }
+}

@@ -1,0 +1,37 @@
+{
+  "schema_version": "crypto-eval.spec.v1",
+  "spec_version": "1.0.0",
+  "dataset_id": "crypto-eval-synthetic-fixture-v1",
+  "dataset_version": "1.0.0",
+  "universe": ["BTC", "ETH", "SOL"],
+  "sampling": {
+    "start": "2026-01-01T00:00:00Z",
+    "end": "2026-01-10T00:00:00Z",
+    "cadence": "one deterministic synthetic case per declared regime",
+    "include_all_eligible": true,
+    "no_cherry_picking": true,
+    "exclusion_rule_ids": ["fixture_input_unavailable"]
+  },
+  "coverage": {
+    "require_all_assets": true,
+    "minimum_cases_per_asset": 1,
+    "required_market_regimes": ["bull", "bear", "range"],
+    "minimum_cases_per_regime": 1
+  },
+  "walk_forward": {
+    "strategy": "expanding_chronological",
+    "train_fraction": 0.6,
+    "validation_fraction": 0.2,
+    "test_fraction": 0.2,
+    "shuffle": false
+  },
+  "baselines": {
+    "ema_fast": 20,
+    "ema_slow": 50,
+    "rsi_period": 14,
+    "rsi_long_below": 30,
+    "rsi_short_above": 70,
+    "random_seed": 1729
+  },
+  "fixture_only": true
+}

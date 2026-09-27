@@ -28,6 +28,13 @@ EXAMPLE_SCHEMAS = {
     ROOT / "examples" / "evidence-ledger.yaml": SCHEMA_DIR / "evidence-ledger.schema.json",
 }
 
+EVAL_JSON_EXAMPLES = {
+    ROOT / "eval" / "specs" / "crypto-market-v1.json": SCHEMA_DIR / "eval-spec.schema.json",
+    ROOT / "crypto_eval" / "fixtures" / "fixture-spec.json": SCHEMA_DIR / "eval-spec.schema.json",
+    ROOT / "crypto_eval" / "fixtures" / "candidates.json": SCHEMA_DIR / "eval-candidates.schema.json",
+    ROOT / "crypto_eval" / "fixtures" / "outcomes.json": SCHEMA_DIR / "eval-outcomes.schema.json",
+}
+
 REQUIRED_REFERENCES = [
     SKILL_DIR / "references" / "evidence-ledger.md",
     SKILL_DIR / "references" / "point-in-time.md",
@@ -345,6 +352,36 @@ def validate_examples(errors: list[str]) -> int:
     return validated
 
 
+def validate_eval_json_examples(errors: list[str]) -> int:
+    validated = 0
+    for example_path, schema_path in EVAL_JSON_EXAMPLES.items():
+        if not example_path.is_file():
+            fail(errors, f"missing evaluation example: {example_path.relative_to(ROOT)}")
+            continue
+        if not schema_path.is_file():
+            fail(errors, f"missing evaluation schema: {schema_path.relative_to(ROOT)}")
+            continue
+        try:
+            value = load_json(example_path)
+            schema = load_json(schema_path)
+            local_errors: list[str] = []
+            validate_schema(
+                value,
+                schema,
+                schema_path,
+                schema,
+                str(example_path.relative_to(ROOT)),
+                local_errors,
+            )
+            for error in local_errors:
+                fail(errors, error)
+            if not local_errors:
+                validated += 1
+        except ContractError as exc:
+            fail(errors, str(exc))
+    return validated
+
+
 def canonical_states(errors: list[str]) -> list[str]:
     path = SCHEMA_DIR / "decision-state.schema.json"
     if not path.is_file():
@@ -391,9 +428,32 @@ def validate_required_files(errors: list[str]) -> None:
         SKILL_DIR / "SKILL.md",
         SKILL_DIR / "agents" / "openai.yaml",
         ROOT / "scripts" / "validate_repo.py",
+        ROOT / "crypto_eval" / "__main__.py",
+        ROOT / "crypto_eval" / "cli.py",
+        ROOT / "crypto_eval" / "contracts.py",
+        ROOT / "crypto_eval" / "dataset.py",
+        ROOT / "crypto_eval" / "runner.py",
+        ROOT / "crypto_eval" / "providers.py",
+        ROOT / "crypto_eval" / "scoring.py",
+        ROOT / "crypto_eval" / "baselines.py",
+        ROOT / "crypto_eval" / "lifecycle.py",
+        ROOT / "crypto_eval" / "reporting.py",
+        ROOT / "crypto_eval" / "io.py",
+        ROOT / "docs" / "evaluation.md",
+        ROOT / "eval" / "specs" / "crypto-market-v1.json",
+        SCHEMA_DIR / "eval-spec.schema.json",
+        SCHEMA_DIR / "eval-candidates.schema.json",
+        SCHEMA_DIR / "eval-dataset.schema.json",
+        SCHEMA_DIR / "eval-prediction.schema.json",
+        SCHEMA_DIR / "eval-outcomes.schema.json",
+        SCHEMA_DIR / "eval-report.schema.json",
         SCHEMA_DIR / "decision-state.schema.json",
         ROOT / ".github" / "workflows" / "validate.yml",
         ROOT / "tests" / "test_contracts.py",
+        ROOT / "tests" / "test_eval_contracts.py",
+        ROOT / "tests" / "test_eval_scoring.py",
+        ROOT / "tests" / "test_eval_baselines_reports.py",
+        ROOT / "tests" / "eval_test_support.py",
         *REQUIRED_REFERENCES,
     ]
     for path in required_files:
@@ -448,6 +508,10 @@ def validate_readme_contract(errors: list[str]) -> None:
                 fail(errors, f"{readme_name} does not mention {example_name}")
         if "decision-state.schema.json" not in text:
             fail(errors, f"{readme_name} does not mention decision-state.schema.json")
+        if "Validation != Accuracy Evaluation" not in text:
+            fail(errors, f"{readme_name} does not distinguish validation from accuracy evaluation")
+        if "DEMO / HARNESS VALIDATION" not in text:
+            fail(errors, f"{readme_name} does not label deterministic fixture results")
 
 
 def validate_repository() -> tuple[list[str], int, list[str]]:
@@ -463,6 +527,7 @@ def validate_repository() -> tuple[list[str], int, list[str]]:
     states = canonical_states(errors)
     validate_state_contract(states, errors)
     examples_validated = validate_examples(errors)
+    validate_eval_json_examples(errors)
     validate_readme_contract(errors)
     return errors, examples_validated, states
 
@@ -479,6 +544,7 @@ def main() -> int:
     print(f"- skill: {(SKILL_DIR / 'SKILL.md').relative_to(ROOT)}")
     print(f"- schemas: {len(list(SCHEMA_DIR.glob('*.json')))} valid JSON files")
     print(f"- examples: {examples_validated}/{len(EXAMPLE_SCHEMAS)} validated against schemas")
+    print(f"- evaluation JSON examples: {len(EVAL_JSON_EXAMPLES)}/{len(EVAL_JSON_EXAMPLES)} validated")
     print(f"- canonical decision states: {len(states)}")
     print("- TradingAgents-inspired evidence, debate, point-in-time, memory, and concise-output sections present")
     return 0

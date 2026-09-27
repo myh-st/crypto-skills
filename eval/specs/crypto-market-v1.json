@@ -1,0 +1,65 @@
+{
+  "schema_version": "crypto-eval.spec.v1",
+  "spec_version": "1.0.0",
+  "dataset_id": "crypto-market-walk-forward-v1",
+  "dataset_version": "1.0.0",
+  "universe": ["BTC", "ETH", "SOL", "SUI", "SEI", "AVAX", "PYTH"],
+  "sampling": {
+    "start": "2020-01-01T00:00:00Z",
+    "end": "2026-09-01T00:00:00Z",
+    "cadence": "weekly, fixed UTC schedule declared before collection",
+    "cadence_seconds": 604800,
+    "instrument": "spot",
+    "horizon": "swing",
+    "include_all_eligible": true,
+    "no_cherry_picking": true,
+    "exclusion_policy": "Record every scheduled case exclusion with a machine-readable reason.",
+    "exclusion_rule_ids": [
+      "missing_point_in_time_candles",
+      "invalid_source_timestamp",
+      "unsupported_instrument",
+      "provider_outage",
+      "asset_not_listed_at_scheduled_time"
+    ]
+  },
+  "coverage": {
+    "require_all_assets": true,
+    "minimum_cases_per_asset": 30,
+    "required_market_regimes": ["bear", "range", "bull", "high_volatility"],
+    "minimum_cases_per_regime": 30
+  },
+  "walk_forward": {
+    "strategy": "expanding_chronological",
+    "train_fraction": 0.6,
+    "validation_fraction": 0.2,
+    "test_fraction": 0.2,
+    "shuffle": false,
+    "minimum_distinct_timestamps": 3
+  },
+  "baselines": {
+    "ema_fast": 20,
+    "ema_slow": 50,
+    "rsi_period": 14,
+    "rsi_long_below": 30,
+    "rsi_short_above": 70,
+    "random_seed": 1729
+  },
+  "point_in_time": {
+    "require_timezone_aware_timestamps": true,
+    "require_news_archive_availability_time": true,
+    "separate_outcomes": true,
+    "reject_post_cutoff_observations": true
+  },
+  "data_provider_policy": {
+    "read_only": true,
+    "credentials_required": false,
+    "live_api_required": false,
+    "missing_derivatives_news_and_on_chain_data": "mark unavailable; never fabricate or zero-fill"
+  },
+  "confidence_intervals": {
+    "binary_method": "wilson_95",
+    "mean_method": "normal_approximation_95_when_n_at_least_2",
+    "minimum_samples_for_confidence_ordering": 30
+  },
+  "fixture_only": false
+}

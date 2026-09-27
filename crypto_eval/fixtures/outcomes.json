@@ -1,0 +1,168 @@
+{
+  "schema_version": "crypto-eval.outcomes.v1",
+  "dataset_id": "crypto-eval-synthetic-fixture-v1",
+  "dataset_version": "1.0.0",
+  "dataset_hash": "d96e59558e70c6fcf3d94c218eb8be05f9eb7420391c6f8b95683ed322eeb98b",
+  "records": [
+    {
+      "source_case_key": "btc-20260101-0200",
+      "status": "complete",
+      "known_at": "2026-01-01T06:00:00Z",
+      "candles": [
+        {
+          "open_time": "2026-01-01T02:00:00Z",
+          "close_time": "2026-01-01T03:00:00Z",
+          "open": 100.0,
+          "high": 102.0,
+          "low": 99.5,
+          "close": 101.0,
+          "volume": 15
+        },
+        {
+          "open_time": "2026-01-01T03:00:00Z",
+          "close_time": "2026-01-01T04:00:00Z",
+          "open": 101.0,
+          "high": 103.0,
+          "low": 100.0,
+          "close": 102.0,
+          "volume": 14
+        },
+        {
+          "open_time": "2026-01-01T04:00:00Z",
+          "close_time": "2026-01-01T05:00:00Z",
+          "open": 102.0,
+          "high": 103.0,
+          "low": 100.5,
+          "close": 101.5,
+          "volume": 13
+        }
+      ]
+    },
+    {
+      "source_case_key": "eth-20260102-0200",
+      "status": "complete",
+      "known_at": "2026-01-02T06:00:00Z",
+      "candles": [
+        {
+          "open_time": "2026-01-02T02:00:00Z",
+          "close_time": "2026-01-02T03:00:00Z",
+          "open": 49.0,
+          "high": 49.3,
+          "low": 48.2,
+          "close": 48.5,
+          "volume": 15
+        },
+        {
+          "open_time": "2026-01-02T03:00:00Z",
+          "close_time": "2026-01-02T04:00:00Z",
+          "open": 48.5,
+          "high": 49.0,
+          "low": 47.2,
+          "close": 47.5,
+          "volume": 14
+        },
+        {
+          "open_time": "2026-01-02T04:00:00Z",
+          "close_time": "2026-01-02T05:00:00Z",
+          "open": 47.5,
+          "high": 48.1,
+          "low": 46.8,
+          "close": 47.0,
+          "volume": 13
+        }
+      ],
+      "benchmark_candles": [
+        {
+          "open_time": "2026-01-02T02:00:00Z",
+          "close_time": "2026-01-02T03:00:00Z",
+          "open": 100.0,
+          "high": 101.0,
+          "low": 99.5,
+          "close": 100.5,
+          "volume": 12
+        },
+        {
+          "open_time": "2026-01-02T03:00:00Z",
+          "close_time": "2026-01-02T04:00:00Z",
+          "open": 100.5,
+          "high": 102.0,
+          "low": 100.0,
+          "close": 101.5,
+          "volume": 12
+        },
+        {
+          "open_time": "2026-01-02T04:00:00Z",
+          "close_time": "2026-01-02T05:00:00Z",
+          "open": 101.5,
+          "high": 102.0,
+          "low": 100.5,
+          "close": 101.0,
+          "volume": 10
+        }
+      ]
+    },
+    {
+      "source_case_key": "sol-20260103-0200",
+      "status": "complete",
+      "known_at": "2026-01-03T06:00:00Z",
+      "candles": [
+        {
+          "open_time": "2026-01-03T02:00:00Z",
+          "close_time": "2026-01-03T03:00:00Z",
+          "open": 25.0,
+          "high": 25.4,
+          "low": 24.7,
+          "close": 24.8,
+          "volume": 15
+        },
+        {
+          "open_time": "2026-01-03T03:00:00Z",
+          "close_time": "2026-01-03T04:00:00Z",
+          "open": 24.8,
+          "high": 26.0,
+          "low": 24.6,
+          "close": 25.8,
+          "volume": 14
+        },
+        {
+          "open_time": "2026-01-03T04:00:00Z",
+          "close_time": "2026-01-03T05:00:00Z",
+          "open": 25.8,
+          "high": 26.2,
+          "low": 25.4,
+          "close": 25.9,
+          "volume": 13
+        }
+      ],
+      "benchmark_candles": [
+        {
+          "open_time": "2026-01-03T02:00:00Z",
+          "close_time": "2026-01-03T03:00:00Z",
+          "open": 101.0,
+          "high": 102.0,
+          "low": 100.5,
+          "close": 101.5,
+          "volume": 10
+        },
+        {
+          "open_time": "2026-01-03T03:00:00Z",
+          "close_time": "2026-01-03T04:00:00Z",
+          "open": 101.5,
+          "high": 103.0,
+          "low": 101.0,
+          "close": 102.5,
+          "volume": 11
+        },
+        {
+          "open_time": "2026-01-03T04:00:00Z",
+          "close_time": "2026-01-03T05:00:00Z",
+          "open": 102.5,
+          "high": 103.0,
+          "low": 102.0,
+          "close": 102.6,
+          "volume": 9
+        }
+      ]
+    }
+  ]
+}

@@ -1,0 +1,166 @@
+{
+  "schema_version": "crypto-eval.candidates.v1",
+  "source_id": "synthetic-fixture-candles-v1",
+  "data_origin": "synthetic_fixture",
+  "sampling_manifest": {
+    "scheduled_case_count": 3,
+    "included_case_count": 3,
+    "excluded_cases": []
+  },
+  "candidates": [
+    {
+      "source_case_key": "btc-20260101-0200",
+      "asset": "BTC",
+      "instrument": "spot",
+      "venue": "synthetic-fixture",
+      "horizon": "intraday",
+      "as_of": "2026-01-01T02:00:00Z",
+      "data_cutoff": "2026-01-01T02:00:00Z",
+      "bar_interval_seconds": 3600,
+      "horizon_bars": 3,
+      "market_regime": "bull",
+      "btc_regime": "bullish",
+      "leverage_stress": "unavailable",
+      "liquidity_tier": "fixture",
+      "benchmark_asset": null,
+      "snapshot": {
+        "candles": [
+          {
+            "open_time": "2026-01-01T00:00:00Z",
+            "close_time": "2026-01-01T01:00:00Z",
+            "open": 98.0,
+            "high": 100.0,
+            "low": 97.0,
+            "close": 99.0,
+            "volume": 10
+          },
+          {
+            "open_time": "2026-01-01T01:00:00Z",
+            "close_time": "2026-01-01T02:00:00Z",
+            "open": 99.0,
+            "high": 101.0,
+            "low": 98.0,
+            "close": 100.0,
+            "volume": 12
+          }
+        ]
+      }
+    },
+    {
+      "source_case_key": "eth-20260102-0200",
+      "asset": "ETH",
+      "instrument": "spot",
+      "venue": "synthetic-fixture",
+      "horizon": "intraday",
+      "as_of": "2026-01-02T02:00:00Z",
+      "data_cutoff": "2026-01-02T02:00:00Z",
+      "bar_interval_seconds": 3600,
+      "horizon_bars": 3,
+      "market_regime": "bear",
+      "btc_regime": "range",
+      "leverage_stress": "unavailable",
+      "liquidity_tier": "fixture",
+      "benchmark_asset": "BTC",
+      "snapshot": {
+        "candles": [
+          {
+            "open_time": "2026-01-02T00:00:00Z",
+            "close_time": "2026-01-02T01:00:00Z",
+            "open": 51.0,
+            "high": 52.0,
+            "low": 49.5,
+            "close": 50.0,
+            "volume": 10
+          },
+          {
+            "open_time": "2026-01-02T01:00:00Z",
+            "close_time": "2026-01-02T02:00:00Z",
+            "open": 50.0,
+            "high": 50.5,
+            "low": 48.5,
+            "close": 49.0,
+            "volume": 12
+          }
+        ],
+        "benchmark_candles": [
+          {
+            "open_time": "2026-01-02T00:00:00Z",
+            "close_time": "2026-01-02T01:00:00Z",
+            "open": 99.0,
+            "high": 100.0,
+            "low": 98.0,
+            "close": 99.5,
+            "volume": 10
+          },
+          {
+            "open_time": "2026-01-02T01:00:00Z",
+            "close_time": "2026-01-02T02:00:00Z",
+            "open": 99.5,
+            "high": 101.0,
+            "low": 99.0,
+            "close": 100.0,
+            "volume": 11
+          }
+        ]
+      }
+    },
+    {
+      "source_case_key": "sol-20260103-0200",
+      "asset": "SOL",
+      "instrument": "spot",
+      "venue": "synthetic-fixture",
+      "horizon": "intraday",
+      "as_of": "2026-01-03T02:00:00Z",
+      "data_cutoff": "2026-01-03T02:00:00Z",
+      "bar_interval_seconds": 3600,
+      "horizon_bars": 3,
+      "market_regime": "range",
+      "btc_regime": "bullish",
+      "leverage_stress": "unavailable",
+      "liquidity_tier": "fixture",
+      "benchmark_asset": "BTC",
+      "snapshot": {
+        "candles": [
+          {
+            "open_time": "2026-01-03T00:00:00Z",
+            "close_time": "2026-01-03T01:00:00Z",
+            "open": 24.0,
+            "high": 25.0,
+            "low": 23.5,
+            "close": 24.5,
+            "volume": 10
+          },
+          {
+            "open_time": "2026-01-03T01:00:00Z",
+            "close_time": "2026-01-03T02:00:00Z",
+            "open": 24.5,
+            "high": 25.5,
+            "low": 24.0,
+            "close": 25.0,
+            "volume": 12
+          }
+        ],
+        "benchmark_candles": [
+          {
+            "open_time": "2026-01-03T00:00:00Z",
+            "close_time": "2026-01-03T01:00:00Z",
+            "open": 99.0,
+            "high": 101.0,
+            "low": 98.0,
+            "close": 100.0,
+            "volume": 10
+          },
+          {
+            "open_time": "2026-01-03T01:00:00Z",
+            "close_time": "2026-01-03T02:00:00Z",
+            "open": 100.0,
+            "high": 101.5,
+            "low": 99.5,
+            "close": 101.0,
+            "volume": 11
+          }
+        ]
+      }
+    }
+  ]
+}

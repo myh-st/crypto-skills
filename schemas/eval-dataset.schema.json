@@ -1,0 +1,143 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://github.com/myh-st/crypto-skills/schemas/eval-dataset.schema.json",
+  "title": "Built Crypto Evaluation Dataset",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "schema_version",
+    "dataset_id",
+    "dataset_version",
+    "spec_version",
+    "spec_hash",
+    "source_id",
+    "data_origin",
+    "spec",
+    "coverage_summary",
+    "sampling_audit",
+    "cases",
+    "dataset_hash"
+  ],
+  "properties": {
+    "schema_version": {"type": "string", "enum": ["crypto-eval.dataset.v1"]},
+    "dataset_id": {"type": "string", "minLength": 1},
+    "dataset_version": {"type": "string", "minLength": 1},
+    "spec_version": {"type": "string", "minLength": 1},
+    "spec_hash": {"type": "string", "minLength": 1},
+    "source_id": {"type": "string", "minLength": 1},
+    "data_origin": {
+      "type": "string",
+      "enum": ["historical_archive", "forward_paper", "synthetic_fixture"]
+    },
+    "spec": {"$ref": "eval-spec.schema.json"},
+    "coverage_summary": {"type": "object"},
+    "sampling_audit": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["scheduled_case_count", "included_case_count", "excluded_cases"],
+      "properties": {
+        "scheduled_case_count": {"type": "integer", "minimum": 1},
+        "included_case_count": {"type": "integer", "minimum": 1},
+        "excluded_cases": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "additionalProperties": false,
+            "required": ["source_case_key", "asset", "scheduled_at", "reason", "rule_id"],
+            "properties": {
+              "source_case_key": {"type": "string", "minLength": 1},
+              "asset": {"type": "string", "minLength": 1},
+              "scheduled_at": {"type": "string", "format": "date-time"},
+              "reason": {"type": "string", "minLength": 1},
+              "rule_id": {"type": "string", "minLength": 1}
+            }
+          }
+        }
+      }
+    },
+    "cases": {
+      "type": "array",
+      "minItems": 1,
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "case_id",
+          "source_case_key",
+          "asset",
+          "instrument",
+          "venue",
+          "horizon",
+          "as_of",
+          "data_cutoff",
+          "bar_interval_seconds",
+          "horizon_bars",
+          "snapshot",
+          "data_availability",
+          "fold"
+        ],
+        "properties": {
+          "case_id": {"type": "string", "minLength": 1},
+          "source_case_key": {"type": "string", "minLength": 1},
+          "asset": {"type": "string", "minLength": 1},
+          "instrument": {"type": "string", "enum": ["spot", "perpetual", "futures", "options"]},
+          "venue": {"type": "string", "minLength": 1},
+          "horizon": {
+            "type": "string",
+            "enum": ["scalp", "intraday", "swing", "position", "long_term"]
+          },
+          "as_of": {"type": "string", "format": "date-time"},
+          "data_cutoff": {"type": "string", "format": "date-time"},
+          "bar_interval_seconds": {"type": "integer", "minimum": 1},
+          "horizon_bars": {"type": "integer", "minimum": 1},
+          "market_regime": {"type": ["string", "null"]},
+          "btc_regime": {"type": ["string", "null"]},
+          "leverage_stress": {"type": ["string", "null"]},
+          "liquidity_tier": {"type": ["string", "null"]},
+          "benchmark_asset": {"type": ["string", "null"]},
+          "snapshot": {
+            "type": "object",
+            "additionalProperties": true,
+            "required": ["candles"],
+            "properties": {
+              "candles": {
+                "type": "array",
+                "minItems": 1,
+                "items": {"$ref": "eval-candidates.schema.json#/$defs/candle"}
+              },
+              "benchmark_candles": {
+                "type": "array",
+                "items": {"$ref": "eval-candidates.schema.json#/$defs/candle"}
+              }
+            }
+          },
+          "data_availability": {
+            "type": "object",
+            "required": [
+              "candles",
+              "funding",
+              "open_interest",
+              "news",
+              "options",
+              "on_chain",
+              "macro",
+              "benchmark"
+            ],
+            "properties": {
+              "candles": {"type": "string", "enum": ["available", "partial"]},
+              "funding": {"type": "string", "enum": ["available", "partial", "stale", "unavailable", "not_covered"]},
+              "open_interest": {"type": "string", "enum": ["available", "partial", "stale", "unavailable", "not_covered"]},
+              "news": {"type": "string", "enum": ["available", "partial", "stale", "unavailable", "not_covered"]},
+              "options": {"type": "string", "enum": ["available", "partial", "stale", "unavailable", "not_covered"]},
+              "on_chain": {"type": "string", "enum": ["available", "partial", "stale", "unavailable", "not_covered"]},
+              "macro": {"type": "string", "enum": ["available", "partial", "stale", "unavailable", "not_covered"]},
+              "benchmark": {"type": "string", "enum": ["available", "partial", "stale", "unavailable", "not_covered"]}
+            }
+          },
+          "fold": {"type": "string", "enum": ["train", "validation", "test"]}
+        }
+      }
+    },
+    "dataset_hash": {"type": "string", "minLength": 1}
+  }
+}

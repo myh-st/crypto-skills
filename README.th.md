@@ -62,20 +62,25 @@ crypto-skills/
 ├── README.md                           # English
 ├── README.th.md                        # ภาษาไทย
 ├── docs/
-│   └── architecture.md                 # workflow และขอบเขตการทำงาน
+│   ├── architecture.md                 # workflow และขอบเขตการทำงาน
+│   └── evaluation.md                   # CLI, metric, ขอบเขตข้อมูล และ experiment
 ├── schemas/
 │   ├── analysis-output.schema.json     # สัญญา output ของ decision
 │   ├── decision-state.schema.json      # canonical final decision states
 │   ├── decision-record.schema.json     # สัญญา journal / outcome
-│   └── evidence-ledger.schema.json    # สัญญาของ fact ledger
+│   ├── evidence-ledger.schema.json     # สัญญาของ fact ledger
+│   └── eval-*.schema.json              # สัญญา evaluation spec / case / prediction / outcome
 ├── examples/
 │   ├── analysis-output.yaml
 │   ├── decision-record.yaml
 │   └── evidence-ledger.yaml
 ├── scripts/
 │   └── validate_repo.py                # ตรวจโครงสร้างโดยไม่พึ่ง dependency
+├── crypto_eval/                        # evaluation harness และ fixture CLI
+├── eval/
+│   └── specs/crypto-market-v1.json     # เป้าหมาย walk-forward หลายสินทรัพย์
 ├── tests/
-│   └── test_contracts.py                # regression tests ของ schema/example
+│   └── test_contracts.py               # regression tests ของ contract/evaluation
 ├── .github/workflows/
 │   └── validate.yml                     # gate สำหรับ PR/push
 └── skills/
@@ -225,7 +230,53 @@ uv run --with pyyaml python ~/.codex/skills/.system/skill-creator/scripts/quick_
 คำสั่งแรกตรวจ JSON/YAML examples เทียบกับ schema, enum canonical, references ที่จำเป็น
 และ section สำคัญของ workflow คำสั่งที่สองรัน regression tests ของ schema/fixture
 ส่วนคำสั่งที่สามตรวจ frontmatter, naming และ scaffold hygiene ของ Codex skill
-GitHub Actions จะรัน validator และ regression tests ทุก PR และทุก push ไป `main`
+GitHub Actions จะรัน deterministic synthetic evaluation pipeline เพิ่มเติมทุก PR
+และทุก push ไป `main` ซึ่งเป็นเพียงการตรวจ harness ไม่ใช่ข้อสรุปเรื่องความแม่นยำ
+
+## Evaluation harness
+
+### Validation != Accuracy Evaluation
+
+`scripts/validate_repo.py` และ unit tests ตรวจโครงสร้าง repository, schema และ
+พฤติกรรมที่ทำซ้ำได้เท่านั้น ไม่ได้พิสูจน์ว่า analysis skill แม่นยำ ทำกำไร
+หรือดีกว่า control
+
+รัน fixture pipeline แบบ offline ครบทุกขั้นตอน:
+
+```bash
+python3 -m crypto_eval demo --out-dir reports/crypto-eval-demo
+```
+
+คำสั่งนี้สร้าง dataset, freeze fixture predictions, ให้คะแนนจาก outcomes
+ที่แยกไฟล์, เปรียบเทียบ baseline และสร้างรายงาน JSON/Markdown รายงานต้องระบุว่า
+**DEMO / HARNESS VALIDATION — NOT MARKET PERFORMANCE EVIDENCE** เพราะ fixture
+runner ไม่ได้เรียกใช้ analysis skill หรือ model จริง อ่าน
+[`docs/evaluation.md`](docs/evaluation.md) สำหรับ CLI แยกแต่ละขั้นตอน,
+data contract, denominator ของ metric และวิธีต่อยอด
+
+`eval/specs/crypto-market-v1.json` ระบุเป้าหมาย dataset แบบ chronological
+ไม่ shuffle ครอบคลุม BTC, ETH, SOL, SUI, SEI, AVAX และ PYTH ใน regime
+bull, bear, range และ high volatility ทุก case ต้องมี `as_of`, `data_cutoff`,
+`asset`, `instrument`, `venue` และ `horizon` ชัดเจน snapshot ย้อนหลังจะปฏิเสธ
+ข้อมูลอนาคต และข่าวต้องมีเวลา archive ที่ตรวจสอบได้ predictions ถูก freeze
+ใน append-only log และ outcomes เก็บแยกกัน sampling manifest ต้องนับ case
+ที่กำหนดไว้/included/excluded ให้ครบ พร้อมเหตุผลและ exclusion rule ที่ประกาศไว้
+การรอ pullback/breakout ที่ไม่เคย trigger จะไม่ถูกนับเป็น entry ที่ล้มเหลว
+
+รายงานประกอบด้วย directional/trigger-aware metrics, BTC benchmark return/alpha
+เมื่อมีข้อมูล, MFE/MAE, เวลาถึง trigger/target, จำนวนตัวอย่างและช่วงความเชื่อมั่น
+พร้อม baseline แบบ fixed ได้แก่ Buy & Hold, BTC, EMA20/EMA50, RSI14, naive
+และ seeded random ข้อมูลที่ขาดต้องแสดง unavailable ไม่เติมศูนย์ ค่า drawdown
+เป็น proxy จากลำดับผลการตัดสินใจแบบน้ำหนักเท่ากัน ไม่ใช่ portfolio PnL
+เพราะยังไม่จำลอง sizing, cash, fills, fees, slippage หรือ funding
+
+มีเพียง interface สำหรับต่อ model runner และ read-only data provider เท่านั้น
+ไม่มี live market adapter, credential, paid API หรือการเรียก model จริง
+ผลย้อนหลังมีความหมายเมื่อ prediction ถูก freeze ก่อนรู้ outcome เท่านั้น
+มิฉะนั้นควรใช้ forward paper evaluation การอ้างว่า skill ดีกว่า control
+ต้องมี predictions ที่ archive จาก model/config เดียวกัน ใช้ out-of-sample
+ตามเวลาและ case เดียวกัน พร้อมจำนวนตัวอย่างเพียงพอ harness เปรียบเทียบ
+paired run เหล่านั้นได้ แต่สร้างผลจาก model ให้เองไม่ได้
 
 ## แนวทาง contribution
 

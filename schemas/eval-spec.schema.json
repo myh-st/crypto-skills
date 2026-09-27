@@ -1,0 +1,112 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://github.com/myh-st/crypto-skills/schemas/eval-spec.schema.json",
+  "title": "Crypto Evaluation Dataset Specification",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "schema_version",
+    "spec_version",
+    "dataset_id",
+    "dataset_version",
+    "universe",
+    "sampling",
+    "coverage",
+    "walk_forward",
+    "baselines"
+  ],
+  "properties": {
+    "schema_version": {"type": "string", "enum": ["crypto-eval.spec.v1"]},
+    "spec_version": {"type": "string", "minLength": 1},
+    "dataset_id": {"type": "string", "minLength": 1},
+    "dataset_version": {"type": "string", "minLength": 1},
+    "universe": {
+      "type": "array",
+      "minItems": 1,
+      "items": {"type": "string", "minLength": 1}
+    },
+    "sampling": {
+      "type": "object",
+      "additionalProperties": true,
+      "required": [
+        "start",
+        "end",
+        "cadence",
+        "include_all_eligible",
+        "no_cherry_picking",
+        "exclusion_rule_ids"
+      ],
+      "properties": {
+        "start": {"type": "string", "format": "date-time"},
+        "end": {"type": "string", "format": "date-time"},
+        "cadence": {"type": "string", "minLength": 1},
+        "cadence_seconds": {"type": "integer", "minimum": 1},
+        "instrument": {"type": "string", "enum": ["spot", "perpetual", "futures", "options"]},
+        "horizon": {
+          "type": "string",
+          "enum": ["scalp", "intraday", "swing", "position", "long_term"]
+        },
+        "include_all_eligible": {"type": "boolean"},
+        "no_cherry_picking": {"type": "boolean"},
+        "exclusion_rule_ids": {
+          "type": "array",
+          "minItems": 1,
+          "items": {"type": "string", "minLength": 1}
+        }
+      }
+    },
+    "coverage": {
+      "type": "object",
+      "additionalProperties": true,
+      "required": ["require_all_assets", "minimum_cases_per_asset"],
+      "properties": {
+        "require_all_assets": {"type": "boolean"},
+        "minimum_cases_per_asset": {"type": "integer", "minimum": 0},
+        "required_market_regimes": {"type": "array", "items": {"type": "string"}},
+        "minimum_cases_per_regime": {"type": "integer", "minimum": 0}
+      }
+    },
+    "walk_forward": {
+      "type": "object",
+      "additionalProperties": true,
+      "required": [
+        "strategy",
+        "train_fraction",
+        "validation_fraction",
+        "test_fraction",
+        "shuffle"
+      ],
+      "properties": {
+        "strategy": {"type": "string", "enum": ["expanding_chronological"]},
+        "train_fraction": {"type": "number", "minimum": 0},
+        "validation_fraction": {"type": "number", "minimum": 0},
+        "test_fraction": {"type": "number", "minimum": 0},
+        "shuffle": {"type": "boolean"}
+      }
+    },
+    "baselines": {
+      "type": "object",
+      "additionalProperties": true,
+      "required": [
+        "ema_fast",
+        "ema_slow",
+        "rsi_period",
+        "rsi_long_below",
+        "rsi_short_above",
+        "random_seed"
+      ],
+      "properties": {
+        "ema_fast": {"type": "integer", "enum": [20]},
+        "ema_slow": {"type": "integer", "enum": [50]},
+        "rsi_period": {"type": "integer", "enum": [14]},
+        "rsi_long_below": {"type": "integer", "enum": [30]},
+        "rsi_short_above": {"type": "integer", "enum": [70]},
+        "random_seed": {"type": "integer", "minimum": 0}
+      }
+    },
+    "point_in_time": {"type": "object"},
+    "data_provider_policy": {"type": "object"},
+    "confidence_intervals": {"type": "object"},
+    "fixture_only": {"type": "boolean"}
+  }
+}

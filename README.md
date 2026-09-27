@@ -62,20 +62,25 @@ crypto-skills/
 ├── README.md                           # English
 ├── README.th.md                        # ภาษาไทย
 ├── docs/
-│   └── architecture.md                 # workflow and implementation boundaries
+│   ├── architecture.md                 # workflow and implementation boundaries
+│   └── evaluation.md                   # harness CLI, metrics, data limits, and experiments
 ├── schemas/
 │   ├── analysis-output.schema.json     # final decision contract
 │   ├── decision-state.schema.json      # canonical final decision states
 │   ├── decision-record.schema.json     # journal / outcome contract
-│   └── evidence-ledger.schema.json    # fact ledger contract
+│   ├── evidence-ledger.schema.json     # fact ledger contract
+│   └── eval-*.schema.json              # evaluation spec / case / prediction / outcome contracts
 ├── examples/
 │   ├── analysis-output.yaml
 │   ├── decision-record.yaml
 │   └── evidence-ledger.yaml
 ├── scripts/
 │   └── validate_repo.py                # dependency-free structural checks
+├── crypto_eval/                        # point-in-time evaluation harness + fixture CLI
+├── eval/
+│   └── specs/crypto-market-v1.json     # versioned multi-asset walk-forward target
 ├── tests/
-│   └── test_contracts.py                # schema/example regression tests
+│   └── test_contracts.py               # contract and evaluation regression tests
 ├── .github/workflows/
 │   └── validate.yml                     # PR/push contract gate
 └── skills/
@@ -231,8 +236,54 @@ The first command checks JSON/YAML examples against their schemas, canonical enu
 consistency, required references, and required TradingAgents-inspired sections.
 The second runs the schema/fixture regression tests. The third checks Codex skill
 frontmatter, naming, and scaffold hygiene.
-GitHub Actions runs the repository validator and regression tests on every PR and
-push to `main`.
+GitHub Actions also runs the deterministic synthetic evaluation pipeline on
+every PR and push to `main`; it is a harness check, not an accuracy claim.
+
+## Evaluation harness
+
+### Validation != Accuracy Evaluation
+
+`scripts/validate_repo.py` and the unit tests check repository structure, schemas,
+and deterministic behavior. They do **not** establish that the analysis skill is
+accurate, profitable, or better than a control.
+
+Run the complete, offline fixture pipeline:
+
+```bash
+python3 -m crypto_eval demo --out-dir reports/crypto-eval-demo
+```
+
+It builds a dataset, freezes fixture predictions, scores separate outcomes,
+compares fixed baselines, and writes JSON/Markdown reports. The generated report
+must be read as **DEMO / HARNESS VALIDATION — NOT MARKET PERFORMANCE EVIDENCE**.
+The fixture runner does not invoke the analysis skill or any model. Use
+[`docs/evaluation.md`](docs/evaluation.md) for individual CLI commands, dataset
+contracts, metric denominators, and extension examples.
+
+The versioned `eval/specs/crypto-market-v1.json` defines a chronological,
+no-shuffle dataset target for BTC, ETH, SOL, SUI, SEI, AVAX, and PYTH across bull,
+bear, range, and high-volatility regimes. Each case requires explicit
+`as_of`, `data_cutoff`, `asset`, `instrument`, `venue`, and `horizon`.
+Historical snapshots reject future observations; news requires a point-in-time
+archive timestamp. A sampling manifest reconciles scheduled, included, and
+excluded cases with declared exclusion rules. Predictions are frozen in an
+append-only log, outcomes are stored separately, and a wait whose trigger never
+occurs is not scored as a failed entry.
+
+Reports include directional and trigger-aware decision metrics, BTC benchmark
+return/alpha when available, MFE/MAE, time-to-trigger/target, sample counts and
+intervals, plus fixed Buy & Hold, BTC, EMA20/EMA50, RSI14, naive, and seeded
+random comparators. Missing data stays unavailable. The drawdown result is an
+equal-weight decision-sequence proxy—not portfolio PnL; sizing, cash, fills,
+fees, slippage, and funding are not modeled.
+
+Model and read-only data-provider interfaces are pluggable, but no live market
+adapter, credentials, paid API, or model invocation is included. Historical
+model predictions are meaningful only when they were frozen before the outcome
+window was known; otherwise use forward paper evaluation. A skill-vs-control
+claim requires archived, same-model, same-configuration predictions on the
+same chronological out-of-sample cases and sufficient samples. The harness can
+compare such paired runs, but it cannot manufacture them.
 
 ## Contributing
 
