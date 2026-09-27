@@ -240,9 +240,11 @@ def resolve_pointer(document: Any, pointer: str) -> Any:
     return value
 
 
-def resolve_ref(ref: str, schema_path: Path, root_schema: Any) -> tuple[Any, Path]:
+def resolve_ref(
+    ref: str, schema_path: Path, root_schema: Any
+) -> tuple[Any, Path, Any]:
     if ref.startswith("#"):
-        return resolve_pointer(root_schema, ref), schema_path
+        return resolve_pointer(root_schema, ref), schema_path, root_schema
     if "#" in ref:
         target, fragment = ref.split("#", 1)
     else:
@@ -253,7 +255,11 @@ def resolve_ref(ref: str, schema_path: Path, root_schema: Any) -> tuple[Any, Pat
             f"schema reference {ref!r} from {schema_path.relative_to(ROOT)} does not exist"
         )
     target_document = load_json(target_path)
-    return resolve_pointer(target_document, f"#{fragment}" if fragment else ""), target_path
+    return (
+        resolve_pointer(target_document, f"#{fragment}" if fragment else ""),
+        target_path,
+        target_document,
+    )
 
 
 def type_matches(value: Any, expected: str) -> bool:
@@ -278,11 +284,13 @@ def validate_schema(
 ) -> None:
     if "$ref" in schema:
         try:
-            target, target_path = resolve_ref(schema["$ref"], schema_path, root_schema)
+            target, target_path, target_root = resolve_ref(
+                schema["$ref"], schema_path, root_schema
+            )
         except (ContractError, KeyError, IndexError) as exc:
             errors.append(f"{location}: {exc}")
             return
-        validate_schema(value, target, target_path, target, location, errors)
+        validate_schema(value, target, target_path, target_root, location, errors)
         return
 
     expected = schema.get("type")

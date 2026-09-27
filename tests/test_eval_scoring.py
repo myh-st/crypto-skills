@@ -83,6 +83,120 @@ class TriggerAwareScoringTests(unittest.TestCase):
         self.assertLess(row["mae"], 0)
         self.assertGreater(row["entry_return"], 0)
 
+    def test_wait_excursions_exclude_bars_before_the_actual_trigger(self) -> None:
+        case = case_for_asset(self.dataset, "SOL")
+        outcomes = deepcopy(self.outcomes)
+        outcome = outcome_for_asset(self.dataset, outcomes, "SOL")
+        outcome["candles"] = [
+            {
+                "open_time": "2026-01-03T02:00:00Z",
+                "close_time": "2026-01-03T03:00:00Z",
+                "open": 100.0,
+                "high": 200.0,
+                "low": 50.0,
+                "close": 99.0,
+                "volume": 15,
+            },
+            {
+                "open_time": "2026-01-03T03:00:00Z",
+                "close_time": "2026-01-03T04:00:00Z",
+                "open": 99.0,
+                "high": 102.0,
+                "low": 98.0,
+                "close": 100.0,
+                "volume": 14,
+            },
+            {
+                "open_time": "2026-01-03T04:00:00Z",
+                "close_time": "2026-01-03T05:00:00Z",
+                "open": 100.0,
+                "high": 105.0,
+                "low": 99.0,
+                "close": 104.0,
+                "volume": 13,
+            },
+        ]
+        predictions = self._predictions(
+            case["case_id"],
+            breakout_decision(
+                direction="long",
+                level=100,
+                stop=90,
+                targets=[150],
+            ),
+        )
+
+        row = self._row(predictions, case["case_id"], outcomes)
+
+        self.assertEqual(row["trigger"]["status"], "triggered")
+        self.assertEqual(row["trigger"]["bars_to_trigger"], 2)
+        self.assertAlmostEqual(row["mfe"], 0.05)
+        self.assertAlmostEqual(row["mae"], -0.01)
+        self.assertEqual(row["path"]["status"], "no_event")
+        self.assertFalse(row["path"]["invalidation_hit"])
+        self.assertFalse(row["path"]["target_hit"])
+
+    def test_pullback_wait_excursions_exclude_bars_before_the_actual_trigger(self) -> None:
+        case = case_for_asset(self.dataset, "SOL")
+        outcomes = deepcopy(self.outcomes)
+        outcome = outcome_for_asset(self.dataset, outcomes, "SOL")
+        outcome["candles"] = [
+            {
+                "open_time": "2026-01-03T02:00:00Z",
+                "close_time": "2026-01-03T03:00:00Z",
+                "open": 102.0,
+                "high": 200.0,
+                "low": 50.0,
+                "close": 102.0,
+                "volume": 15,
+            },
+            {
+                "open_time": "2026-01-03T03:00:00Z",
+                "close_time": "2026-01-03T04:00:00Z",
+                "open": 100.0,
+                "high": 102.0,
+                "low": 99.0,
+                "close": 100.0,
+                "volume": 14,
+            },
+            {
+                "open_time": "2026-01-03T04:00:00Z",
+                "close_time": "2026-01-03T05:00:00Z",
+                "open": 100.0,
+                "high": 100 / 0.99,
+                "low": 100 / 1.05,
+                "close": 96.0,
+                "volume": 13,
+            },
+        ]
+        decision = {
+            "decision_state": "WAIT_FOR_PULLBACK",
+            "bias": "bearish",
+            "confidence": "moderate",
+            "entry": {
+                "kind": "pullback",
+                "direction": "short",
+                "zone_low": 99.0,
+                "zone_high": 101.0,
+                "confirmation": "touch",
+            },
+            "invalidation": 110.0,
+            "targets": [90.0],
+            "leverage_stress": "elevated",
+            "rationale": "test fixture",
+        }
+        predictions = self._predictions(case["case_id"], decision)
+
+        row = self._row(predictions, case["case_id"], outcomes)
+
+        self.assertEqual(row["trigger"]["status"], "triggered")
+        self.assertEqual(row["trigger"]["bars_to_trigger"], 2)
+        self.assertAlmostEqual(row["mfe"], 0.05)
+        self.assertAlmostEqual(row["mae"], -0.01)
+        self.assertEqual(row["path"]["status"], "no_event")
+        self.assertFalse(row["path"]["invalidation_hit"])
+        self.assertFalse(row["path"]["target_hit"])
+
     def test_breakout_wait_uses_close_confirmation_and_short_side(self) -> None:
         case = case_for_asset(self.dataset, "ETH")
         predictions = self._predictions(

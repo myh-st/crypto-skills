@@ -95,24 +95,10 @@
           "leverage_stress": {"type": ["string", "null"]},
           "liquidity_tier": {"type": ["string", "null"]},
           "benchmark_asset": {"type": ["string", "null"]},
-          "snapshot": {
-            "type": "object",
-            "additionalProperties": true,
-            "required": ["candles"],
-            "properties": {
-              "candles": {
-                "type": "array",
-                "minItems": 1,
-                "items": {"$ref": "eval-candidates.schema.json#/$defs/candle"}
-              },
-              "benchmark_candles": {
-                "type": "array",
-                "items": {"$ref": "eval-candidates.schema.json#/$defs/candle"}
-              }
-            }
-          },
+          "snapshot": {"$ref": "eval-candidates.schema.json#/$defs/snapshot"},
           "data_availability": {
             "type": "object",
+            "additionalProperties": false,
             "required": [
               "candles",
               "funding",

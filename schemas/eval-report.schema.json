@@ -27,7 +27,26 @@
     "evidence_disclaimer": {"type": "string", "minLength": 1},
     "accuracy_claim": {"type": "string", "enum": ["none"]},
     "portfolio_pnl_claim": {"type": "string", "enum": ["none"]},
-    "dataset": {"type": "object"},
+    "dataset": {
+      "type": "object",
+      "required": [
+        "dataset_id",
+        "dataset_version",
+        "dataset_hash",
+        "data_origin",
+        "fold_scope"
+      ],
+      "properties": {
+        "dataset_id": {"type": "string", "minLength": 1},
+        "dataset_version": {"type": "string", "minLength": 1},
+        "dataset_hash": {"type": "string", "minLength": 1},
+        "data_origin": {
+          "type": "string",
+          "enum": ["historical_archive", "forward_paper", "synthetic_fixture", "unknown"]
+        },
+        "fold_scope": {"type": "string", "enum": ["train", "validation", "test", "all"]}
+      }
+    },
     "outcomes_hash": {"type": "string", "minLength": 1},
     "sampling_audit": {"type": "object"},
     "runner": {"type": ["object", "null"]},
@@ -35,7 +54,44 @@
     "metrics": {"type": "object"},
     "metrics_by_fold": {"type": "object"},
     "breakdowns": {"type": "object"},
-    "baseline_comparison": {"type": "object"},
-    "sample_counts": {"type": "object"}
+    "baseline_comparison": {
+      "type": "object",
+      "required": [
+        "fold_scope",
+        "interpretation",
+        "parameters",
+        "model_runner",
+        "metrics",
+        "paired_comparisons"
+      ],
+      "properties": {
+        "fold_scope": {"type": "string", "enum": ["train", "validation", "test", "all"]},
+        "interpretation": {"type": "string", "minLength": 1},
+        "parameters": {"type": "object"},
+        "model_runner": {"type": ["object", "null"]},
+        "metrics": {"type": "object"},
+        "paired_comparisons": {"type": "object"}
+      }
+    },
+    "sample_counts": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "fold_scope",
+        "dataset_case_count",
+        "fold_case_count",
+        "prediction_case_count",
+        "scored_case_count",
+        "complete_forward_return_count"
+      ],
+      "properties": {
+        "fold_scope": {"type": "string", "enum": ["train", "validation", "test", "all"]},
+        "dataset_case_count": {"type": "integer", "minimum": 0},
+        "fold_case_count": {"type": "integer", "minimum": 0},
+        "prediction_case_count": {"type": "integer", "minimum": 0},
+        "scored_case_count": {"type": "integer", "minimum": 0},
+        "complete_forward_return_count": {"type": "integer", "minimum": 0}
+      }
+    }
   }
 }

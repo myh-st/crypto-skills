@@ -61,6 +61,9 @@ Inputs and outputs are versioned JSON/JSONL contracts under `schemas/`.
    cadence/window at the declared spot/swing horizon must appear exactly once
    as included or excluded. The audit is retained in the dataset and report.
    Production minimum coverage is intentionally stricter than the fixture spec.
+   Snapshot, candle, observation, news, and availability objects use an
+   explicit allowlist; unknown fields at any supported nesting level are
+   rejected instead of being forwarded opaquely to a prediction runner.
 
 2. **Freeze fixture predictions** (or implement the Python
    `PredictionRunner` protocol for an external model):
@@ -128,7 +131,10 @@ Inputs and outputs are versioned JSON/JSONL contracts under `schemas/`.
 
    The report includes fold/sample counts, data origin, runner invocation
    status, unavailable-data notes, baseline results, and limitations. It
-   distinguishes fixture mechanics from any archived real evaluation.
+   distinguishes fixture mechanics from any archived real evaluation. Score
+   and baseline fold scopes and case sets must match; report generation rejects
+   mismatches. Counts distinguish the full dataset from cases, predictions,
+   scored outcomes, and complete returns in the selected fold.
 
 6. **Project the forward paper-evaluation lifecycle**:
 
@@ -149,6 +155,10 @@ Inputs and outputs are versioned JSON/JSONL contracts under `schemas/`.
 - Case snapshots are input-only. All timestamps must include a timezone, and
   all observation/publication/availability times and candle closes must be no
   later than `data_cutoff`; `data_cutoff` cannot exceed `as_of`.
+- Snapshot objects accept only the documented candle, benchmark,
+  timestamped-observation, archived-news, and data-availability fields.
+  Unknown snapshot or nested fields—including unlabeled, timestamped, or
+  vendor-specific fields—are rejected before a case can reach a runner.
 - Candle prices must be finite, positive, internally consistent OHLC values.
   Funding, OI, derivative, options, macro, and benchmark observation arrays
   require observation timestamps.
@@ -195,6 +205,10 @@ Path scoring rules:
 - A breakout/pullback trigger candle's target-only excursion is not credited;
   candle-close OHLC cannot prove whether the target traded after entry. A stop
   touched in that candle is treated conservatively.
+- For a triggered wait, all bars before the trigger are excluded from MFE/MAE
+  and path-event scoring. The trigger candle contributes only its close to
+  MFE/MAE; its ambiguous earlier intrabar extremes are not attributed to the
+  position.
 - Trigger/target times are candle-resolution observations, not exact intrabar
   timestamps.
 

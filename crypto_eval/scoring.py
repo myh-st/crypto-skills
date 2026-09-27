@@ -393,6 +393,8 @@ def _excursions(
     favorable: list[float] = []
     adverse: list[float] = []
     for index, bar in enumerate(bars):
+        if trigger_index >= 0 and index < trigger_index:
+            continue
         if trigger_index >= 0 and index == trigger_index:
             high = low = float(bar["close"])
         else:

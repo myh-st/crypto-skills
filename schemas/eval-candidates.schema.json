@@ -78,30 +78,113 @@
           "leverage_stress": {"type": ["string", "null"]},
           "liquidity_tier": {"type": ["string", "null"]},
           "benchmark_asset": {"type": ["string", "null"]},
-          "snapshot": {
-            "type": "object",
-            "additionalProperties": true,
-            "required": ["candles"],
-            "properties": {
-              "candles": {
-                "type": "array",
-                "minItems": 1,
-                "items": {"$ref": "#/$defs/candle"}
-              },
-              "benchmark_candles": {
-                "type": "array",
-                "items": {"$ref": "#/$defs/candle"}
-              }
-            }
-          }
+          "snapshot": {"$ref": "#/$defs/snapshot"}
         }
       }
     }
   },
   "$defs": {
+    "snapshot": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["candles"],
+      "properties": {
+        "candles": {
+          "type": "array",
+          "minItems": 1,
+          "items": {"$ref": "#/$defs/candle"}
+        },
+        "benchmark_candles": {
+          "type": "array",
+          "items": {"$ref": "#/$defs/candle"}
+        },
+        "funding": {"$ref": "#/$defs/observations"},
+        "open_interest": {"$ref": "#/$defs/observations"},
+        "oi": {"$ref": "#/$defs/observations"},
+        "derivatives": {"$ref": "#/$defs/observations"},
+        "options": {"$ref": "#/$defs/observations"},
+        "on_chain": {"$ref": "#/$defs/observations"},
+        "macro": {"$ref": "#/$defs/observations"},
+        "benchmarks": {"$ref": "#/$defs/observations"},
+        "news": {"$ref": "#/$defs/news_items"},
+        "headlines": {"$ref": "#/$defs/news_items"},
+        "articles": {"$ref": "#/$defs/news_items"},
+        "data_availability": {"$ref": "#/$defs/data_availability"}
+      }
+    },
+    "observations": {
+      "type": "array",
+      "items": {"$ref": "#/$defs/observation"}
+    },
+    "observation": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["observed_at"],
+      "properties": {
+        "observed_at": {"type": "string", "format": "date-time"},
+        "value": {"type": "number"},
+        "rate": {"type": "number"},
+        "funding_rate": {"type": "number"},
+        "open_interest": {"type": "number"},
+        "price": {"type": "number"},
+        "volume": {"type": "number"},
+        "notional": {"type": "number"},
+        "quantity": {"type": "number"},
+        "ratio": {"type": "number"},
+        "long_short_ratio": {"type": "number"},
+        "implied_volatility": {"type": "number"},
+        "delta": {"type": "number"},
+        "gamma": {"type": "number"},
+        "theta": {"type": "number"},
+        "vega": {"type": "number"},
+        "bid": {"type": "number"},
+        "ask": {"type": "number"},
+        "asset": {"type": "string", "minLength": 1},
+        "symbol": {"type": "string", "minLength": 1},
+        "instrument": {"type": "string", "minLength": 1},
+        "venue": {"type": "string", "minLength": 1},
+        "unit": {"type": "string", "minLength": 1},
+        "period": {"type": "string", "minLength": 1},
+        "source": {"type": "string", "minLength": 1}
+      }
+    },
+    "news_items": {
+      "type": "array",
+      "items": {"$ref": "#/$defs/news_item"}
+    },
+    "news_item": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["published_at", "available_at", "archive_id"],
+      "properties": {
+        "published_at": {"type": "string", "format": "date-time"},
+        "available_at": {"type": "string", "format": "date-time"},
+        "archive_id": {"type": "string", "minLength": 1},
+        "title": {"type": "string", "minLength": 1},
+        "url": {"type": "string", "minLength": 1},
+        "source": {"type": "string", "minLength": 1},
+        "language": {"type": "string", "minLength": 1},
+        "summary": {"type": "string", "minLength": 1},
+        "author": {"type": "string", "minLength": 1}
+      }
+    },
+    "data_availability": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "candles": {"type": "string", "enum": ["available", "partial"]},
+        "funding": {"type": "string", "enum": ["available", "partial", "stale", "unavailable", "not_covered"]},
+        "open_interest": {"type": "string", "enum": ["available", "partial", "stale", "unavailable", "not_covered"]},
+        "news": {"type": "string", "enum": ["available", "partial", "stale", "unavailable", "not_covered"]},
+        "options": {"type": "string", "enum": ["available", "partial", "stale", "unavailable", "not_covered"]},
+        "on_chain": {"type": "string", "enum": ["available", "partial", "stale", "unavailable", "not_covered"]},
+        "macro": {"type": "string", "enum": ["available", "partial", "stale", "unavailable", "not_covered"]},
+        "benchmark": {"type": "string", "enum": ["available", "partial", "stale", "unavailable", "not_covered"]}
+      }
+    },
     "candle": {
       "type": "object",
-      "additionalProperties": true,
+      "additionalProperties": false,
       "required": ["open_time", "close_time", "open", "high", "low", "close", "volume"],
       "properties": {
         "open_time": {"type": "string", "format": "date-time"},

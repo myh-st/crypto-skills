@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+from copy import deepcopy
 import unittest
 
 from crypto_eval.baselines import (
@@ -12,7 +13,7 @@ from crypto_eval.contracts import EvaluationError, iso_utc
 from crypto_eval.lifecycle import project_lifecycle, summarize_lifecycle
 from crypto_eval.reporting import build_report, render_markdown
 from crypto_eval.runner import FixtureRunner, run_predictions
-from crypto_eval.scoring import binary_summary, paired_difference
+from crypto_eval.scoring import binary_summary, paired_difference, score_predictions
 from eval_test_support import (
     StaticRunner,
     case_for_asset,
@@ -197,6 +198,54 @@ class BaselineAndReportTests(unittest.TestCase):
         self.assertEqual(report["accuracy_claim"], "none")
         self.assertEqual(report["portfolio_pnl_claim"], "none")
         self.assertIn("not probabilities", str(report["metrics"]["confidence_reliability"]))
+
+    def test_report_requires_matching_fold_and_case_scopes(self) -> None:
+        predictions = run_predictions(self.dataset, FixtureRunner())
+        scores = score_predictions(self.dataset, predictions, self.outcomes, fold="test")
+        all_baselines = compare_baselines(
+            self.dataset,
+            self.outcomes,
+            predictions=predictions,
+            fold="all",
+        )
+        with self.assertRaisesRegex(EvaluationError, "fold_scope"):
+            build_report(scores, all_baselines)
+
+        test_baselines = compare_baselines(
+            self.dataset,
+            self.outcomes,
+            predictions=predictions,
+            fold="test",
+        )
+        report = build_report(scores, test_baselines)
+        self.assertEqual(report["dataset"]["fold_scope"], "test")
+        self.assertEqual(report["baseline_comparison"]["fold_scope"], "test")
+        self.assertEqual(
+            report["sample_counts"],
+            {
+                "fold_scope": "test",
+                "dataset_case_count": 3,
+                "fold_case_count": 1,
+                "prediction_case_count": 1,
+                "scored_case_count": 1,
+                "complete_forward_return_count": 1,
+            },
+        )
+        markdown = render_markdown(report)
+        self.assertIn(
+            "fold cases=1, frozen predictions=1, scored outcomes=1", markdown
+        )
+        self.assertIn("dataset cases=3", markdown)
+
+        wrong_fold = deepcopy(test_baselines)
+        wrong_fold["cases"][BASELINE_NAMES[0]][0]["fold"] = "train"
+        with self.assertRaisesRegex(EvaluationError, "fold"):
+            build_report(scores, wrong_fold)
+
+        wrong_case = deepcopy(test_baselines)
+        wrong_case["cases"][BASELINE_NAMES[0]][0]["case_id"] = "not-the-test-case"
+        with self.assertRaisesRegex(EvaluationError, "absent from scores"):
+            build_report(scores, wrong_case)
 
     def test_lifecycle_projects_pending_waiting_ready_and_scored_states(self) -> None:
         predictions = run_predictions(self.dataset, FixtureRunner())

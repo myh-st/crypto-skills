@@ -202,6 +202,74 @@ class EvaluationContractTests(unittest.TestCase):
                 with self.assertRaisesRegex(EvaluationError, "outcome/label data"):
                     build_dataset(bundle, spec)
 
+    def test_unknown_snapshot_fields_and_nested_payloads_fail_closed(self) -> None:
+        mutations = (
+            (
+                "unknown future label",
+                lambda snapshot: snapshot.update(future_label="bullish"),
+            ),
+            (
+                "unknown timestamped future field",
+                lambda snapshot: snapshot.update(
+                    future_label_at="2026-01-02T00:00:00Z"
+                ),
+            ),
+            (
+                "opaque nested payload",
+                lambda snapshot: snapshot.update(
+                    vendor_payload={"labels": {"future_label": "bullish"}}
+                ),
+            ),
+            (
+                "nested observation label",
+                lambda snapshot: snapshot.update(
+                    funding=[
+                        {
+                            "observed_at": "2026-01-01T01:00:00Z",
+                            "rate": 0.001,
+                            "future_label": "bullish",
+                        }
+                    ]
+                ),
+            ),
+            (
+                "candle label extension",
+                lambda snapshot: snapshot["candles"][0].update(
+                    future_label="bullish"
+                ),
+            ),
+            (
+                "unknown availability lane",
+                lambda snapshot: snapshot.update(
+                    data_availability={"future_metric": "available"}
+                ),
+            ),
+        )
+        for name, mutate in mutations:
+            with self.subTest(name=name):
+                spec, bundle, _ = fixture_inputs()
+                mutate(bundle["candidates"][0]["snapshot"])
+                with self.assertRaises(EvaluationError):
+                    build_dataset(bundle, spec)
+
+        tampered_dataset = demo_dataset()
+        tampered_dataset["cases"][0]["snapshot"]["opaque"] = {"payload": "unknown"}
+        with self.assertRaisesRegex(EvaluationError, "unsupported fields"):
+            run_predictions(tampered_dataset, FixtureRunner())
+
+    def test_candidate_schema_rejects_unknown_snapshot_fields(self) -> None:
+        _, bundle, _ = fixture_inputs()
+        bundle["candidates"][0]["snapshot"]["future_label_at"] = (
+            "2026-01-02T00:00:00Z"
+        )
+        self.assertTrue(schema_errors(bundle, "eval-candidates.schema.json"))
+
+        dataset = demo_dataset()
+        dataset["cases"][0]["snapshot"]["future_label_at"] = (
+            "2026-01-02T00:00:00Z"
+        )
+        self.assertTrue(schema_errors(dataset, "eval-dataset.schema.json"))
+
     def test_invalid_ohlc_prices_are_rejected(self) -> None:
         spec, bundle, _ = fixture_inputs()
         bundle["candidates"][0]["snapshot"]["candles"][-1]["high"] = 98.0

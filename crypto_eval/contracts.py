@@ -100,6 +100,59 @@ _OBSERVATION_FIELDS = frozenset(
         "benchmarks",
     }
 )
+_CANDLE_FIELDS = frozenset(
+    {"open_time", "close_time", "open", "high", "low", "close", "volume"}
+)
+_SNAPSHOT_FIELDS = (
+    frozenset({"candles", "benchmark_candles", "data_availability"})
+    | _NEWS_FIELDS
+    | _OBSERVATION_FIELDS
+)
+_DATA_AVAILABILITY_FIELDS = frozenset(
+    {
+        "candles",
+        "funding",
+        "open_interest",
+        "news",
+        "options",
+        "on_chain",
+        "macro",
+        "benchmark",
+    }
+)
+_OBSERVATION_NUMBER_FIELDS = frozenset(
+    {
+        "value",
+        "rate",
+        "funding_rate",
+        "open_interest",
+        "price",
+        "volume",
+        "notional",
+        "quantity",
+        "ratio",
+        "long_short_ratio",
+        "implied_volatility",
+        "delta",
+        "gamma",
+        "theta",
+        "vega",
+        "bid",
+        "ask",
+    }
+)
+_OBSERVATION_STRING_FIELDS = frozenset(
+    {"asset", "symbol", "instrument", "venue", "unit", "period", "source"}
+)
+_OBSERVATION_RECORD_FIELDS = (
+    frozenset({"observed_at"})
+    | _OBSERVATION_NUMBER_FIELDS
+    | _OBSERVATION_STRING_FIELDS
+)
+_NEWS_STRING_FIELDS = frozenset(
+    {"archive_id", "title", "url", "source", "language", "summary", "author"}
+)
+_NEWS_RECORD_FIELDS = frozenset({"published_at", "available_at"}) | _NEWS_STRING_FIELDS
 
 
 class EvaluationError(ValueError):
@@ -144,6 +197,18 @@ def _number(value: Any, location: str, *, minimum: float | None = None) -> float
     if minimum is not None and value < minimum:
         raise EvaluationError(f"{location} must be at least {minimum}")
     return float(value)
+
+
+def _reject_unknown_fields(
+    value: dict[str, Any], allowed_fields: frozenset[str], location: str
+) -> None:
+    if any(not isinstance(key, str) for key in value):
+        raise EvaluationError(f"{location} field names must be strings")
+    unexpected = set(value) - allowed_fields
+    if unexpected:
+        raise EvaluationError(
+            f"{location} has unsupported fields: {', '.join(sorted(unexpected))}"
+        )
 
 
 def _reject_labels(value: Any, location: str) -> None:
@@ -217,6 +282,7 @@ def _validate_candles(
         item_location = f"{location}[{index}]"
         if not isinstance(raw, dict):
             raise EvaluationError(f"{item_location} must be an object")
+        _reject_unknown_fields(raw, _CANDLE_FIELDS, item_location)
         missing = {"open_time", "close_time", "open", "high", "low", "close", "volume"} - set(
             raw
         )
@@ -638,6 +704,7 @@ def validate_candidate_bundle(
         if not isinstance(snapshot, dict):
             raise EvaluationError(f"{location}.snapshot must be an object")
         _reject_labels(snapshot, f"{location}.snapshot")
+        _reject_unknown_fields(snapshot, _SNAPSHOT_FIELDS, f"{location}.snapshot")
         candles = _validate_candles(
             snapshot.get("candles"),
             f"{location}.snapshot.candles",
@@ -655,8 +722,18 @@ def validate_candidate_bundle(
                 item_location = f"{location}.snapshot.{name}[{observation_index}]"
                 if not isinstance(observation, dict):
                     raise EvaluationError(f"{item_location} must be an object")
+                _reject_unknown_fields(
+                    observation, _OBSERVATION_RECORD_FIELDS, item_location
+                )
                 if "observed_at" not in observation:
                     raise EvaluationError(f"{item_location}.observed_at is required")
+                for field in _OBSERVATION_NUMBER_FIELDS & observation.keys():
+                    _number(observation[field], f"{item_location}.{field}")
+                for field in _OBSERVATION_STRING_FIELDS & observation.keys():
+                    if not isinstance(observation[field], str) or not observation[field].strip():
+                        raise EvaluationError(
+                            f"{item_location}.{field} must be a non-empty string"
+                        )
         for name in _NEWS_FIELDS:
             articles = snapshot.get(name, [])
             if not isinstance(articles, list):
@@ -665,12 +742,18 @@ def validate_candidate_bundle(
                 item_location = f"{location}.snapshot.{name}[{article_index}]"
                 if not isinstance(article, dict):
                     raise EvaluationError(f"{item_location} must be an object")
+                _reject_unknown_fields(article, _NEWS_RECORD_FIELDS, item_location)
                 if "published_at" not in article or "available_at" not in article:
                     raise EvaluationError(
                         f"{item_location} requires published_at and archived available_at"
                     )
                 if not isinstance(article.get("archive_id"), str) or not article["archive_id"]:
                     raise EvaluationError(f"{item_location}.archive_id is required")
+                for field in (_NEWS_STRING_FIELDS - {"archive_id"}) & article.keys():
+                    if not isinstance(article[field], str) or not article[field].strip():
+                        raise EvaluationError(
+                            f"{item_location}.{field} must be a non-empty string"
+                        )
                 if parse_timestamp(article["published_at"], f"{item_location}.published_at") > cutoff:
                     raise EvaluationError(f"{item_location} was published after data_cutoff")
                 if parse_timestamp(article["available_at"], f"{item_location}.available_at") > cutoff:
@@ -703,6 +786,11 @@ def validate_candidate_bundle(
         availability = snapshot.get("data_availability", {})
         if not isinstance(availability, dict):
             raise EvaluationError(f"{location}.snapshot.data_availability must be an object")
+        _reject_unknown_fields(
+            availability,
+            _DATA_AVAILABILITY_FIELDS,
+            f"{location}.snapshot.data_availability",
+        )
         for data_name, status in availability.items():
             if not isinstance(data_name, str) or not data_name:
                 raise EvaluationError(f"{location}.snapshot.data_availability has an invalid key")
@@ -927,6 +1015,9 @@ def validate_dataset(dataset: Any) -> dict[str, Any]:
         availability = case.get("data_availability")
         if not isinstance(availability, dict):
             raise EvaluationError(f"{location}.data_availability must be an object")
+        _reject_unknown_fields(
+            availability, _DATA_AVAILABILITY_FIELDS, f"{location}.data_availability"
+        )
         for name, status in availability.items():
             if not isinstance(name, str) or not name:
                 raise EvaluationError(f"{location}.data_availability has an invalid key")
