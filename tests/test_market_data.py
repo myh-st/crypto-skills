@@ -88,6 +88,30 @@ class BinanceSpotProviderTests(unittest.TestCase):
         self.assertEqual(len(calls), 2)
         self.assertTrue(all(call["path"] == "/api/v3/klines" for call in calls))
         self.assertEqual(calls[0]["query"]["endTime"], epoch_ms(self.end) - 1)
+        self.assertEqual(calls[0]["query"]["timeZone"], "0")
+        self.assertNotIn("apiKey", json.dumps(calls[0]))
+
+    def test_offset_ranges_use_utc_and_current_candles_fail_cutoff_check(self) -> None:
+        rows = [kline(self.start + timedelta(hours=index), index) for index in range(3)]
+        transport, calls = self._transport_for(rows)
+        provider = BinanceSpotKlinesProvider(transport=transport)
+        bangkok_start = self.start.astimezone(timezone(timedelta(hours=7)))
+        bangkok_end = self.end.astimezone(timezone(timedelta(hours=7)))
+
+        candles = provider.fetch_range("BTCUSDT", "1h", bangkok_start, bangkok_end)
+
+        self.assertEqual(candles[0]["open_time"], "2026-01-01T00:00:00.000000Z")
+        self.assertEqual(calls[0]["query"]["startTime"], epoch_ms(self.start))
+        self.assertEqual(calls[0]["query"]["timeZone"], "0")
+        with self.assertRaisesRegex(EvaluationError, "closes after the requested data cutoff"):
+            BinanceSpotKlinesProvider._normalize_kline(
+                kline(self.start + timedelta(hours=1)),
+                "BTCUSDT",
+                "1h",
+                self.interval_seconds,
+                self.start + timedelta(hours=1, minutes=30),
+                "current_kline",
+            )
 
     def test_fetch_range_fails_closed_on_missing_or_future_candles(self) -> None:
         missing_middle = [

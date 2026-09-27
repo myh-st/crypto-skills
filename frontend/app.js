@@ -2,6 +2,7 @@ import { createStore } from "./modules/state.js";
 import { buildSeedData } from "./modules/demoData.js";
 import { createRouter } from "./modules/router.js";
 import { renderNav, NAV_ITEMS } from "./modules/components/nav.js";
+import { runtimeService } from "./modules/services.js";
 
 import * as overview from "./modules/views/overview.js";
 import * as newAnalysis from "./modules/views/newAnalysis.js";
@@ -30,7 +31,26 @@ const routeTables = Object.fromEntries(NAV_ITEMS.map(({ route }) => [route, true
 // "runs" also needs to match "runs/:id" for the detail view.
 routeTables.runs = true;
 
-function main() {
+async function main() {
+  const runtime = await runtimeService.initialize();
+  const runtimeBadge = document.getElementById("runtime-mode");
+  const runtimeMessage = document.getElementById("runtime-message");
+  if (runtime.mode === "live") {
+    runtimeBadge.textContent = runtime.status?.model_configured ? "LIVE PAPER" : "SETUP";
+    runtimeMessage.textContent = runtime.status?.model_configured
+      ? "Binance Spot + server-side Luna · overview fixture cards remain synthetic · no trading"
+      : runtime.status?.configuration_error
+        || "Local runtime active · configure OPENAI_API_KEY on the server · no model request will be made";
+    try {
+      store.setForwardEvaluations(await runtimeService.listEvaluations());
+    } catch {
+      store.setForwardEvaluations([]);
+    }
+  } else if (runtime.mode === "unavailable") {
+    runtimeBadge.textContent = "RUNTIME OFFLINE";
+    runtimeMessage.textContent = runtime.error || "Local API unavailable · analysis is disabled";
+  }
+
   const sidebar = document.getElementById("sidebar");
   const mobileNav = document.getElementById("mobile-nav");
   const content = document.getElementById("content");
@@ -80,6 +100,7 @@ function main() {
   }
 
   document.body.classList.toggle("density-compact", store.getState().settings.compactDensity);
+  document.body.classList.toggle("runtime-live", runtime.mode === "live");
 
   router.start();
 }

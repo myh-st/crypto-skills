@@ -5,18 +5,27 @@ from __future__ import annotations
 import argparse
 import json
 import sys
+from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any
 
 from .baselines import compare_baselines, compare_model_runs
-from .contracts import EvaluationError
+from .contracts import EvaluationError, parse_timestamp
 from .dataset import bind_outcomes, build_dataset, validate_walk_forward
+from .forward import DEFAULT_DATA_DIR, HORIZON_SECONDS, ForwardRuntimeService
 from .io import read_json, write_json_new, write_text_new
 from .lifecycle import project_lifecycle, summarize_lifecycle
+from .market_data import (
+    INTERVAL_SECONDS,
+    BinanceSpotKlinesProvider,
+    build_market_archive_record,
+    write_market_archive,
+)
 from .providers import JsonArchiveProvider
 from .reporting import build_report, render_markdown
 from .runner import FixtureRunner, read_predictions, run_predictions, write_predictions
 from .scoring import score_predictions
+from .server import serve_runtime
 
 
 FIXTURE_DIR = Path(__file__).resolve().parent / "fixtures"
@@ -25,7 +34,7 @@ FIXTURE_DIR = Path(__file__).resolve().parent / "fixtures"
 def _parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(
         prog="crypto-eval",
-        description="Point-in-time crypto decision evaluation; no order execution or live APIs.",
+        description="Point-in-time crypto research evaluation; no order execution.",
     )
     commands = parser.add_subparsers(dest="command", required=True)
 
@@ -86,6 +95,70 @@ def _parser() -> argparse.ArgumentParser:
     status.add_argument("--outcomes", type=Path)
     status.add_argument("--scores", type=Path)
     status.add_argument("--format", choices=("human", "json"), default="human")
+
+    archive = commands.add_parser(
+        "archive-binance",
+        help="archive a read-only Binance Spot OHLCV range with source and content metadata",
+    )
+    archive.add_argument("--symbol", required=True, help="Binance Spot symbol, e.g. BTCUSDT")
+    archive.add_argument(
+        "--interval",
+        choices=sorted(INTERVAL_SECONDS),
+        required=True,
+        help="fixed Binance candle interval",
+    )
+    archive.add_argument("--start", required=True, help="timezone-aware interval-aligned ISO-8601")
+    archive.add_argument("--end", required=True, help="timezone-aware as-of ISO-8601")
+    archive.add_argument(
+        "--out-dir",
+        type=Path,
+        default=DEFAULT_DATA_DIR / "archives",
+        help="local archive directory (default: .crypto-eval/archives)",
+    )
+
+    forward_create = commands.add_parser(
+        "forward-create",
+        help="freeze a paired skill/control prediction over one live Spot snapshot",
+    )
+    forward_create.add_argument("--symbol", required=True, help="Binance Spot pair, e.g. BTCUSDT")
+    forward_create.add_argument("--instrument", choices=("spot",), default="spot")
+    forward_create.add_argument("--horizon", choices=sorted(HORIZON_SECONDS), required=True)
+    forward_create.add_argument(
+        "--interval",
+        choices=sorted(INTERVAL_SECONDS),
+        default="1h",
+    )
+    forward_create.add_argument("--history-bars", type=int, default=200)
+    forward_create.add_argument("--question", default="")
+    forward_create.add_argument(
+        "--risk-style",
+        choices=("aggressive", "neutral", "conservative"),
+        default="neutral",
+    )
+    forward_create.add_argument("--data-dir", type=Path, default=DEFAULT_DATA_DIR)
+
+    forward_score = commands.add_parser(
+        "forward-score",
+        help="fetch and score a separate outcome after its configured horizon closes",
+    )
+    forward_score.add_argument("--run-id", required=True)
+    forward_score.add_argument("--data-dir", type=Path, default=DEFAULT_DATA_DIR)
+
+    forward_status = commands.add_parser(
+        "forward-status",
+        help="list local prospective paper-evaluation cases and lifecycle states",
+    )
+    forward_status.add_argument("--data-dir", type=Path, default=DEFAULT_DATA_DIR)
+
+    serve = commands.add_parser(
+        "serve",
+        help="serve the frontend and local same-origin analysis API on loopback",
+    )
+    serve.add_argument("--host", default="127.0.0.1")
+    serve.add_argument("--port", type=int, default=8765)
+    serve.add_argument("--interval", choices=sorted(INTERVAL_SECONDS), default="1h")
+    serve.add_argument("--history-bars", type=int, default=200)
+    serve.add_argument("--data-dir", type=Path, default=DEFAULT_DATA_DIR)
 
     demo = commands.add_parser(
         "demo",
@@ -254,6 +327,81 @@ def _dispatch(args: argparse.Namespace) -> int:
                 print(f"- {status}: {count}")
             for item in projection:
                 print(f"- {item['case_id']} [{item['fold']}]: {item['status']}")
+        return 0
+
+    if args.command == "archive-binance":
+        provider = BinanceSpotKlinesProvider()
+        start = parse_timestamp(args.start, "archive.start")
+        end = parse_timestamp(args.end, "archive.end")
+        candles = provider.fetch_range(
+            args.symbol,
+            args.interval,
+            start,
+            end,
+        )
+        record = build_market_archive_record(
+            provider.provider_id,
+            args.symbol,
+            args.interval,
+            start,
+            end,
+            candles,
+            datetime.now(timezone.utc),
+        )
+        path = write_market_archive(record, args.out_dir)
+        print(
+            f"Archived {record['candle_count']} closed {args.interval} candle(s) for "
+            f"{record['symbol']} through {record['data_cutoff']}."
+        )
+        print(f"Archive: {path}")
+        print(f"Content SHA-256: {record['content_sha256']}")
+        return 0
+
+    if args.command == "forward-create":
+        runtime = ForwardRuntimeService(
+            data_dir=args.data_dir,
+            interval=args.interval,
+            history_bars=args.history_bars,
+        )
+        response = runtime.create(
+            {
+                "symbol": args.symbol,
+                "instrument": args.instrument,
+                "horizon": args.horizon,
+                "question": args.question,
+                "risk_style": args.risk_style,
+            }
+        )
+        print(f"Frozen forward run: {response['run']['id']}")
+        print(f"Prediction: {response['prediction']['prediction_id']}")
+        print(f"Dataset SHA-256: {response['run']['datasetHash']}")
+        print(f"Lifecycle: {response['run']['evaluationStatus']}")
+        print("Skill/control calls used the same point-in-time Spot snapshot.")
+        return 0
+
+    if args.command == "forward-score":
+        runtime = ForwardRuntimeService(data_dir=args.data_dir)
+        response = runtime.score(args.run_id)
+        print(f"Forward run: {response['run']['id']}")
+        print(f"Lifecycle: {response['run']['evaluationStatus']}")
+        if "evaluation" in response:
+            paired = response["evaluation"]["paired_comparison"]
+            print(f"Paired cases: {paired['paired_return_difference']['n_paired']}")
+            print("Paired differences are descriptive, not a performance claim.")
+        return 0
+
+    if args.command == "forward-status":
+        runtime = ForwardRuntimeService(data_dir=args.data_dir)
+        print(json.dumps({"runs": runtime.list_runs()}, sort_keys=True, indent=2))
+        return 0
+
+    if args.command == "serve":
+        runtime = ForwardRuntimeService(
+            data_dir=args.data_dir,
+            interval=args.interval,
+            history_bars=args.history_bars,
+        )
+        serve_runtime(runtime, host=args.host, port=args.port)
         return 0
 
     if args.command == "demo":

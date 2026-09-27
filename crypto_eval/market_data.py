@@ -21,6 +21,7 @@ BINANCE_PROVIDER_ID = "binance-public-spot"
 BINANCE_KLINES_URL = "https://api.binance.com/api/v3/klines"
 MAX_KLINE_LIMIT = 1000
 MAX_RESPONSE_BYTES = 8 * 1024 * 1024
+UTC_EPOCH = datetime(1970, 1, 1, tzinfo=timezone.utc)
 
 INTERVAL_SECONDS = {
     "1m": 60,
@@ -63,6 +64,19 @@ def _as_utc(value: datetime | str, location: str) -> datetime:
     if not isinstance(value, datetime) or value.tzinfo is None or value.utcoffset() is None:
         raise MarketDataError(f"{location} must be a timezone-aware timestamp")
     return value.astimezone(timezone.utc)
+
+
+def _epoch_milliseconds(value: datetime) -> int:
+    delta = value.astimezone(timezone.utc) - UTC_EPOCH
+    whole_seconds = delta.days * 24 * 60 * 60 + delta.seconds
+    return whole_seconds * 1000 + delta.microseconds // 1000
+
+
+def _datetime_from_epoch_milliseconds(value: int) -> datetime:
+    seconds, milliseconds = divmod(value, 1000)
+    return datetime.fromtimestamp(seconds, tz=timezone.utc) + timedelta(
+        milliseconds=milliseconds
+    )
 
 
 def _interval_floor(value: datetime, interval: str) -> datetime:
@@ -154,8 +168,8 @@ class BinanceSpotKlinesProvider:
         requested_end = _as_utc(end, "end")
         cutoff = _interval_floor(requested_end, normalized_interval)
         step_ms = interval_seconds * 1000
-        start_ms = int(start_time.timestamp() * 1000)
-        cutoff_ms = int(cutoff.timestamp() * 1000)
+        start_ms = _epoch_milliseconds(start_time)
+        cutoff_ms = _epoch_milliseconds(cutoff)
 
         if _interval_floor(start_time, normalized_interval) != start_time:
             raise MarketDataError("start must be aligned to the requested candle interval")
@@ -184,6 +198,7 @@ class BinanceSpotKlinesProvider:
                     "interval": normalized_interval,
                     "startTime": cursor_ms,
                     "endTime": cutoff_ms - 1,
+                    "timeZone": 0,
                     "limit": limit,
                 }
             )
@@ -305,8 +320,8 @@ class BinanceSpotKlinesProvider:
         if abs(close_ms - expected_source_close) > 2:
             raise MarketDataError(f"{location} does not match the declared interval")
 
-        open_time = datetime.fromtimestamp(open_ms / 1000, tz=timezone.utc)
-        close_boundary = datetime.fromtimestamp((open_ms + interval_ms) / 1000, tz=timezone.utc)
+        open_time = _datetime_from_epoch_milliseconds(open_ms)
+        close_boundary = _datetime_from_epoch_milliseconds(open_ms + interval_ms)
         if close_boundary > cutoff:
             raise MarketDataError(f"{location} closes after the requested data cutoff")
         candle = {

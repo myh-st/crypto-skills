@@ -15,6 +15,7 @@ from crypto_eval.openai_runner import (
     OpenAIResponsesConfig,
     OpenAIResponsesError,
     OpenAIResponsesRunner,
+    load_skill_instructions,
 )
 from crypto_eval.runner import run_predictions
 from tests.eval_test_support import demo_dataset
@@ -107,6 +108,7 @@ class OpenAIResponsesRunnerTests(unittest.TestCase):
         request_body = calls[0]["body"]
         self.assertEqual(request_body["model"], "gpt-6-luna")
         self.assertEqual(request_body["reasoning"], {"effort": "max"})
+        self.assertFalse(request_body["store"])
         self.assertEqual(request_body["text"]["format"]["type"], "json_schema")
         self.assertTrue(request_body["text"]["format"]["strict"])
         self.assertIn("Use only the supplied closed candles.", request_body["instructions"])
@@ -166,6 +168,14 @@ class OpenAIResponsesRunnerTests(unittest.TestCase):
             control_request["text"]["format"],
         )
         self.assertEqual(
+            {key: value for key, value in skill_request.items() if key != "instructions"},
+            {key: value for key, value in control_request.items() if key != "instructions"},
+        )
+        self.assertNotEqual(
+            skill_request["instructions"],
+            control_request["instructions"],
+        )
+        self.assertEqual(
             skill_request["instructions"].replace("One exact skill payload.", ""),
             control_request["instructions"],
         )
@@ -173,7 +183,15 @@ class OpenAIResponsesRunnerTests(unittest.TestCase):
             skill_prediction["runner"]["inference_config_hash"],
             control_prediction["runner"]["inference_config_hash"],
         )
-        self.assertEqual(skill_prediction["runner"]["prompt_version"], control_prediction["runner"]["prompt_version"])
+        self.assertTrue(
+            skill_prediction["runner"]["prompt_version"].startswith(
+                "crypto-market-decision.v1:skill-sha256-"
+            )
+        )
+        self.assertEqual(
+            control_prediction["runner"]["prompt_version"],
+            "crypto-market-decision.v1:control-no-skill",
+        )
         self.assertEqual(skill_prediction["runner"]["run_id"], control_prediction["runner"]["run_id"])
         self.assertEqual(skill_prediction["dataset_hash"], control_prediction["dataset_hash"])
         self.assertEqual(skill_prediction["case_id"], control_prediction["case_id"])

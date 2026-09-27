@@ -1,7 +1,7 @@
 import { ANALYSIS_TYPES, ASSET_CATALOG, DATA_SOURCES, QUICK_START_PROMPTS } from "../demoData.js";
 import { escapeHtml, relativeTime, titleCase } from "../format.js";
 import { renderSparkline } from "../components/sparkline.js";
-import { analysisService, marketDataService, runService } from "../services.js";
+import { analysisService, marketDataService, runService, runtimeService } from "../services.js";
 
 const HORIZON_OPTIONS = [
   { value: "intraday", label: "Short term", detail: "1–7 days" },
@@ -17,9 +17,9 @@ const QUICK_QUESTION_CHIPS = [
   { label: "Portfolio risk", question: "Review portfolio exposure, leverage, and downside risk." },
 ];
 
-function radioButtons(items, selected, attribute) {
+function radioButtons(items, selected, attribute, disabledValues = []) {
   return items.map((item) => `
-    <button type="button" class="choice-card${item.value === selected ? " is-active" : ""}" role="radio" aria-checked="${item.value === selected}" data-${attribute}="${item.value}">
+    <button type="button" class="choice-card${item.value === selected ? " is-active" : ""}" role="radio" aria-checked="${item.value === selected}" data-${attribute}="${item.value}" ${disabledValues.includes(item.value) ? "disabled" : ""}>
       <strong>${item.label}</strong>
       ${item.detail ? `<span>${item.detail}</span>` : ""}
     </button>
@@ -41,6 +41,10 @@ function recentSearches(runs) {
 export function render(root, ctx) {
   const { store, navigate, params } = ctx;
   const state = store.getState();
+  const runtimeMode = analysisService.mode;
+  const liveMode = runtimeMode === "live";
+  const unavailableMode = runtimeMode === "unavailable";
+  const runtimeStatus = runtimeService.status;
   const marketSnapshot = marketDataService.getSnapshot();
   const assetShortcuts = ["SEI", "SUI", "BTC", "ETH", "AVAX", "PYTH"]
     .map((symbol) => marketSnapshot.find((asset) => asset.asset === symbol))
@@ -53,12 +57,18 @@ export function render(root, ctx) {
     : "swing";
   const riskValue = state.settings.defaultRiskStyle === "conservative" ? 20 : state.settings.defaultRiskStyle === "aggressive" ? 80 : 50;
   const asOfDefault = new Date().toISOString().slice(0, 10);
+  const submitDisabled = unavailableMode || (liveMode && !runtimeStatus?.model_configured);
+  const modeDescription = liveMode
+    ? "Live paper analysis uses the latest closed Binance Spot snapshot and a server-side paired Luna run."
+    : unavailableMode
+      ? "The local runtime is unavailable. Restore its API before submitting an analysis."
+      : "Configure a research request using synthetic fixture data.";
 
   root.innerHTML = `
     <header class="page-header">
       <div>
         <h1>New Analysis</h1>
-        <p>Configure your research request</p>
+        <p>${escapeHtml(modeDescription)}</p>
       </div>
     </header>
 
@@ -75,17 +85,23 @@ export function render(root, ctx) {
             <datalist id="analysis-assets">
               ${ASSET_CATALOG.map((asset) => `<option value="${escapeHtml(asset.symbol)}">${escapeHtml(asset.name)} / USDT</option>`).join("")}
             </datalist>
-            <p class="field-help" id="asset-help">Choose a listed asset. Prices and charts are fixture data.</p>
-            <div class="asset-shortcuts" role="group" aria-label="Common assets">
-              ${assetShortcuts.map((asset) => `
-                <button type="button" class="asset-shortcut${asset.asset === prefillAsset ? " is-active" : ""}" data-asset-shortcut="${asset.asset}">
-                  <span class="asset-symbol-icon asset-symbol-icon--${asset.asset.toLowerCase()}" aria-hidden="true">${asset.asset.slice(0, 1)}</span>
-                  <span>${asset.asset} / USDT</span>
-                  <strong class="${asset.change24h >= 0 ? "market-change--positive" : "market-change--negative"}">${asset.change24h > 0 ? "+" : ""}${asset.change24h.toFixed(1)}%</strong>
-                  ${renderSparkline(asset.asset, asset.trend, asset.change24h)}
-                </button>
-              `).join("")}
-            </div>
+            <p class="field-help" id="asset-help">
+              ${liveMode
+                ? "Enter a Binance USDT Spot asset (for example BTC or BTCUSDT). The live price snapshot is fetched on the server."
+                : "Choose a listed asset. Prices and charts are fixture data."}
+            </p>
+            ${liveMode
+              ? '<p class="field-help">The quote cards are hidden in live mode so synthetic prices cannot be mistaken for market data.</p>'
+              : `<div class="asset-shortcuts" role="group" aria-label="Common assets">
+                  ${assetShortcuts.map((asset) => `
+                    <button type="button" class="asset-shortcut${asset.asset === prefillAsset ? " is-active" : ""}" data-asset-shortcut="${asset.asset}">
+                      <span class="asset-symbol-icon asset-symbol-icon--${asset.asset.toLowerCase()}" aria-hidden="true">${asset.asset.slice(0, 1)}</span>
+                      <span>${asset.asset} / USDT</span>
+                      <strong class="${asset.change24h >= 0 ? "market-change--positive" : "market-change--negative"}">${asset.change24h > 0 ? "+" : ""}${asset.change24h.toFixed(1)}%</strong>
+                      ${renderSparkline(asset.asset, asset.trend, asset.change24h)}
+                    </button>
+                  `).join("")}
+                </div>`}
           </section>
 
           <section class="composer-section">
@@ -95,7 +111,12 @@ export function render(root, ctx) {
             </div>
             <input type="hidden" name="analysisType" value="spot" />
             <div class="choice-grid choice-grid--three" role="radiogroup" aria-label="Analysis type">
-              ${radioButtons(ANALYSIS_TYPES, "spot", "analysis-type")}
+              ${radioButtons(
+                ANALYSIS_TYPES,
+                "spot",
+                "analysis-type",
+                liveMode ? ["futures", "investment"] : [],
+              )}
             </div>
           </section>
 
@@ -128,7 +149,7 @@ export function render(root, ctx) {
           <section class="composer-section">
             <div class="composer-section-heading">
               <span class="composer-step">5</span>
-              <div><h2>Portfolio context</h2><p>Optional context for this fixture request.</p></div>
+              <div><h2>Portfolio context</h2><p>${liveMode ? "Optional context is not sent to the forward evaluator." : "Optional context for this fixture request."}</p></div>
             </div>
             <div class="portfolio-context-grid">
               <label class="capital-field">
@@ -155,7 +176,7 @@ export function render(root, ctx) {
             <div class="advanced-settings-grid">
               <label>
                 Venue
-                <select name="venue">
+                <select name="venue" ${liveMode ? "disabled" : ""}>
                   <option value="Binance" selected>Binance</option>
                   <option value="OKX">OKX</option>
                   <option value="Bybit">Bybit</option>
@@ -163,26 +184,33 @@ export function render(root, ctx) {
               </label>
               <label>
                 Instrument
-                <select name="instrument">
+                <select name="instrument" ${liveMode ? "disabled" : ""}>
                   <option value="spot" selected>Spot</option>
                   <option value="perpetual">USDT perpetual</option>
                 </select>
               </label>
               <div class="advanced-model">
                 <span>Model</span>
-                <strong>Fixture generator</strong>
-                <small>No live model call is connected.</small>
+                <strong>${liveMode
+                  ? escapeHtml(runtimeStatus?.model_id || "gpt-6-luna")
+                  : "Fixture generator"}</strong>
+                <small>${liveMode
+                  ? "Server-side OpenAI Responses API; no credentials are sent to the browser."
+                  : "No live model call is connected."}</small>
               </div>
               <label>
                 Data as of
-                <input type="date" name="asOf" value="${asOfDefault}" max="${asOfDefault}" />
+                <input type="date" name="asOf" value="${asOfDefault}" max="${asOfDefault}" ${liveMode ? "disabled" : ""} />
+                ${liveMode ? '<small>Live analysis uses the latest fully closed candle; use archive-binance for historical ranges.</small>' : ""}
               </label>
               <fieldset class="provider-fieldset">
                 <legend>Requested data sources</legend>
-                <p class="field-help">Recorded with this request; fixture mode does not fetch providers.</p>
+                <p class="field-help">${liveMode
+                  ? "Live mode uses Binance public Spot klines; other fixture feeds are not requested."
+                  : "Recorded with this request; fixture mode does not fetch providers."}</p>
                 ${DATA_SOURCES.map((source, index) => `
                   <label class="checkbox-row">
-                    <input type="checkbox" name="providers" value="${escapeHtml(source.name)}" ${index < 3 ? "checked" : ""} />
+                    <input type="checkbox" name="providers" value="${escapeHtml(source.name)}" ${index < 3 ? "checked" : ""} ${liveMode ? "disabled" : ""} />
                     ${escapeHtml(source.name)}
                   </label>
                 `).join("")}
@@ -191,8 +219,17 @@ export function render(root, ctx) {
           </details>
 
           <div class="composer-actions">
-            <p class="fixture-action-note">Fixture mode · creates a local example run; no live market request is sent.</p>
-            <button type="submit" class="btn btn--primary">Run analysis <span aria-hidden="true">→</span></button>
+            <p class="fixture-action-note">${liveMode
+              ? runtimeStatus?.model_configured
+                ? "Live paper mode · creates a frozen skill/control pair. No orders are placed."
+                : runtimeStatus?.configuration_error
+                  || "Live runtime is missing OPENAI_API_KEY in the server environment; no model request will be made."
+              : unavailableMode
+                ? escapeHtml(runtimeService.status?.configuration_error || "Local runtime API is unavailable.")
+                : "Fixture mode · creates a local example run; no live market request is sent."}</p>
+            <button type="submit" class="btn btn--primary" ${submitDisabled ? "disabled" : ""}>
+              ${liveMode ? "Analyze with Luna" : "Run analysis"} <span aria-hidden="true">→</span>
+            </button>
           </div>
           <p class="form-error" data-role="form-error" role="alert" hidden></p>
         </form>
@@ -338,17 +375,28 @@ export function render(root, ctx) {
     });
   });
 
-  form.addEventListener("submit", (event) => {
+  form.addEventListener("submit", async (event) => {
     event.preventDefault();
     const formData = new FormData(form);
     const asset = String(formData.get("asset") || "").trim().toUpperCase().replace(/\s*\/\s*USDT$/, "").trim();
     const catalogEntry = ASSET_CATALOG.find((entry) => entry.symbol === asset);
     const error = form.querySelector('[data-role="form-error"]');
-    if (!catalogEntry) {
+    const validLiveSymbol = /^[A-Z0-9]{2,16}(USDT)?$/.test(asset);
+    if ((liveMode && !validLiveSymbol) || (!liveMode && !catalogEntry)) {
       error.hidden = false;
-      error.textContent = "Choose an asset from the suggested list.";
+      error.textContent = liveMode
+        ? "Enter a Binance USDT Spot asset or symbol using letters and digits."
+        : "Choose an asset from the suggested list.";
       assetInput.setAttribute("aria-invalid", "true");
       assetInput.focus();
+      return;
+    }
+    const analysisType = String(formData.get("analysisType") || "spot");
+    const venue = liveMode ? "Binance" : String(formData.get("venue") || "Binance");
+    const instrument = liveMode ? "spot" : String(formData.get("instrument") || "spot");
+    if (liveMode && (analysisType !== "spot" || venue !== "Binance" || instrument !== "spot")) {
+      error.hidden = false;
+      error.textContent = "Live runtime currently supports Binance Spot analysis only.";
       return;
     }
     assetInput.removeAttribute("aria-invalid");
@@ -357,24 +405,39 @@ export function render(root, ctx) {
 
     const asOf = formData.get("asOf");
     const requestSettings = {
-      venue: formData.get("venue"),
-      instrument: formData.get("instrument"),
+      venue,
+      instrument,
       model: "fixture",
       dataAsOf: asOf ? new Date(`${asOf}T00:00:00.000Z`).toISOString() : null,
       dataProviders: formData.getAll("providers"),
       referenceCurrency: formData.get("referenceCurrency"),
     };
-    const run = analysisService.create({
-      asset,
-      analysisType: formData.get("analysisType"),
-      horizon: formData.get("horizon"),
-      question: String(formData.get("question") || "").trim(),
-      riskStyle: formData.get("riskStyle"),
-      capital: formData.get("capital") ? Number(formData.get("capital")) : null,
-      basePrice: catalogEntry.basePrice,
-      requestSettings,
-    });
-    runService.add(store, run);
-    navigate(`runs/${run.id}`);
+    const submitButton = form.querySelector('button[type="submit"]');
+    const originalLabel = submitButton.innerHTML;
+    submitButton.disabled = true;
+    submitButton.textContent = liveMode
+      ? "Fetching closed candles and analyzing…"
+      : "Generating fixture analysis…";
+    try {
+      const run = await analysisService.create({
+        asset,
+        analysisType,
+        horizon: formData.get("horizon"),
+        question: String(formData.get("question") || "").trim(),
+        riskStyle: formData.get("riskStyle"),
+        capital: formData.get("capital") ? Number(formData.get("capital")) : null,
+        basePrice: catalogEntry?.basePrice,
+        requestSettings,
+      });
+      runService.add(store, run);
+      navigate(`runs/${run.id}`);
+    } catch (requestError) {
+      error.hidden = false;
+      error.textContent = requestError instanceof Error
+        ? requestError.message
+        : "Analysis request failed. Check the local runtime and try again.";
+      submitButton.disabled = submitDisabled;
+      submitButton.innerHTML = originalLabel;
+    }
   });
 }

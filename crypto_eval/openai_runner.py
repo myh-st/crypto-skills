@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import json
+import ipaddress
 import os
 import socket
 import urllib.error
@@ -27,6 +28,13 @@ DEFAULT_OPENAI_BASE_URL = "https://api.openai.com/v1"
 DEFAULT_REASONING_EFFORT = "max"
 PROMPT_TEMPLATE_VERSION = "crypto-market-decision.v1"
 MAX_RESPONSE_BYTES = 2 * 1024 * 1024
+SKILL_REFERENCE_NAMES = (
+    "evidence-ledger.md",
+    "point-in-time.md",
+    "data-contract.md",
+    "technical-analysis.md",
+    "portfolio-risk.md",
+)
 
 
 class OpenAIResponsesError(EvaluationError):
@@ -121,6 +129,10 @@ class OpenAIResponsesConfig:
             raise OpenAIResponsesError("OPENAI_BASE_URL must be an HTTPS API base URL")
         normalized_url = self.base_url.strip().rstrip("/")
         parsed = urllib.parse.urlsplit(normalized_url)
+        try:
+            parsed.port
+        except ValueError:
+            raise OpenAIResponsesError("OPENAI_BASE_URL is invalid") from None
         if (
             parsed.scheme not in {"https", "http"}
             or not parsed.netloc
@@ -133,7 +145,24 @@ class OpenAIResponsesConfig:
             raise OpenAIResponsesError(
                 "OPENAI_BASE_URL must not contain credentials, query parameters, or a Responses path"
             )
-        if self.reasoning_effort not in {"low", "medium", "high", "max"}:
+        if parsed.scheme == "http":
+            try:
+                local_http = (
+                    parsed.hostname == "localhost"
+                    or ipaddress.ip_address(parsed.hostname or "").is_loopback
+                )
+            except ValueError:
+                local_http = False
+            if not local_http:
+                raise OpenAIResponsesError(
+                    "OPENAI_BASE_URL must use HTTPS unless it targets loopback"
+                )
+        if not isinstance(self.reasoning_effort, str) or self.reasoning_effort not in {
+            "low",
+            "medium",
+            "high",
+            "max",
+        }:
             raise OpenAIResponsesError("OPENAI_REASONING_EFFORT is unsupported")
         if (
             isinstance(self.timeout_seconds, bool)
@@ -178,6 +207,26 @@ def api_key_from_environment(environ: dict[str, str] | None = None) -> str:
     return api_key.strip()
 
 
+def load_skill_instructions(skill_path: Any) -> str:
+    """Load the core skill plus only the fixed Spot/PIT/reporting references."""
+
+    from pathlib import Path
+
+    source = Path(skill_path)
+    try:
+        core = source.read_text(encoding="utf-8")
+        references = source.parent / "references"
+        sections = [core.strip()]
+        for name in SKILL_REFERENCE_NAMES:
+            text = (references / name).read_text(encoding="utf-8")
+            sections.append(f"# Loaded skill reference: {name}\n\n{text.strip()}")
+    except OSError:
+        raise OpenAIResponsesError(
+            "evaluated skill instructions or a required reference are unavailable"
+        ) from None
+    return "\n\n".join(sections)
+
+
 def _default_http_post(
     url: str,
     headers: dict[str, str],
@@ -189,7 +238,7 @@ def _default_http_post(
         return response.read(MAX_RESPONSE_BYTES + 1)
 
 
-def _case_prompt(case: dict[str, Any], question: str) -> str:
+def _case_prompt(case: dict[str, Any], question: str, risk_style: str) -> str:
     snapshot = case.get("snapshot")
     if not isinstance(snapshot, dict) or not isinstance(snapshot.get("candles"), list):
         raise OpenAIResponsesError("model case must contain a closed-candle snapshot")
@@ -213,7 +262,11 @@ def _case_prompt(case: dict[str, Any], question: str) -> str:
         "snapshot": {"candles": candles},
     }
     return json.dumps(
-        {"question": question, "case": safe_case},
+        {
+            "question": question,
+            "risk_style": risk_style,
+            "case": safe_case,
+        },
         sort_keys=True,
         ensure_ascii=False,
         separators=(",", ":"),
@@ -222,16 +275,19 @@ def _case_prompt(case: dict[str, Any], question: str) -> str:
 
 
 def _instructions(skill_text: str) -> str:
+    normalized_skill_text = skill_text.strip()
     return (
         "You are producing one research-only, point-in-time crypto market decision. "
         "Use only the market snapshot in the user input; all candles are closed and "
         "available no later than data_cutoff. Do not browse, call tools, infer future "
         "prices, use outcomes, or claim evidence that is not present. Be conservative "
         "when data is insufficient and use NO_TRADE rather than inventing an entry. "
+        "Treat risk_style only as a qualitative tolerance lens; do not infer capital, "
+        "position size, or portfolio exposure. "
         "Do not place or propose exchange orders. Return only the required structured "
         "decision fields; rationale must be concise and tied to the supplied evidence.\n"
         "<skill_instructions>\n"
-        f"{skill_text}"
+        f"{normalized_skill_text}"
         "\n</skill_instructions>"
     )
 
@@ -249,11 +305,22 @@ def _normalized_decision(value: Any) -> dict[str, Any]:
     }
     if not isinstance(value, dict) or set(value) != required:
         raise OpenAIResponsesError("model output is missing or contains unsupported decision fields")
-    if value["decision_state"] not in DECISION_STATES:
+    if (
+        not isinstance(value["decision_state"], str)
+        or value["decision_state"] not in DECISION_STATES
+    ):
         raise OpenAIResponsesError("model output contains an unsupported decision state")
-    if value["bias"] not in BIAS_DIRECTIONS or value["confidence"] not in CONFIDENCE_LEVELS:
+    if (
+        not isinstance(value["bias"], str)
+        or value["bias"] not in BIAS_DIRECTIONS
+        or not isinstance(value["confidence"], str)
+        or value["confidence"] not in CONFIDENCE_LEVELS
+    ):
         raise OpenAIResponsesError("model output contains an unsupported bias or confidence")
-    if value["leverage_stress"] not in {None, "low", "elevated", "high", "extreme"}:
+    if value["leverage_stress"] is not None and (
+        not isinstance(value["leverage_stress"], str)
+        or value["leverage_stress"] not in {"low", "elevated", "high", "extreme"}
+    ):
         raise OpenAIResponsesError("model output contains an unsupported leverage state")
     if not isinstance(value["rationale"], str) or not value["rationale"].strip():
         raise OpenAIResponsesError("model output rationale must be a non-empty string")
@@ -276,7 +343,12 @@ def _normalized_decision(value: Any) -> dict[str, Any]:
         if not isinstance(raw_entry, dict) or set(raw_entry) != entry_fields:
             raise OpenAIResponsesError("model output entry is malformed")
         kind = raw_entry["kind"]
-        if kind not in {"pullback", "breakout", "immediate", "none"}:
+        if not isinstance(kind, str) or kind not in {
+            "pullback",
+            "breakout",
+            "immediate",
+            "none",
+        }:
             raise OpenAIResponsesError("model output entry kind is unsupported")
         shapes = {
             "pullback": {
@@ -369,10 +441,11 @@ class OpenAIResponsesRunner:
         skill_text: str,
         skill_commit: str | None = None,
         question: str = "",
+        risk_style: str = "neutral",
         transport: PostTransport | None = None,
         clock: Callable[[], datetime] | None = None,
     ) -> None:
-        if variant not in {"skill", "control"}:
+        if not isinstance(variant, str) or variant not in {"skill", "control"}:
             raise OpenAIResponsesError("model runner variant must be skill or control")
         if not isinstance(run_id, str) or not run_id.strip():
             raise OpenAIResponsesError("model runner requires a run_id")
@@ -386,6 +459,12 @@ class OpenAIResponsesRunner:
             raise OpenAIResponsesError("control arm cannot claim a skill commit")
         if not isinstance(question, str) or len(question) > 1200:
             raise OpenAIResponsesError("question must be a string of at most 1200 characters")
+        if not isinstance(risk_style, str) or risk_style not in {
+            "aggressive",
+            "neutral",
+            "conservative",
+        }:
+            raise OpenAIResponsesError("risk_style must be aggressive, neutral, or conservative")
         self.config = config
         self._api_key = api_key
         self.variant = variant
@@ -393,6 +472,7 @@ class OpenAIResponsesRunner:
         self.skill_text = skill_text
         self.skill_commit = skill_commit.strip() if isinstance(skill_commit, str) else None
         self.question = question
+        self.risk_style = risk_style
         self._transport = transport or _default_http_post
         self._clock = clock or (lambda: datetime.now(timezone.utc))
         self._skill_fingerprint = digest(skill_text)
@@ -406,6 +486,7 @@ class OpenAIResponsesRunner:
                 "response_schema_hash": digest(DECISION_RESPONSE_SCHEMA),
                 "prompt_template_version": PROMPT_TEMPLATE_VERSION,
                 "timeout_seconds": config.timeout_seconds,
+                "store": False,
             }
         )
 
@@ -421,6 +502,8 @@ class OpenAIResponsesRunner:
             "inference_config_hash": self._config_hash,
             "prompt_version": (
                 f"{PROMPT_TEMPLATE_VERSION}:skill-sha256-{self._skill_fingerprint}"
+                if self.variant == "skill"
+                else f"{PROMPT_TEMPLATE_VERSION}:control-no-skill"
             ),
             "skill_commit": self.skill_commit,
             "variant": self.variant,
@@ -434,8 +517,9 @@ class OpenAIResponsesRunner:
         return {
             "model": self.config.model_id,
             "reasoning": {"effort": self.config.reasoning_effort},
+            "store": False,
             "instructions": _instructions(skill_instructions),
-            "input": _case_prompt(case, self.question),
+            "input": _case_prompt(case, self.question, self.risk_style),
             "text": {
                 "format": {
                     "type": "json_schema",

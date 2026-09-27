@@ -4,14 +4,14 @@
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1" />
   <title>Crypto Research</title>
-  <meta name="description" content="Crypto market research and decision tracking. Fixture mode uses synthetic data only." />
+  <meta name="description" content="Local-first crypto market research and forward paper evaluation. Static preview uses fixtures." />
   <link rel="icon" type="image/svg+xml" href="favicon.svg" />
-  <link rel="stylesheet" href="styles.css?v=5" />
+  <link rel="stylesheet" href="styles.css?v=6" />
 </head>
 <body>
-  <div class="demo-topbar" role="note">
-    <span class="demo-topbar-badge">FIXTURE</span>
-    <span>Synthetic market data · No live providers or trading</span>
+  <div class="demo-topbar" id="runtime-banner" role="note" aria-live="polite">
+    <span class="demo-topbar-badge" id="runtime-mode">FIXTURE</span>
+    <span id="runtime-message">Synthetic market data · No live providers or trading</span>
   </div>
 
   <div class="app-shell">

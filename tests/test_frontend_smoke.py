@@ -124,9 +124,16 @@ class FrontendSmokeTests(unittest.TestCase):
     def test_overview_contains_market_snapshot_and_interactive_labeled_chart(self) -> None:
         overview_source = read(FRONTEND_DIR / "modules/views/overview.js")
         chart_source = read(FRONTEND_DIR / "modules/components/marketOverviewChart.js")
+        sparkline_source = read(FRONTEND_DIR / "modules/components/sparkline.js")
+        app_source = read(FRONTEND_DIR / "app.js")
         self.assertIn("Market snapshot", overview_source)
+        self.assertIn("24h · fixture", overview_source)
         self.assertIn("renderSparkline", overview_source)
         self.assertIn("renderMarketOverviewChart", overview_source)
+        self.assertIn("synthetic 24 hour price trend", sparkline_source)
+        self.assertIn("Demo chart", chart_source)
+        self.assertIn("Values are synthetic and not live prices.", chart_source)
+        self.assertIn("overview fixture cards remain synthetic", app_source)
         for label in ["Price change (%)", "Market cap change (%)", "Volume change (%)", "Time ("]:
             self.assertIn(label, chart_source)
         self.assertIn("data-market-range", chart_source)
@@ -183,6 +190,32 @@ class FrontendSmokeTests(unittest.TestCase):
             content = read(path).lower()
             for term in forbidden_terms:
                 self.assertNotIn(term, content, f"{path} references disallowed term: {term}")
+
+    def test_live_runtime_uses_same_origin_api_and_keeps_credentials_server_side(self) -> None:
+        services_source = read(FRONTEND_DIR / "modules/services.js")
+        analysis_source = read(FRONTEND_DIR / "modules/views/newAnalysis.js")
+        for endpoint in [
+            "/api/status",
+            "/api/analyze",
+            "/api/evaluations",
+            "/api/forward/",
+        ]:
+            self.assertIn(endpoint, services_source)
+        self.assertIn("Server-side OpenAI Responses API", analysis_source)
+        self.assertIn("OPENAI_API_KEY", analysis_source)
+        self.assertNotIn("Authorization", services_source)
+        self.assertNotIn("OPENAI_API_KEY", services_source)
+
+    def test_live_run_displays_frozen_forward_evaluation_state(self) -> None:
+        run_source = read(FRONTEND_DIR / "modules/views/runDetail.js")
+        chart_source = read(FRONTEND_DIR / "modules/components/priceChart.js")
+        evaluations_source = read(FRONTEND_DIR / "modules/views/evaluations.js")
+        self.assertIn("Forward evaluation", run_source)
+        self.assertIn("outcome remains pending", run_source)
+        self.assertIn("data-chart-fit-levels", chart_source)
+        self.assertIn("fitAllLevels = !fitAllLevels", run_source)
+        self.assertIn("Fetch & score outcome", evaluations_source)
+        self.assertIn("horizon_closes_at", evaluations_source)
 
     def test_frontend_readme_documents_run_command_and_limitations(self) -> None:
         readme = read(FRONTEND_DIR / "README.md")
