@@ -1,25 +1,42 @@
 {
   "goal": "ai-paper-futures-trading",
+  "architecture_version": "v2-jev-hybrid",
   "branch": "feature/ai-paper-futures-trading",
   "base_commit": "887ced89866fb53748519170d19b3080cadab230",
   "state": "planned",
   "implementation_started": false,
   "live_trading_allowed": false,
-  "paper_trading_target": true,
+  "execution_mode": "PAPER",
   "primary_timeframe": "15m",
   "starting_balance_usdt": 100,
   "primary_leverage": 3,
-  "shadow_leverage": [1, 2, 3, 5, 10],
-  "required_gates": [
-    "contracts",
-    "storage",
-    "paper_accounting",
-    "risk_engine",
-    "futures_market_data",
-    "provider_settings",
-    "scheduler",
-    "frontend_operations",
-    "export",
-    "offline_ci"
+  "shadow_leverage": [
+    1,
+    2,
+    3,
+    5,
+    10
+  ],
+  "decision_stack": [
+    "quant",
+    "jev",
+    "conditional_gpt6_luna_skill",
+    "deterministic_risk",
+    "paper_execution"
+  ],
+  "provider_settings_required": [
+    "typesafe_jev",
+    "openai",
+    "microsoft_foundry_or_azure",
+    "generic_responses_compatible"
+  ],
+  "canonical_docs": [
+    ".goals/ai-paper-futures-trading/goal.md",
+    "docs/paper-futures-hybrid-v2.md",
+    "docs/vscode-gpt6-luna-jev-hybrid-prompt.md"
+  ],
+  "supersedes_conflicts_in": [
+    "docs/paper-futures-development-plan.md",
+    "docs/vscode-gpt6-luna-paper-futures-prompt.md"
   ]
 }
