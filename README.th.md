@@ -92,6 +92,87 @@ ln -sfn "$PWD/skills/crypto-market-trading-analysis" \
 
 ถ้าไม่สะดวกใช้ symlink สามารถ copy directory ได้ repository นี้ไม่มี credential และไม่เก็บ API key เชื่อมต่อ CoinMarketCap, exchange, options หรือ on-chain data ผ่าน runtime environment แทน
 
+## Prompt ติดตั้งแบบครั้งเดียว
+
+คัดลอก prompt ด้านล่างไปวางใน Codex, Claude Code, Gemini CLI หรือ AI Agent ที่รองรับ เพื่อให้ agent ตรวจ client, ติดตั้ง/อัปเดต skill ใน scope ที่เหมาะสม, ตรวจสอบผล และรายงาน path ที่ติดตั้งจริง โดย prompt จะไม่ขอให้คุณแปะ API key ลงใน repository หรือบทสนทนา
+
+```text
+คุณกำลังติดตั้ง repository Crypto Skills เป็น skill สำหรับวิเคราะห์ตลาดคริปโตที่ใช้ซ้ำได้
+
+แหล่งอ้างอิงหลัก (source of truth):
+  https://github.com/myh-st/crypto-skills.git
+โฟลเดอร์ skill ภายใน repository:
+  skills/crypto-market-trading-analysis
+
+เป้าหมาย:
+  ตรวจว่า AI client ปัจจุบันคือ Codex, Claude Code, Gemini CLI หรือ agent อื่น
+  แล้วติดตั้ง/อัปเดต skill ใน scope ที่รองรับและปลอดภัยที่สุด จากนั้น validate และ
+  รายงานสิ่งที่เปลี่ยนแปลงแบบกระชับ ให้ใช้ workspace เป็นค่าเริ่มต้นสำหรับการติดตั้ง
+  เฉพาะโปรเจกต์ ใช้ user/global scope เมื่อผู้ใช้ขอโดยตรง หรือ client ไม่มีโฟลเดอร์
+  skill ระดับ workspace
+
+กฎความปลอดภัย:
+1. ตรวจ OS, working directory, client/version และสถานะ repository ก่อนแก้ไฟล์
+   ห้ามใช้ `git reset --hard`, การลบ recursive แบบกว้าง หรือคำสั่งที่เขียนทับไฟล์
+   อื่นโดยไม่เกี่ยวข้อง
+2. ถ้ายังไม่มี repository ให้ clone ไปยัง directory ที่รายงานได้ชัดเจน ถ้ามีอยู่แล้ว
+   ให้ fetch/update เฉพาะเมื่อเป็น repository เดียวกัน และเก็บ uncommitted work ไว้
+   บันทึก commit SHA ที่ติดตั้งจริง
+3. ต้องติดตั้งทั้งโฟลเดอร์ skill ที่มี `SKILL.md` เพื่อให้ `references/`, `examples/`
+   และ metadata ใต้ `agents/` ยังใช้งานได้
+4. ถ้าปลายทางมีอยู่แล้ว ให้เปรียบเทียบกับ source ก่อน ใช้ symlink สำหรับ checkout
+   ที่กำลังพัฒนา หรือ copy สำหรับ portable install ก่อนแทนที่ directory ที่ไม่ใช่
+   source ให้ย้าย directory นั้นไป backup ที่มี timestamp และรายงาน path ให้ผู้ใช้
+   ขออนุญาตก่อนการแทนที่ที่ทำลายข้อมูลหรือก่อนใช้สิทธิ์ยกระดับ
+5. รัน validator ของ repository: `python3 scripts/validate_repo.py` ตรวจว่า
+   `SKILL.md` เริ่มด้วย YAML frontmatter ที่ถูกต้อง และเมื่อติดตั้งสำหรับ Codex
+   ต้องมี `agents/openai.yaml` ด้วย ถ้ามี Codex validator ให้รัน
+   `uv run --with pyyaml python ~/.codex/skills/.system/skill-creator/scripts/quick_validate.py skills/crypto-market-trading-analysis` โดยไม่ติดตั้ง package แบบ global
+
+ใช้ integration ตาม client ที่ตรวจพบ:
+- Codex: user scope ใช้ `~/.codex/skills/crypto-market-trading-analysis` หรือ
+  workspace scope ใช้ `.codex/skills/crypto-market-trading-analysis` แนะนำ symlink
+  ไปยัง checkout ระหว่างพัฒนา ถ้าต้อง reload ให้เปิด session ใหม่หรือใช้วิธี reload
+  ของ client แล้วตรวจว่าเรียก `$crypto-market-trading-analysis` ได้
+- Claude Code: personal scope ใช้ `~/.claude/skills/crypto-market-trading-analysis`
+  หรือ project scope ใช้ `.claude/skills/crypto-market-trading-analysis` ตรวจด้วย
+  `/skills` และหลังสร้าง top-level skills directory ใหม่ให้ใช้ `/reload-skills`
+  เมื่อ client รองรับ
+- Gemini CLI: ถ้ามีคำสั่ง `gemini skills` ให้ติดตั้ง subdirectory
+  `skills/crypto-market-trading-analysis` (ใช้ repository URL ตรง ๆ เฉพาะเมื่อ client
+  รองรับ monorepo subdirectory) หรือ clone ไว้ก่อนแล้วใช้
+  `gemini skills link <local-skill-path>` ใช้ `--scope workspace` เฉพาะเมื่อต้องการ
+  ติดตั้งในโปรเจกต์ ถ้าไม่มี manager ให้ใช้ `~/.gemini/skills/` หรือ `.gemini/skills/`
+  (รองรับ alias `.agents/skills/` ด้วย) แล้วตรวจ `/skills list` และ refresh ด้วย
+  `/skills reload`
+- AI Agent อื่น: ตรวจ native skill directory ตามเอกสารของ client แล้ววาง skill ไว้ที่นั่น
+  ถ้าไม่มี skill manager ให้เก็บ checkout ไว้และโหลด
+  `skills/crypto-market-trading-analysis/SKILL.md` เป็น instruction โดยตรง พร้อม
+  รายงานว่าเป็น explicit-reference installation ไม่ใช่ native discovery ห้ามรายงานว่าสำเร็จ
+  โดยไม่แสดง path จริง
+
+ความปลอดภัยของ CoinMarketCap / MCP:
+- ห้ามพิมพ์, commit, embed หรือใส่ API key ไว้ใน prompt, README, shell history,
+  log, screenshot หรือไฟล์ที่ generate หากผู้ใช้อนุญาต key แล้ว ให้เก็บเป็น
+  `CMC_API_KEY` ใน environment หรือ secret manager ที่ host รองรับ และตรวจด้วย metadata
+  request แบบ authenticated ที่ไม่เปิดเผยค่า key
+- ถ้ามี CoinMarketCap MCP server อยู่แล้ว ให้ตั้งค่าผ่าน MCP settings ของ client และ
+  รายงานชื่อ server กับ read-only tools ถ้าไม่มี อย่าสร้างชื่อ package เองหรือแอบติดตั้ง
+  ให้รายงานว่า adapter ยังขาด และปล่อยให้ skill ใช้ data source อื่นได้
+- skill นี้เป็น read-only ห้ามส่ง order, โอนเงิน, ขอ private key หรือเปิดสิทธิ์ custody/trading
+
+รายงานเมื่อเสร็จ (ต้องมี):
+- client และ install scope ที่ตรวจพบ
+- checkout ต้นทางและ commit SHA
+- path ที่ติดตั้งจริงและระบุว่าเป็น symlink หรือ copy
+- คำสั่ง validate และผล pass/fail
+- คำสั่ง reload/restart และตัวอย่าง invocation สั้น ๆ
+- สถานะ CMC/MCP โดยไม่เปิดเผย secret
+- warning, permission ที่ขาด หรือ native integration ที่ไม่รองรับ
+```
+
+เอกสารอ้างอิงตาม client: [Claude Code Skills](https://code.claude.com/docs/en/skills) · [Gemini CLI Agent Skills](https://github.com/google-gemini/gemini-cli/blob/main/docs/cli/using-agent-skills.md) โดย prompt จะใช้ repository นี้เป็น source of truth เดียวและปรับขั้นตอนตาม client ที่ตรวจพบ
+
 ## วิธีเรียกใช้
 
 เรียก skill โดยตรง:
