@@ -48,6 +48,12 @@ Market / spot / derivatives / options / on-chain / tokenomics / macro
 
 This is a logical decomposition inside one capable model, not a requirement to run separate agents.
 
+### Interactive diagram
+
+[Open the interactive architecture diagram](docs/architecture.html)
+
+![Crypto Skills evidence-to-decision architecture](docs/architecture-preview.png)
+
 ## Repository layout
 
 ```text

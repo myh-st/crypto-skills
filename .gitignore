@@ -15,6 +15,7 @@ coverage.xml
 reports/
 snapshots/
 *.jsonl
+docs/*.visual-check.*
 
 # Editor / OS files
 .DS_Store

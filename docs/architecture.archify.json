@@ -1,0 +1,186 @@
+{
+  "schema_version": 1,
+  "diagram_type": "architecture",
+  "meta": {
+    "title": "Crypto Skills — Evidence-to-Decision Architecture",
+    "output": "architecture.html",
+    "quality_profile": "showcase",
+    "repository": {
+      "url": "https://github.com/myh-st/crypto-skills",
+      "provider": "github",
+      "link_mode": "web",
+      "revision": "7f7a6de4e53150669664a0ecb1548332d125782d"
+    },
+    "viewBox": [1280, 700],
+    "views": [
+      {
+        "id": "decision-path",
+        "label": "Decision path",
+        "focus": ["user", "skill", "cutoff", "ledger", "judge", "planner", "risk", "decision"],
+        "note": "Follow a request from scope resolution to a concise, risk-adjusted decision."
+      },
+      {
+        "id": "adversarial-review",
+        "label": "Adversarial review",
+        "focus": ["sources", "ledger", "bull", "bear", "judge"],
+        "note": "See how one timestamped evidence set is challenged from both directions."
+      },
+      {
+        "id": "learning-loop",
+        "label": "Learning loop",
+        "focus": ["decision", "memory", "cutoff", "skill"],
+        "note": "Keep point-in-time-safe decision records for later outcome review."
+      }
+    ]
+  },
+  "components": [
+    {
+      "id": "user",
+      "type": "external",
+      "label": "Portfolio Context",
+      "sublabel": "asset · horizon · risk",
+      "tag": "request",
+      "pos": [20, 260],
+      "size": [130, 78],
+      "sources": [{"path": "README.md", "label": "response contract"}]
+    },
+    {
+      "id": "sources",
+      "type": "external",
+      "label": "Market Data Sources",
+      "sublabel": "CEX · CMC · options · chain",
+      "tag": "read-only",
+      "pos": [20, 60],
+      "size": [180, 82],
+      "sources": [{"path": "skills/crypto-market-trading-analysis/SKILL.md", "label": "source hierarchy"}]
+    },
+    {
+      "id": "skill",
+      "type": "backend",
+      "label": "Crypto Analysis Skill",
+      "sublabel": "market-native reasoning",
+      "tag": "SKILL.md",
+      "pos": [180, 260],
+      "size": [140, 78],
+      "sources": [{"path": "skills/crypto-market-trading-analysis/SKILL.md", "label": "core workflow"}]
+    },
+    {
+      "id": "cutoff",
+      "type": "security",
+      "label": "Cutoff + Context",
+      "sublabel": "scope · timestamp · PIT",
+      "tag": "no future leakage",
+      "pos": [350, 260],
+      "size": [150, 78],
+      "sources": [{"path": "skills/crypto-market-trading-analysis/references/point-in-time.md", "label": "integrity rules"}]
+    },
+    {
+      "id": "ledger",
+      "type": "database",
+      "label": "Evidence Ledger",
+      "sublabel": "facts · quality · provenance",
+      "tag": "single evidence set",
+      "pos": [530, 260],
+      "size": [150, 78],
+      "sources": [{"path": "skills/crypto-market-trading-analysis/references/evidence-ledger.md", "label": "ledger contract"}]
+    },
+    {
+      "id": "bull",
+      "type": "backend",
+      "label": "Bull Research",
+      "sublabel": "continuation · build",
+      "tag": "challenge",
+      "pos": [710, 40],
+      "size": [140, 76],
+      "sources": [{"path": "skills/crypto-market-trading-analysis/SKILL.md", "label": "bull thesis"}]
+    },
+    {
+      "id": "bear",
+      "type": "backend",
+      "label": "Bear Research",
+      "sublabel": "distribution · unwind",
+      "tag": "challenge",
+      "pos": [710, 460],
+      "size": [140, 76],
+      "sources": [{"path": "skills/crypto-market-trading-analysis/SKILL.md", "label": "bear thesis"}]
+    },
+    {
+      "id": "judge",
+      "type": "backend",
+      "label": "Research Judge",
+      "sublabel": "evidence beats narrative",
+      "tag": "direction ≠ timing",
+      "pos": [710, 260],
+      "size": [140, 78],
+      "sources": [{"path": "skills/crypto-market-trading-analysis/SKILL.md", "label": "judge rules"}]
+    },
+    {
+      "id": "planner",
+      "type": "backend",
+      "label": "Execution Planner",
+      "sublabel": "entry · stop · targets",
+      "tag": "price-grounded",
+      "pos": [880, 260],
+      "size": [150, 78],
+      "sources": [{"path": "skills/crypto-market-trading-analysis/SKILL.md", "label": "execution object"}]
+    },
+    {
+      "id": "risk",
+      "type": "security",
+      "label": "Risk Committee",
+      "sublabel": "3 risk lenses",
+      "tag": "stress-test",
+      "pos": [1060, 260],
+      "size": [150, 78],
+      "sources": [{"path": "skills/crypto-market-trading-analysis/SKILL.md", "label": "risk lenses"}]
+    },
+    {
+      "id": "decision",
+      "type": "frontend",
+      "label": "Portfolio Decision",
+      "sublabel": "concise answer + monitor",
+      "tag": "ACCUMULATE / WAIT / NO TRADE",
+      "pos": [1060, 490],
+      "size": [150, 78],
+      "sources": [{"path": "README.md", "label": "human response contract"}]
+    },
+    {
+      "id": "memory",
+      "type": "database",
+      "label": "Decision Memory",
+      "sublabel": "outcome · alpha · reflection",
+      "tag": "point-in-time safe",
+      "pos": [880, 490],
+      "size": [150, 78],
+      "sources": [{"path": "skills/crypto-market-trading-analysis/references/decision-memory.md", "label": "journal contract"}]
+    }
+  ],
+  "boundaries": [
+    {
+      "kind": "region",
+      "label": "Crypto-native decision engine",
+      "wraps": ["skill", "cutoff", "ledger", "bull", "bear", "judge", "planner", "risk", "decision", "memory"],
+      "pad": 28
+    },
+    {
+      "kind": "security-group",
+      "label": "Read-only evidence boundary",
+      "wraps": ["sources", "cutoff", "ledger"],
+      "pad": 18
+    }
+  ],
+  "connections": [
+    {"id": "request-to-skill", "from": "user", "to": "skill", "label": "request + context", "variant": "emphasis", "labelDy": -58},
+    {"id": "sources-to-cutoff", "from": "sources", "to": "cutoff", "label": "timestamped evidence", "variant": "dashed"},
+    {"id": "skill-to-cutoff", "from": "skill", "to": "cutoff", "label": "resolve scope + cutoff", "variant": "emphasis", "labelDy": 72},
+    {"id": "cutoff-to-ledger", "from": "cutoff", "to": "ledger", "label": "normalized facts", "variant": "emphasis", "labelDy": -58},
+    {"id": "ledger-to-bull", "from": "ledger", "to": "bull", "label": "same evidence"},
+    {"id": "ledger-to-bear", "from": "ledger", "to": "bear", "label": "same evidence"},
+    {"id": "bull-to-judge", "from": "bull", "to": "judge", "label": "bull thesis", "labelDy": -70},
+    {"id": "bear-to-judge", "from": "bear", "to": "judge", "label": "bear thesis"},
+    {"id": "judge-to-planner", "from": "judge", "to": "planner", "label": "bias + timing", "variant": "emphasis", "labelDy": -58},
+    {"id": "planner-to-risk", "from": "planner", "to": "risk", "label": "plan to stress-test", "variant": "security", "labelDy": -58},
+    {"id": "risk-to-decision", "from": "risk", "to": "decision", "label": "risk-adjusted plan", "variant": "emphasis", "labelDx": 96, "labelDy": 24},
+    {"id": "decision-to-memory", "from": "decision", "to": "memory", "label": "store outcome", "variant": "dashed", "labelDy": 58}
+  ]
+}

@@ -48,6 +48,12 @@ Market / spot / derivatives / options / on-chain / tokenomics / macro
 
 นี่เป็นการแบ่งบทบาทเชิงตรรกะภายในโมเดลเดียว ไม่ได้บังคับให้ต้องรันหลาย agent แยกกัน
 
+### Interactive diagram
+
+[เปิด architecture diagram แบบ interactive](docs/architecture.html)
+
+![สถาปัตยกรรมจาก evidence ถึง decision ของ Crypto Skills](docs/architecture-preview.png)
+
 ## โครงสร้าง repository
 
 ```text
