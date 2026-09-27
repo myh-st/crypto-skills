@@ -1,5 +1,7 @@
 # Crypto Skills
 
+ภาษา: English · [ไทย](README.th.md)
+
 Crypto-native Codex skills for evidence-based market analysis, execution planning, and risk-aware investment decisions.
 
 The repository currently ships one production skill: `crypto-market-trading-analysis`. It adapts the staged analyst → bull/bear research → trader → risk committee → portfolio decision workflow to crypto markets, where spot flow, leverage, funding, liquidations, tokenomics, and the BTC regime materially change trade quality.
@@ -50,7 +52,8 @@ This is a logical decomposition inside one capable model, not a requirement to r
 
 ```text
 crypto-skills/
-├── README.md
+├── README.md                           # English
+├── README.th.md                        # ภาษาไทย
 ├── docs/
 │   └── architecture.md                 # workflow and implementation boundaries
 ├── schemas/
