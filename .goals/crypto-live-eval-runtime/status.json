@@ -1,10 +1,16 @@
 {
   "goal_id": "crypto-live-eval-runtime",
-  "status": "building",
+  "status": "inspecting",
   "iteration": 1,
   "builder_model": "GPT:5.6-Luna",
   "inspector_model": "GPT:5.6-Sol",
   "initial_sha": "c821bd889dc8e8578a391ef8357f6793bf994b60",
   "created_at": "2026-09-27T16:37:51+07:00",
-  "history": []
+  "history": [
+    {
+      "iteration": 1,
+      "verdict": "FAIL",
+      "summary": "The OpenAI runner sends a literal masked placeholder instead of a credentialed authorization value; the Binance range provider accepts a still-open candle when the requested cutoff is future; and unbounded valid targets can clip chart labels outside the SVG. Quality gates pass; no live model request was made."
+    }
+  ]
 }
