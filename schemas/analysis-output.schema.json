@@ -1,0 +1,40 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://github.com/myh-st/crypto-skills/schemas/analysis-output.schema.json",
+  "title": "Crypto Analysis Output",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["state", "bias", "confidence", "risk"],
+  "properties": {
+    "asset": {"type": "string"},
+    "state": {
+      "type": "string",
+      "enum": [
+        "ACCUMULATE",
+        "ENTER_LONG",
+        "ENTER_SHORT",
+        "WAIT_FOR_PULLBACK",
+        "WAIT_FOR_BREAKOUT_CONFIRMATION",
+        "HOLD",
+        "REDUCE",
+        "TAKE_PARTIAL_PROFIT",
+        "HEDGE_DE_RISK",
+        "AVOID_CHASING",
+        "NO_TRADE"
+      ]
+    },
+    "bias": {"type": "string", "enum": ["bullish", "neutral", "bearish"]},
+    "confidence": {"type": "string", "enum": ["low", "moderate", "high"]},
+    "preferred_entry": {"type": ["string", "null"]},
+    "secondary_entry": {"type": ["string", "null"]},
+    "confirmation": {"type": ["string", "null"]},
+    "invalidation": {"type": ["string", "null"]},
+    "targets": {"type": "array", "items": {"type": "string"}},
+    "horizon": {"type": ["string", "null"]},
+    "reasons": {"type": "array", "items": {"type": "string"}, "maxItems": 5},
+    "risk": {"type": "string", "minLength": 1},
+    "data_quality": {"type": ["string", "null"]},
+    "scenario_map": {"type": ["array", "null"]},
+    "monitoring_conditions": {"type": "array", "items": {"type": "string"}}
+  }
+}

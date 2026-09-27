@@ -1,0 +1,15 @@
+evidence_ledger:
+  - claim: "Daily structure is still higher-high / higher-low"
+    observation_time: "2026-09-27T00:00:00Z"
+    source: "Binance spot OHLCV"
+    evidence_type: price_structure
+    quality: high
+    supports: bull
+    notes: "The latest confirmed higher low remains intact."
+  - claim: "Perpetual open interest fell while funding stayed positive"
+    observation_time: "2026-09-27T00:08:00Z"
+    source: "Binance Futures"
+    evidence_type: derivatives
+    quality: high
+    supports: bear
+    notes: "Long carry remains positive, but leverage is being reduced."

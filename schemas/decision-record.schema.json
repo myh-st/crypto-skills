@@ -1,0 +1,70 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://github.com/myh-st/crypto-skills/schemas/decision-record.schema.json",
+  "title": "Crypto Decision Record",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "analysis_time",
+    "asset",
+    "horizon",
+    "decision_state",
+    "thesis_result"
+  ],
+  "properties": {
+    "analysis_time": {"type": "string", "format": "date-time"},
+    "asset": {"type": "string", "minLength": 1},
+    "horizon": {
+      "type": "string",
+      "enum": ["scalp", "intraday", "swing", "position", "long_term"]
+    },
+    "market_regime": {"type": ["string", "null"]},
+    "decision_state": {
+      "type": "string",
+      "enum": [
+        "ACCUMULATE",
+        "ENTER_LONG",
+        "ENTER_SHORT",
+        "WAIT_FOR_PULLBACK",
+        "WAIT_FOR_BREAKOUT_CONFIRMATION",
+        "HOLD",
+        "REDUCE",
+        "TAKE_PARTIAL_PROFIT",
+        "HEDGE_DE_RISK",
+        "AVOID_CHASING",
+        "NO_TRADE"
+      ]
+    },
+    "entry_zone": {
+      "type": ["array", "null"],
+      "items": {"type": "number"},
+      "minItems": 2,
+      "maxItems": 2
+    },
+    "invalidation": {"type": ["number", "string", "null"]},
+    "targets": {"type": "array", "items": {"type": "number"}},
+    "confidence": {
+      "type": ["string", "null"],
+      "enum": ["low", "moderate", "high", null]
+    },
+    "decisive_evidence": {"type": "array", "items": {"type": "string"}},
+    "leverage_state": {"type": ["string", "null"]},
+    "btc_regime": {"type": ["string", "null"]},
+    "portfolio_context": {"type": ["object", "null"]},
+    "outcome_window": {"type": ["string", "null"]},
+    "raw_return": {"type": ["number", "null"]},
+    "benchmark_return": {"type": ["number", "null"]},
+    "alpha": {"type": ["number", "null"]},
+    "max_favorable_excursion": {"type": ["number", "null"]},
+    "max_adverse_excursion": {"type": ["number", "null"]},
+    "thesis_result": {
+      "type": "string",
+      "enum": ["pending", "confirmed", "invalidated", "mixed"]
+    },
+    "reflection": {"type": ["string", "null"]},
+    "outcome_known_at": {
+      "type": ["string", "null"],
+      "format": "date-time"
+    }
+  }
+}

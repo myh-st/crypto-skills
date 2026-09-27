@@ -1,0 +1,25 @@
+decision_record:
+  analysis_time: "2026-09-27T00:00:00Z"
+  asset: SEI
+  horizon: swing
+  market_regime: alt_bull
+  decision_state: WAIT_FOR_PULLBACK
+  entry_zone: [0.062, 0.067]
+  invalidation: 0.048
+  targets: [0.084, 0.096, 0.109]
+  confidence: moderate
+  decisive_evidence:
+    - "Higher-timeframe structure remains constructive."
+    - "RSI is extended and price is near the recent swing high."
+    - "Positive funding with falling OI increases chase risk."
+  leverage_state: elevated
+  btc_regime: bullish
+  outcome_window: 90d
+  raw_return: null
+  benchmark_return: null
+  alpha: null
+  max_favorable_excursion: null
+  max_adverse_excursion: null
+  thesis_result: pending
+  reflection: null
+  outcome_known_at: null

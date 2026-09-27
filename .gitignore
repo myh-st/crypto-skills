@@ -1,0 +1,22 @@
+# Local credentials and runtime secrets
+.env
+.env.*
+!.env.example
+*.pem
+*.key
+
+# Local analysis outputs and caches
+__pycache__/
+.pytest_cache/
+.mypy_cache/
+.ruff_cache/
+coverage.xml
+.coverage
+reports/
+snapshots/
+*.jsonl
+
+# Editor / OS files
+.DS_Store
+.idea/
+.vscode/

@@ -1,0 +1,23 @@
+asset: SEI/USDT
+state: WAIT_FOR_PULLBACK
+bias: bullish
+confidence: moderate
+preferred_entry: "$0.062-$0.067"
+secondary_entry: "$0.054-$0.058"
+confirmation: "Spot volume holds the retest while OI and funding cool."
+invalidation: "Daily close below $0.048."
+targets:
+  - "$0.084"
+  - "$0.096"
+  - "$0.109"
+horizon: "Swing: 2-8 weeks; thesis: multi-month"
+reasons:
+  - "Higher-timeframe structure is constructive."
+  - "Current price is extended near the swing high."
+  - "Derivatives carry is positive while OI is falling."
+  - "Supply and unlock risk limit chase asymmetry."
+risk: "BTC breakdown, loss of the daily higher low, or a supply-driven liquidity shock."
+data_quality: "CMC spot/technical snapshot plus Binance Futures; liquidation lane unavailable."
+monitoring_conditions:
+  - "Daily close above the swing high with expanding spot volume."
+  - "OI and funding reset without losing the higher-timeframe structure."

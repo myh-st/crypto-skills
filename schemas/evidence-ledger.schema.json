@@ -1,0 +1,54 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://github.com/myh-st/crypto-skills/schemas/evidence-ledger.schema.json",
+  "title": "Crypto Evidence Ledger",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["evidence_ledger"],
+  "properties": {
+    "evidence_ledger": {
+      "type": "array",
+      "items": {
+        "$ref": "#/$defs/evidence"
+      }
+    }
+  },
+  "$defs": {
+    "evidence": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "claim",
+        "observation_time",
+        "source",
+        "evidence_type",
+        "quality",
+        "supports"
+      ],
+      "properties": {
+        "claim": {"type": "string", "minLength": 1},
+        "observation_time": {"type": "string", "format": "date-time"},
+        "source": {"type": "string", "minLength": 1},
+        "evidence_type": {
+          "type": "string",
+          "enum": [
+            "price_structure",
+            "spot_flow",
+            "derivatives",
+            "volatility",
+            "options",
+            "on_chain",
+            "tokenomics",
+            "macro",
+            "catalyst",
+            "relative_strength",
+            "other"
+          ]
+        },
+        "quality": {"type": "string", "enum": ["high", "medium", "low"]},
+        "supports": {"type": "string", "enum": ["bull", "bear", "neutral"]},
+        "notes": {"type": "string"}
+      }
+    }
+  }
+}

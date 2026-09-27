@@ -1,0 +1,8 @@
+interface:
+  display_name: "Crypto Market & Trading Analysis"
+  short_description: "Crypto-native structure, flow, leverage, and risk"
+  brand_color: "#0F766E"
+  default_prompt: "Use $crypto-market-trading-analysis to analyze this crypto setup with a concise decision, entry, invalidation, targets, horizon, and risks."
+
+policy:
+  allow_implicit_invocation: true
