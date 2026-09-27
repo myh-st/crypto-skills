@@ -277,6 +277,9 @@ Predictions use the canonical states in
 direction, zone, and confirmation; breakout waits require a level and close
 confirmation. Immediate entries require an explicit reference. `NO_TRADE`,
 `AVOID_CHASING`, and other non-entry states do not acquire an invented fill.
+Structured analysis, frozen predictions, and decision records accept at most
+five ordered targets; larger target arrays fail validation rather than being
+silently clipped by the chart.
 
 A wait that does not trigger within a complete evaluation window is recorded as
 `not_triggered`. It contributes to the trigger-rate denominator but has no

@@ -18,6 +18,7 @@ from .contracts import (
     CONFIDENCE_LEVELS,
     DECISION_STATES,
     EvaluationError,
+    MAX_TARGET_LEVELS,
     digest,
     iso_utc,
 )
@@ -92,7 +93,11 @@ DECISION_RESPONSE_SCHEMA: dict[str, Any] = {
             "additionalProperties": False,
         },
         "invalidation": {"type": ["number", "null"]},
-        "targets": {"type": "array", "items": {"type": "number"}},
+        "targets": {
+            "type": "array",
+            "items": {"type": "number"},
+            "maxItems": MAX_TARGET_LEVELS,
+        },
         "leverage_stress": {
             "type": ["string", "null"],
             "enum": ["low", "elevated", "high", "extreme", None],
@@ -326,6 +331,10 @@ def _normalized_decision(value: Any) -> dict[str, Any]:
         raise OpenAIResponsesError("model output rationale must be a non-empty string")
     if not isinstance(value["targets"], list):
         raise OpenAIResponsesError("model output targets must be an array")
+    if len(value["targets"]) > MAX_TARGET_LEVELS:
+        raise OpenAIResponsesError(
+            f"model output targets may contain at most {MAX_TARGET_LEVELS} levels"
+        )
 
     raw_entry = value["entry"]
     if raw_entry is None:
@@ -545,7 +554,7 @@ class OpenAIResponsesRunner:
             allow_nan=False,
         ).encode("utf-8")
         headers = {
-            "Authorization": f"Bearer {api_key.strip()}",
+            "Authorization": "Bearer " + api_key.strip(),
             "Content-Type": "application/json",
             "Accept": "application/json",
         }

@@ -6,6 +6,7 @@ import unittest
 
 from crypto_eval.contracts import (
     EvaluationError,
+    MAX_TARGET_LEVELS,
     validate_dataset,
     validate_prediction_record,
 )
@@ -318,6 +319,49 @@ class EvaluationContractTests(unittest.TestCase):
                 dataset["dataset_version"],
                 dataset["dataset_hash"],
             )
+
+    def test_prediction_and_output_contracts_bound_target_count(self) -> None:
+        dataset = demo_dataset()
+        case = dataset["cases"][0]
+        prediction = run_predictions(dataset, FixtureRunner())[0]
+        too_many_targets = deepcopy(prediction)
+        too_many_targets["decision"]["targets"] = [
+            float(index + 1) for index in range(MAX_TARGET_LEVELS + 1)
+        ]
+
+        with self.assertRaisesRegex(
+            EvaluationError,
+            f"prediction targets may contain at most {MAX_TARGET_LEVELS} levels",
+        ):
+            validate_prediction_record(
+                too_many_targets,
+                case,
+                dataset["dataset_id"],
+                dataset["dataset_version"],
+                dataset["dataset_hash"],
+            )
+        self.assertTrue(
+            schema_errors(too_many_targets, "eval-prediction.schema.json")
+        )
+
+        analysis = {
+            "state": "NO_TRADE",
+            "bias": "neutral",
+            "confidence": "low",
+            "risk": "Research only.",
+            "targets": [str(index) for index in range(MAX_TARGET_LEVELS + 1)],
+        }
+        self.assertTrue(schema_errors(analysis, "analysis-output.schema.json"))
+
+        decision_record = {
+            "analysis_time": "2026-01-01T00:00:00Z",
+            "asset": "BTC",
+            "horizon": "intraday",
+            "decision_state": "NO_TRADE",
+            "thesis_result": "pending",
+            "targets": [float(index) for index in range(MAX_TARGET_LEVELS + 1)],
+        }
+        self.assertTrue(schema_errors(decision_record, "decision-record.schema.json"))
 
     def test_prediction_writer_refuses_to_overwrite_any_existing_file(self) -> None:
         dataset = demo_dataset()

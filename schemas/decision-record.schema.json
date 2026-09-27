@@ -29,7 +29,7 @@
       "maxItems": 2
     },
     "invalidation": {"type": ["number", "string", "null"]},
-    "targets": {"type": "array", "items": {"type": "number"}},
+    "targets": {"type": "array", "items": {"type": "number"}, "maxItems": 5},
     "confidence": {
       "type": ["string", "null"],
       "enum": ["low", "moderate", "high", null]

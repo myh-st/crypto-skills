@@ -244,3 +244,52 @@ test("live chart range buttons filter only the closed candles actually returned"
   assert.match(oneDay, /Sep 28, 01:00/);
   assert.doesNotMatch(oneDay, /synthetic fixture data|NOW |TP1|INVALIDATION/);
 });
+
+test("maximum supported target overlays remain inside the SVG viewBox", () => {
+  const run = sampleRun();
+  run.runtimeMode = "live";
+  run.entryKind = "none";
+  run.requestSettings = { interval: "1h" };
+  run.marketCandles = [
+    {
+      open_time: "2026-09-27T14:00:00.000000Z",
+      close_time: "2026-09-27T15:00:00.000000Z",
+      open: 100,
+      high: 103,
+      low: 99,
+      close: 101,
+      volume: 10,
+    },
+    {
+      open_time: "2026-09-27T15:00:00.000000Z",
+      close_time: "2026-09-27T16:00:00.000000Z",
+      open: 101,
+      high: 104,
+      low: 100,
+      close: 102,
+      volume: 11,
+    },
+  ];
+  run.priceLevels = {
+    current: 102,
+    entryZone: [100.5, 101],
+    secondaryEntry: null,
+    invalidation: 98,
+    targets: [110, 111, 112, 113, 114],
+  };
+  run.marketStructure = {
+    keyLevels: [
+      { label: "Snapshot low", price: 99 },
+      { label: "Snapshot high", price: 104 },
+    ],
+  };
+
+  const html = renderPriceChart(run, "1D");
+  const labelBaselines = [...html.matchAll(
+    /<text x="[^"]+" y="(-?[\d.]+)" class="chart-level-label/g,
+  )].map((match) => Number(match[1]));
+
+  assert.equal((html.match(/class="chart-target-line chart-level-edge"/g) || []).length, 5);
+  assert.equal(labelBaselines.length, 10);
+  assert.ok(labelBaselines.every((value) => value >= 0 && value <= 455));
+});

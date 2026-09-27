@@ -65,7 +65,7 @@
         "confidence": {"type": "string", "enum": ["low", "moderate", "high"]},
         "entry": {"type": ["object", "null"]},
         "invalidation": {"type": ["number", "null"]},
-        "targets": {"type": "array", "items": {"type": "number"}},
+        "targets": {"type": "array", "items": {"type": "number"}, "maxItems": 5},
         "leverage_stress": {"type": ["string", "null"]},
         "rationale": {"type": "string"}
       }

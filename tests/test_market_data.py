@@ -9,12 +9,13 @@ from datetime import datetime, timedelta, timezone
 from pathlib import Path
 from urllib.parse import parse_qs, urlparse
 
-from crypto_eval.contracts import EvaluationError
+from crypto_eval.contracts import EvaluationError, iso_utc
 from crypto_eval.market_data import (
     BINANCE_PROVIDER_ID,
     BinanceSpotKlinesProvider,
     build_market_archive_record,
     load_market_archive,
+    validate_market_archive,
     write_market_archive,
 )
 
@@ -103,7 +104,10 @@ class BinanceSpotProviderTests(unittest.TestCase):
         self.assertEqual(candles[0]["open_time"], "2026-01-01T00:00:00.000000Z")
         self.assertEqual(calls[0]["query"]["startTime"], epoch_ms(self.start))
         self.assertEqual(calls[0]["query"]["timeZone"], "0")
-        with self.assertRaisesRegex(EvaluationError, "closes after the requested data cutoff"):
+        with self.assertRaisesRegex(
+            EvaluationError,
+            "source close timestamp is after the requested data cutoff",
+        ):
             BinanceSpotKlinesProvider._normalize_kline(
                 kline(self.start + timedelta(hours=1)),
                 "BTCUSDT",
@@ -127,12 +131,75 @@ class BinanceSpotProviderTests(unittest.TestCase):
         with self.assertRaises(EvaluationError):
             provider.fetch_range("BTCUSDT", "1h", self.start, self.end)
 
+    def test_fetch_range_rejects_future_boundary_and_open_kline_response(self) -> None:
+        now = self.start + timedelta(minutes=30)
+        current_bar = kline(self.start)
+        transport, calls = self._transport_for([current_bar])
+        provider = BinanceSpotKlinesProvider(
+            transport=transport,
+            clock=lambda: now,
+        )
+
+        with self.assertRaisesRegex(EvaluationError, "requested end is after the provider retrieval time"):
+            provider.fetch_range(
+                "BTCUSDT",
+                "1h",
+                self.start,
+                self.start + timedelta(hours=1),
+            )
+        self.assertEqual(calls, [])
+
+        provider = BinanceSpotKlinesProvider(
+            transport=lambda _url, _timeout: json.dumps([current_bar]).encode("utf-8"),
+            clock=lambda: now,
+        )
+        with self.assertRaisesRegex(
+            EvaluationError,
+            "source close timestamp is after the requested data cutoff",
+        ):
+            provider.fetch_range(
+                "BTCUSDT",
+                "1h",
+                self.start - timedelta(hours=1),
+                self.start,
+            )
+
+        with self.assertRaisesRegex(
+            EvaluationError,
+            "source close timestamp is after the provider retrieval time",
+        ):
+            BinanceSpotKlinesProvider._normalize_kline(
+                current_bar,
+                "BTCUSDT",
+                "1h",
+                self.interval_seconds,
+                self.start + timedelta(hours=1),
+                "current_kline",
+                retrieved_at=now,
+            )
+
     def test_fetch_range_rejects_malformed_ohlcv_and_unaligned_ranges(self) -> None:
         malformed = kline(self.start)
         malformed[4] = "NaN"
         provider = BinanceSpotKlinesProvider(transport=self._transport_for([malformed])[0])
         with self.assertRaises(EvaluationError):
             provider.fetch_range("BTCUSDT", "1h", self.start, self.start + timedelta(hours=1))
+
+        close_after_cutoff = kline(self.start)
+        close_after_cutoff[6] = epoch_ms(self.start + timedelta(hours=1)) + 1
+        provider = BinanceSpotKlinesProvider(
+            transport=self._transport_for([close_after_cutoff])[0]
+        )
+        with self.assertRaisesRegex(
+            EvaluationError,
+            "source close timestamp is after the requested data cutoff",
+        ):
+            provider.fetch_range(
+                "BTCUSDT",
+                "1h",
+                self.start,
+                self.start + timedelta(hours=1),
+            )
 
         provider = BinanceSpotKlinesProvider(transport=lambda _url, _timeout: b"[]")
         with self.assertRaisesRegex(EvaluationError, "aligned"):
@@ -204,6 +271,38 @@ class BinanceSpotProviderTests(unittest.TestCase):
         self.assertEqual(loaded["content_sha256"], record["content_sha256"])
         self.assertEqual(write_market_archive(record, archive_dir), path)
         self.assertNotIn("api_key", json.dumps(loaded).lower())
+
+    def test_archive_rejects_requested_end_and_candles_after_retrieval_time(self) -> None:
+        cutoff = self.start + timedelta(hours=1)
+        provider = BinanceSpotKlinesProvider(
+            transport=self._transport_for([kline(self.start)])[0]
+        )
+        candles = provider.fetch_range("BTCUSDT", "1h", self.start, cutoff)
+        with self.assertRaisesRegex(EvaluationError, "extends after retrieved_at"):
+            build_market_archive_record(
+                BINANCE_PROVIDER_ID,
+                "BTCUSDT",
+                "1h",
+                self.start,
+                cutoff + timedelta(minutes=30),
+                candles,
+                cutoff + timedelta(minutes=10),
+            )
+
+        record = build_market_archive_record(
+            BINANCE_PROVIDER_ID,
+            "BTCUSDT",
+            "1h",
+            self.start,
+            cutoff,
+            candles,
+            cutoff + timedelta(minutes=2),
+        )
+        tampered = dict(record)
+        tampered["requested_end"] = iso_utc(cutoff + timedelta(minutes=30))
+        tampered["retrieved_at"] = iso_utc(cutoff + timedelta(minutes=10))
+        with self.assertRaisesRegex(EvaluationError, "extends after retrieved_at"):
+            validate_market_archive(tampered)
 
 
 if __name__ == "__main__":

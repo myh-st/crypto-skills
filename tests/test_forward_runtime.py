@@ -5,7 +5,9 @@ import os
 import shutil
 import threading
 import unittest
+from contextlib import redirect_stderr, redirect_stdout
 from datetime import datetime, timedelta, timezone
+from io import StringIO
 from pathlib import Path
 from urllib.parse import parse_qs, urlparse
 from urllib.error import HTTPError
@@ -185,7 +187,10 @@ class ForwardRuntimeTests(unittest.TestCase):
         }
 
     def test_mocked_pair_freezes_same_snapshot_and_only_skill_text_differs(self) -> None:
-        response = self.service.create(self._request())
+        captured_stdout = StringIO()
+        captured_stderr = StringIO()
+        with redirect_stdout(captured_stdout), redirect_stderr(captured_stderr):
+            response = self.service.create(self._request())
         run = response["run"]
 
         self.assertEqual(run["runtimeMode"], "live")
@@ -195,6 +200,13 @@ class ForwardRuntimeTests(unittest.TestCase):
         self.assertEqual(run["entryKind"], "pullback")
         self.assertEqual(run["requestSettings"]["interval"], "1h")
         self.assertEqual(len(self.responses.calls), 2)
+        for call in self.responses.calls:
+            authorization = call["headers"].get("Authorization", "")
+            self.assertTrue(authorization.startswith("Bearer "))
+            self.assertEqual(authorization.partition(" ")[2], MOCK_KEY)
+            self.assertNotIn(MOCK_KEY, json.dumps(call["body"]))
+        self.assertNotIn(MOCK_KEY, captured_stdout.getvalue() + captured_stderr.getvalue())
+        self.assertNotIn(MOCK_KEY, json.dumps(response))
         skill_request, control_request = self.responses.calls
         self.assertEqual(skill_request["case"], control_request["case"])
         self.assertEqual(

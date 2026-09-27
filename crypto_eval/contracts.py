@@ -31,6 +31,7 @@ FIXED_BASELINE_PARAMETERS = {
 CONFIDENCE_LEVELS = frozenset({"low", "moderate", "high"})
 BIAS_DIRECTIONS = frozenset({"bullish", "bearish", "neutral"})
 OUTCOME_STATUSES = frozenset({"complete", "partial", "unavailable"})
+MAX_TARGET_LEVELS = 5
 WAIT_STATES_FOR_CONTRACTS = frozenset(
     {"WAIT_FOR_PULLBACK", "WAIT_FOR_BREAKOUT_CONFIRMATION"}
 )
@@ -1464,6 +1465,10 @@ def validate_prediction_record(
     targets = decision.get("targets", [])
     if not isinstance(targets, list):
         raise EvaluationError("prediction targets must be an array")
+    if len(targets) > MAX_TARGET_LEVELS:
+        raise EvaluationError(
+            f"prediction targets may contain at most {MAX_TARGET_LEVELS} levels"
+        )
     numeric_targets = [_number(price, f"prediction.targets[{i}]", minimum=0) for i, price in enumerate(targets)]
     if any(price <= 0 for price in numeric_targets):
         raise EvaluationError("prediction target prices must be greater than zero")
