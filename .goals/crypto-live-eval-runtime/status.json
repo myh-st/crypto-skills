@@ -1,6 +1,6 @@
 {
   "goal_id": "crypto-live-eval-runtime",
-  "status": "inspecting",
+  "status": "completed",
   "iteration": 2,
   "builder_model": "GPT:5.6-Luna",
   "inspector_model": "GPT:5.6-Sol",
