@@ -139,7 +139,7 @@
       "type": "frontend",
       "label": "Portfolio Decision",
       "sublabel": "concise answer + monitor",
-      "tag": "ACCUMULATE / WAIT / NO TRADE",
+      "tag": "ACCUMULATE / WAIT_FOR_PULLBACK / NO_TRADE",
       "pos": [1060, 490],
       "size": [150, 78],
       "sources": [{"path": "README.md", "label": "human response contract"}]

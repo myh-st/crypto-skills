@@ -20,20 +20,7 @@
     },
     "market_regime": {"type": ["string", "null"]},
     "decision_state": {
-      "type": "string",
-      "enum": [
-        "ACCUMULATE",
-        "ENTER_LONG",
-        "ENTER_SHORT",
-        "WAIT_FOR_PULLBACK",
-        "WAIT_FOR_BREAKOUT_CONFIRMATION",
-        "HOLD",
-        "REDUCE",
-        "TAKE_PARTIAL_PROFIT",
-        "HEDGE_DE_RISK",
-        "AVOID_CHASING",
-        "NO_TRADE"
-      ]
+      "$ref": "decision-state.schema.json"
     },
     "entry_zone": {
       "type": ["array", "null"],
@@ -51,6 +38,27 @@
     "leverage_state": {"type": ["string", "null"]},
     "btc_regime": {"type": ["string", "null"]},
     "portfolio_context": {"type": ["object", "null"]},
+    "trigger": {
+      "type": ["object", "null"],
+      "additionalProperties": false,
+      "properties": {
+        "triggered": {"type": "boolean"},
+        "triggered_at": {"type": ["string", "null"], "format": "date-time"},
+        "entry_reference": {"type": ["number", "string", "null"]},
+        "time_to_trigger": {"type": ["string", "null"]}
+      }
+    },
+    "outcome": {
+      "type": ["object", "null"],
+      "additionalProperties": false,
+      "properties": {
+        "target_hit_first": {"type": ["boolean", "null"]},
+        "invalidation_hit_first": {"type": ["boolean", "null"]},
+        "post_trigger_return": {"type": ["number", "null"]},
+        "post_trigger_mfe": {"type": ["number", "null"]},
+        "post_trigger_mae": {"type": ["number", "null"]}
+      }
+    },
     "outcome_window": {"type": ["string", "null"]},
     "raw_return": {"type": ["number", "null"]},
     "benchmark_return": {"type": ["number", "null"]},

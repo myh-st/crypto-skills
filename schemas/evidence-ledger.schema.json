@@ -18,8 +18,7 @@
       "type": "object",
       "additionalProperties": false,
       "required": [
-        "claim",
-        "observation_time",
+        "observed_at",
         "source",
         "evidence_type",
         "quality",
@@ -27,8 +26,27 @@
       ],
       "properties": {
         "claim": {"type": "string", "minLength": 1},
-        "observation_time": {"type": "string", "format": "date-time"},
-        "source": {"type": "string", "minLength": 1},
+        "metric": {"type": "string", "minLength": 1},
+        "value": {"type": ["number", "string", "boolean", "null"]},
+        "unit": {"type": ["string", "null"]},
+        "venue": {"type": ["string", "null"]},
+        "instrument": {"type": ["string", "null"]},
+        "observed_at": {"type": "string", "format": "date-time"},
+        "retrieved_at": {"type": ["string", "null"], "format": "date-time"},
+        "freshness_seconds": {"type": ["number", "null"], "minimum": 0},
+        "source": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["provider", "type"],
+          "properties": {
+            "provider": {"type": "string", "minLength": 1},
+            "type": {
+              "type": "string",
+              "enum": ["primary", "aggregator", "charting", "derived", "news", "other"]
+            },
+            "uri": {"type": ["string", "null"]}
+          }
+        },
         "evidence_type": {
           "type": "string",
           "enum": [
@@ -47,6 +65,15 @@
         },
         "quality": {"type": "string", "enum": ["high", "medium", "low"]},
         "supports": {"type": "string", "enum": ["bull", "bear", "neutral"]},
+        "interpretation": {
+          "type": ["object", "null"],
+          "additionalProperties": false,
+          "properties": {
+            "supports": {"type": "string", "enum": ["bull", "bear", "neutral"]},
+            "confidence": {"type": "string", "enum": ["low", "medium", "high"]},
+            "notes": {"type": "string"}
+          }
+        },
         "notes": {"type": "string"}
       }
     }

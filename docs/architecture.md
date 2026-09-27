@@ -20,7 +20,9 @@ Collect only the layers relevant to the request:
 - token supply, unlocks, valuation, adoption, and protocol activity
 - BTC/ETH relative strength, macro liquidity, and scheduled catalysts
 
-Each observation gets a timestamp, source, quality label, and evidence family. Missing data remains missing.
+Each observation gets typed metric/value fields when applicable, separate observed and
+retrieved timestamps, a structured source, a quality label, and an evidence family.
+Missing data remains missing.
 
 ### 3. Neutral ledger
 
@@ -49,14 +51,34 @@ The default output exposes one decision state and only the decisive reasons. Det
 ```text
 NEUTRAL EVIDENCE
       │
-      ├── directional bias unclear ──► HOLD / NO TRADE
+      ├── directional bias unclear ──► HOLD / NO_TRADE
       │
-      ├── direction clear, timing poor ──► WAIT FOR PULLBACK / BREAKOUT CONFIRMATION
+      ├── direction clear, timing poor ──► WAIT_FOR_PULLBACK / WAIT_FOR_BREAKOUT_CONFIRMATION
       │
-      ├── direction + timing confirmed ──► ACCUMULATE / ENTER
+      ├── direction + timing confirmed ──► ACCUMULATE / ENTER_LONG / ENTER_SHORT
       │
-      └── existing thesis weakened ──► REDUCE / HEDGE / EXIT
+      └── existing thesis weakened ──► REDUCE / HEDGE_DE_RISK / EXIT
 ```
+
+## Canonical decision state
+
+The final state vocabulary is defined once in
+[`schemas/decision-state.schema.json`](../schemas/decision-state.schema.json) and
+must be used by analysis output, decision records, documentation, and runtime
+adapters. Human-readable labels and internal execution verbs map to it as follows:
+
+| Internal/runtime label | Canonical final state |
+|---|---|
+| `BUY` / `ACCUMULATE` | `ACCUMULATE` |
+| `WAIT` with a support condition | `WAIT_FOR_PULLBACK` |
+| `WAIT` with a breakout condition | `WAIT_FOR_BREAKOUT_CONFIRMATION` |
+| `SELL` / `SHORT` after confirmation | `ENTER_SHORT` |
+| `BUY` after confirmation | `ENTER_LONG` |
+| `HEDGE` | `HEDGE_DE_RISK` |
+| `TAKE_PROFIT` | `TAKE_PARTIAL_PROFIT` or `EXIT` |
+
+The validator checks every schema enum against this canonical file so vocabulary
+drift cannot silently reach production.
 
 ## Runtime boundaries
 

@@ -1,15 +1,43 @@
 evidence_ledger:
   - claim: "Daily structure is still higher-high / higher-low"
-    observation_time: "2026-09-27T00:00:00Z"
-    source: "Binance spot OHLCV"
+    metric: daily_structure
+    value: "HH/HL"
+    unit: null
+    venue: Binance
+    instrument: spot
+    observed_at: "2026-09-27T00:00:00Z"
+    retrieved_at: "2026-09-27T00:00:25Z"
+    freshness_seconds: 25
+    source:
+      provider: Binance
+      type: primary
+      uri: "https://api.binance.com/api/v3/klines?symbol=SEIUSDT&interval=1d"
     evidence_type: price_structure
     quality: high
     supports: bull
+    interpretation:
+      supports: bull
+      confidence: high
+      notes: "The latest confirmed higher low remains intact."
     notes: "The latest confirmed higher low remains intact."
   - claim: "Perpetual open interest fell while funding stayed positive"
-    observation_time: "2026-09-27T00:08:00Z"
-    source: "Binance Futures"
+    metric: open_interest
+    value: 1820000000
+    unit: USD
+    venue: Binance
+    instrument: perpetual
+    observed_at: "2026-09-27T00:08:00Z"
+    retrieved_at: "2026-09-27T00:08:25Z"
+    freshness_seconds: 25
+    source:
+      provider: Binance
+      type: primary
+      uri: "https://fapi.binance.com/fapi/v1/openInterest?symbol=SEIUSDT"
     evidence_type: derivatives
     quality: high
     supports: bear
+    interpretation:
+      supports: bear
+      confidence: medium
+      notes: "Long carry remains positive, but leverage is being reduced."
     notes: "Long carry remains positive, but leverage is being reduced."

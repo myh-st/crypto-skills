@@ -7,19 +7,39 @@ Use this reference when a request needs an auditable analysis, a historical `as_
 ```yaml
 evidence_ledger:
   - claim: "Daily structure remains HH/HL"
-    observation_time: "2026-09-27T00:00:00Z"
-    source: "Binance spot OHLCV"
+    metric: daily_structure
+    value: "HH/HL"
+    unit: null
+    venue: Binance
+    instrument: spot
+    observed_at: "2026-09-27T00:00:00Z"
+    retrieved_at: "2026-09-27T00:00:25Z"
+    freshness_seconds: 25
+    source:
+      provider: Binance
+      type: primary
+      uri: "https://api.binance.com/api/v3/klines?symbol=SEIUSDT&interval=1d"
     evidence_type: price_structure
     quality: high
     supports: bull
+    interpretation:
+      supports: bull
+      confidence: high
+      notes: "Last confirmed daily higher low at ..."
     notes: "Last confirmed daily higher low at ..."
 ```
 
-Required fields are `claim`, `observation_time`, `source`, `evidence_type`, `quality`, and `supports`. `supports` is `bull`, `bear`, or `neutral`; use `neutral` for descriptive evidence that does not yet establish direction.
+Required fields are `observed_at`, structured `source`, `evidence_type`, `quality`, and `supports`. `claim` is an optional human-readable summary. Use `metric`, `value`, `unit`, `venue`, and `instrument` whenever the observation is quantitative. `supports` is `bull`, `bear`, or `neutral`; use `neutral` for descriptive evidence that does not yet establish direction.
 
 ## Ledger rules
 
 - Record the observation before writing the implication.
+- Keep `observed_at` (when the market observation was made) separate from
+  `retrieved_at` (when the runtime fetched it); use `freshness_seconds` when it
+  can be calculated.
+- Keep `source.provider` and `source.type` machine-readable; include a URI when
+  one exists. Do not put credentials, cursors, or raw private payloads in the
+  ledger.
 - Keep the same evidence set for Bull and Bear; neither side may silently rewrite a fact.
 - Correlated indicators from one evidence family count as one family, not independent votes.
 - A missing or stale source lowers confidence; it is not neutral evidence.

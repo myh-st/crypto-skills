@@ -1,7 +1,7 @@
 # Concise response example
 
 ```text
-SEI/USDT — WAIT FOR PULLBACK
+SEI/USDT — WAIT_FOR_PULLBACK
 
 • Buy zone: $0.062–$0.067; secondary $0.054–$0.058
 • Invalidation: daily close below $0.048

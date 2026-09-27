@@ -11,11 +11,12 @@ The repository currently ships one production skill: `crypto-market-trading-anal
 - Separate observations from interpretation with an evidence ledger.
 - Treat price structure and spot participation as primary; use derivatives to explain fragility.
 - Make Bull and Bear challenge the same evidence instead of creating competing narratives.
-- Separate direction from timing: a bullish asset can still be `WAIT FOR PULLBACK`.
+- Separate direction from timing: a bullish asset can still be `WAIT_FOR_PULLBACK`.
 - Ground entries, invalidations, and targets in observable levels and volatility.
 - Preserve point-in-time integrity for historical analysis and backtests.
 - Store decisions and outcomes so timing, leverage, and thesis quality can be reviewed later.
 - Keep the internal analysis deep while the default human response stays concise and decision-first.
+- Keep one canonical final decision-state vocabulary in `schemas/decision-state.schema.json`.
 
 ## Architecture
 
@@ -64,6 +65,7 @@ crypto-skills/
 │   └── architecture.md                 # workflow and implementation boundaries
 ├── schemas/
 │   ├── analysis-output.schema.json     # final decision contract
+│   ├── decision-state.schema.json      # canonical final decision states
 │   ├── decision-record.schema.json     # journal / outcome contract
 │   └── evidence-ledger.schema.json    # fact ledger contract
 ├── examples/
@@ -72,6 +74,10 @@ crypto-skills/
 │   └── evidence-ledger.yaml
 ├── scripts/
 │   └── validate_repo.py                # dependency-free structural checks
+├── tests/
+│   └── test_contracts.py                # schema/example regression tests
+├── .github/workflows/
+│   └── validate.yml                     # PR/push contract gate
 └── skills/
     └── crypto-market-trading-analysis/
         ├── SKILL.md                    # complete Codex skill instructions
@@ -216,11 +222,17 @@ Run the repository checks after changing the skill:
 
 ```bash
 python3 scripts/validate_repo.py
-python3 ~/.codex/skills/.system/skill-creator/scripts/quick_validate.py \
+python3 -m unittest discover -s tests -v
+uv run --with pyyaml python ~/.codex/skills/.system/skill-creator/scripts/quick_validate.py \
   skills/crypto-market-trading-analysis
 ```
 
-The first command checks the repository contracts and required TradingAgents-inspired sections. The second checks Codex skill frontmatter, naming, and scaffold hygiene.
+The first command checks JSON/YAML examples against their schemas, canonical enum
+consistency, required references, and required TradingAgents-inspired sections.
+The second runs the schema/fixture regression tests. The third checks Codex skill
+frontmatter, naming, and scaffold hygiene.
+GitHub Actions runs the repository validator and regression tests on every PR and
+push to `main`.
 
 ## Contributing
 

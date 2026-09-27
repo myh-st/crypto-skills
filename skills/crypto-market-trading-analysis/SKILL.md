@@ -7,8 +7,10 @@ description: >-
   leverage, funding, open interest, liquidations, volatility, and cross-market confirmation.
   It uses news and narratives as secondary context rather than the primary trading signal.
   The goal is to produce an evidence-based market view with explicit entry conditions,
-  invalidation, risk, scenarios, and decision states such as ACCUMULATE, ENTER, WAIT,
-  REDUCE, HEDGE, or AVOID CHASING. Internally, use an adversarial investment-committee
+  invalidation, risk, scenarios, and canonical decision states such as ACCUMULATE,
+  ENTER_LONG, ENTER_SHORT, WAIT_FOR_PULLBACK, WAIT_FOR_BREAKOUT_CONFIRMATION,
+  AVOID_CHASING, NO_TRADE, HOLD, REDUCE, TAKE_PARTIAL_PROFIT, HEDGE_DE_RISK, or EXIT.
+  Internally, use an adversarial investment-committee
   workflow: neutral evidence collection, bull/bear challenge, execution planning, risk
   stress-testing, portfolio-aware synthesis, and outcome learning. Human-facing output
   remains concise by default.
@@ -220,809 +222,27 @@ Before comparing exchanges:
 - distinguish last price, mark price, and index price
 - identify exchange-specific leverage or margin-rule changes
 
----
-
-# 5. Multi-Timeframe Analysis Framework
-
-Analyze top-down.
-
-## 5.1 Default timeframe map
-
-| Horizon | Context | Setup | Execution |
-|---|---|---|---|
-| Scalping | 1H / 15m | 5m | 1m |
-| Intraday | 4H / 1H | 15m | 5m |
-| Swing | 1W / 1D | 4H | 1H |
-| Position | 1M / 1W | 1D | 4H |
-| Long-term | 1M / 1W | 1D | DCA zones |
-
-Do not use a 5-minute bullish setup to override a weekly downtrend without explicitly labeling it as a counter-trend trade.
-
-## 5.2 Determine the regime first
-
-Classify each relevant timeframe as one of:
-
-- strong uptrend
-- weak uptrend
-- range / balance
-- distribution-like range
-- accumulation-like range
-- weak downtrend
-- strong downtrend
-- volatility expansion
-- volatility compression
-- transition / unclear
-
-Do not force a directional trade when the regime is unclear.
-
----
-
-# 6. Price Action and Market Structure
-
-## 6.1 Swing structure
-
-Identify:
-
-- Higher High (HH)
-- Higher Low (HL)
-- Lower High (LH)
-- Lower Low (LL)
-- range high / low
-- prior day/week/month high and low
-- all-time high or major cycle levels when relevant
-
-Trend interpretation:
-
-```text
-HH + HL = bullish structure
-LH + LL = bearish structure
-mixed swings = range or transition
-```
-
-## 6.2 Break of structure
-
-Differentiate:
-
-- confirmed breakout
-- wick-only liquidity sweep
-- false breakout
-- reclaim
-- failed reclaim
-
-A breakout is stronger when supported by:
-
-- close beyond level
-- expansion in volume
-- spot participation
-- successful retest
-- rising relative strength
-- derivatives positioning that is not excessively crowded
-
-## 6.3 BOS / CHoCH / liquidity concepts
-
-BOS, CHoCH, liquidity sweeps, fair value gaps, order blocks, and similar market-structure concepts may be used as heuristics.
-
-Rules:
-
-- never treat them as guaranteed institutional footprints
-- require confirmation from volume, structure, or order flow
-- avoid retrofitting labels after price has already moved
-
-## 6.4 Support and resistance hierarchy
-
-Prioritize:
-
-1. Major weekly/monthly structure
-2. Prior swing highs/lows
-3. High-volume nodes and POC
-4. Prior value-area boundaries
-5. Breakout/retest levels
-6. VWAP / anchored VWAP
-7. Dynamic moving averages
-8. Fibonacci as secondary confluence only
-
-Zones are preferred over exact single-price lines.
-
----
-
-# 7. Volume and Volume-at-Price
-
-## 7.1 Raw volume
-
-Check whether price movement is supported by volume.
-
-Examples:
-
-- breakout + expanding volume = stronger acceptance
-- breakout + declining volume = higher failure risk
-- selloff + capitulation volume + OI collapse = possible leverage reset
-- price advance + weak spot volume + strong futures volume = fragile rally risk
-
-## 7.2 Volume Profile
-
-When available, identify:
-
-- POC — Point of Control
-- VAH — Value Area High
-- VAL — Value Area Low
-- HVN — High Volume Node
-- LVN — Low Volume Node
-
-Interpretation:
-
-- HVN = prior acceptance / balance
-- LVN = low acceptance; price can traverse quickly
-- POC = important fair-value reference
-- movement outside value followed by acceptance may indicate new price discovery
-- rejection back into value may indicate failed breakout
-
-## 7.3 VWAP and Anchored VWAP
-
-Useful anchors include:
-
-- major cycle low/high
-- breakout candle
-- ETF-launch / listing / major event date
-- monthly or yearly open
-
-Interpret whether price is accepted above or below important VWAPs rather than simply touching them.
-
----
-
-# 8. Order Flow and Execution Evidence
-
-When reliable data exists, analyze:
-
-- CVD (Cumulative Volume Delta)
-- taker buy vs taker sell volume
-- bid/ask imbalance
-- footprint delta
-- absorption
-- aggressive buying/selling without price follow-through
-
-Important divergences:
-
-### Bullish absorption candidate
-
-```text
-Aggressive selling increases
-but price stops making new lows
-and spot bids absorb supply
-```
-
-### Bearish absorption candidate
-
-```text
-Aggressive buying increases
-but price cannot make new highs
-and offers absorb demand
-```
-
-Order-flow data is venue-specific. Do not assume one exchange represents the entire crypto market.
-
----
-
-# 9. Trend Indicators
-
-Use moving averages primarily as filters.
-
-Default set:
-
-- EMA 20 — short trend
-- EMA 50 — medium trend
-- EMA 200 — long trend
-- SMA 200 — broad long-term reference when useful
-
-Analyze:
-
-- price relative to MA
-- MA slope
-- separation/compression
-- reclaim/loss
-- dynamic support/resistance behavior
-
-Do not buy merely because of a golden cross or sell merely because of a death cross.
-
----
-
-# 10. Momentum Indicators
-
-## 10.1 RSI
-
-Use RSI for:
-
-- momentum regime
-- divergence
-- failure swings
-- trend persistence
-
-Important:
-
-- overbought does not automatically mean short
-- oversold does not automatically mean buy
-- strong trends can remain extreme for long periods
-
-## 10.2 MACD
-
-Use for:
-
-- momentum acceleration/deceleration
-- trend confirmation
-- divergence
-- zero-line behavior
-
-MACD crosses alone are low-weight evidence.
-
-## 10.3 Divergence ranking
-
-Highest-quality divergence occurs when it aligns with:
-
-- major HTF level
-- exhaustion volume
-- volatility extreme
-- liquidation event
-- OI reset
-- structural reclaim/rejection
-
-Divergence without structural confirmation is insufficient.
-
----
-
-# 11. Volatility Analysis
-
-## 11.1 ATR
-
-ATR measures volatility, not direction.
-
-Use ATR for:
-
-- stop-distance sanity check
-- identifying abnormal expansion
-- comparing current range to normal range
-- avoiding entries after overextended moves
-
-## 11.2 Bollinger Bands / realized volatility
-
-Look for:
-
-- volatility compression
-- expansion after compression
-- repeated band riding in trends
-- mean reversion only when the market is actually ranging
-
-## 11.3 Extension risk
-
-Flag chasing risk when price is unusually extended from:
-
-- EMA20/50
-- VWAP
-- anchored VWAP
-- recent base
-- ATR-normalized trend
-
-Do not assign arbitrary universal thresholds. Compare against the asset's own recent distribution.
-
----
-
-# 12. Pattern Analysis
-
-Patterns may include:
-
-- ascending / descending triangle
-- symmetrical triangle
-- bull / bear flag
-- falling / rising wedge
-- double top / bottom
-- head and shoulders / inverse H&S
-- rounded base
-- cup and handle
-- volatility contraction
-- range breakout
-
-For every pattern, require:
-
-```yaml
-pattern:
-  structure_quality: low | medium | high
-  volume_confirmation: yes | no | mixed
-  breakout_level: price_zone
-  invalidation: price_zone
-  measured_target: optional
-  higher_timeframe_alignment: yes | no
-  derivatives_confirmation: yes | no | mixed
-```
-
-Pattern targets are hypotheses, not guarantees.
-
----
-
-# 13. Futures / Perpetual Leverage Engine
-
-This section is mandatory whenever perpetuals or futures materially influence the asset.
-
-## 13.1 Open Interest (OI)
-
-OI tells how much derivatives exposure remains open.
-
-Analyze:
-
-- absolute OI
-- OI change
-- OI relative to market cap
-- OI relative to historical range
-- OI by exchange
-- stablecoin-margined vs coin-margined OI
-
-Prefer percentiles or z-scores relative to the asset's own history rather than fixed universal thresholds.
-
-## 13.2 Price × OI matrix
-
-Use this as a starting framework, never as a deterministic rule.
-
-| Price | OI | Initial interpretation | What must be checked next |
-|---|---|---|---|
-| Up | Up | new leveraged positioning entering | funding, spot demand, CVD, basis |
-| Up | Down | short covering / position closure | spot follow-through, volume |
-| Down | Up | new leveraged positioning entering downside | funding, spot selling, CVD |
-| Down | Down | deleveraging / long liquidation / closing | liquidation volume, support reclaim |
-
-## 13.3 Funding rate
-
-Interpret funding as positioning pressure, not as a standalone signal.
-
-General mechanics:
-
-- positive funding -> longs pay shorts
-- negative funding -> shorts pay longs
-
-Important analysis:
-
-- current funding
-- OI-weighted funding
-- funding percentile vs 30/90/365-day history
-- persistence across several funding intervals
-- divergence across exchanges
-- funding versus price and OI
-
-### Dangerous long crowding candidate
-
-```text
-Price near resistance
-+ OI elevated/rising
-+ funding strongly positive
-+ futures volume dominates spot
-+ spot CVD weak
-+ liquidation clusters below price
-```
-
-This does not mean automatically short. It means long-side fragility is high.
-
-### Dangerous short crowding candidate
-
-```text
-Price near support
-+ OI elevated/rising
-+ funding strongly negative
-+ sell pressure stops making new lows
-+ spot demand improves
-+ liquidation clusters above price
-```
-
-This does not mean automatically long. It means short-squeeze risk is high.
-
-## 13.4 Basis and futures term structure
-
-For dated futures, analyze:
-
-```text
-basis = futures_price - spot_price
-basis_pct = basis / spot_price
-annualized_basis ≈ basis_pct * 365 / days_to_expiry
-```
-
-Classify:
-
-- contango
-- flat
-- backwardation
-
-Interpret changes rather than isolated values.
-
-Examples:
-
-- rising price + rising healthy basis + spot demand = constructive risk appetite
-- rising price + extreme basis + weak spot = leveraged speculation risk
-- backwardation during panic = stress / urgent hedging / short demand candidate
-
-## 13.5 Spot vs futures dominance
-
-Compare spot volume to derivatives volume.
-
-A rally driven mostly by spot is generally structurally different from a rally driven mostly by leverage.
-
-Useful states:
-
-```text
-Spot-led accumulation
-Futures-led expansion
-Short-covering rally
-Long-liquidation flush
-Leverage rebuild
-Leverage reset
-```
-
-## 13.6 Liquidations
-
-Analyze:
-
-- long liquidations
-- short liquidations
-- liquidation intensity relative to normal
-- liquidation concentration by price
-- whether OI collapsed after liquidation
-- whether spot absorbed the forced flow
-
-A liquidation cascade can accelerate price far beyond ordinary technical levels.
-
-After a major cascade, ask:
-
-1. Did OI materially reset?
-2. Did funding normalize?
-3. Did price reclaim structure?
-4. Did spot demand appear?
-
-Only then consider whether the flush created a tradable reversal.
-
-## 13.7 Liquidation heatmaps
-
-Treat heatmaps as **potential liquidity magnets**, not guaranteed destinations.
-
-Never say:
-
-> Price must go to the largest liquidation cluster.
-
-Instead say:
-
-> A liquidity concentration exists near X; it becomes more relevant if structure and order flow begin moving toward it.
-
-## 13.8 Long/short ratios
-
-Use low weight.
-
-Reasons:
-
-- account ratios differ from position-size ratios
-- large traders can hedge across venues
-- retail positioning can be noisy
-
-Only use as supporting evidence.
-
-## 13.9 Taker buy/sell and CVD
-
-Examples:
-
-### Healthy bullish expansion
-
-```text
-Price ↑
-Spot CVD ↑
-OI moderately ↑
-Funding neutral-to-mild positive
-Volume ↑
-```
-
-### Fragile leveraged rally
-
-```text
-Price ↑
-Futures OI sharply ↑
-Funding ↑↑
-Spot CVD flat/down
-Spot volume weak
-```
-
-### Short-covering rally
-
-```text
-Price ↑
-OI ↓
-Short liquidations ↑
-Funding remains negative/normalizing
-```
-
-### Long liquidation flush
-
-```text
-Price ↓
-OI ↓↓
-Long liquidations ↑↑
-Funding falls toward neutral/negative
-```
-
-## 13.10 Leverage stress score
-
-Create a qualitative leverage stress classification:
-
-```yaml
-leverage_stress:
-  oi_percentile: 0-100
-  funding_percentile: 0-100
-  futures_vs_spot_dominance: low | medium | high
-  liquidation_proximity: low | medium | high
-  basis_stress: low | medium | high
-  state: low | elevated | high | extreme
-```
-
-Do not convert this to a fake probability unless a calibrated statistical model exists.
-
----
-
-# 14. Futures Interpretation Playbook
-
-Use these combined states.
-
-## 14.1 Trend continuation candidate
-
-```text
-HTF trend aligned
-+ breakout accepted
-+ spot volume expands
-+ OI rises gradually
-+ funding remains non-extreme
-+ basis healthy
-+ CVD confirms
-```
-
-## 14.2 Long squeeze candidate
-
-```text
-Price extended into resistance
-+ OI high
-+ funding very positive
-+ futures dominate spot
-+ spot buying weakens
-+ downside liquidity dense
-+ structure begins to fail
-```
-
-Confirmation:
-
-- support loss
-- negative delta/CVD
-- long liquidation expansion
-- OI decline during selloff
-
-## 14.3 Short squeeze candidate
-
-```text
-Price holds/reclaims support
-+ OI high
-+ funding very negative
-+ sell aggression no longer pushes price lower
-+ upside liquidity dense
-```
-
-Confirmation:
-
-- local resistance reclaim
-- positive CVD
-- short liquidation expansion
-- OI begins falling while price rises
-
-## 14.4 Leverage-reset bottom candidate
-
-```text
-sharp selloff
-+ large long liquidation
-+ OI collapse
-+ funding reset
-+ spot absorption
-+ structure reclaim
-```
-
-Do not bottom-fish before the reclaim if the trend remains strongly bearish.
-
-## 14.5 Deleveraging top / failed breakout candidate
-
-```text
-new high or marginal high
-+ declining spot momentum
-+ OI extreme
-+ funding extreme
-+ failure back below breakout
-+ negative delta
-```
-
-Look for invalidation before acting.
-
----
-
-# 15. Options and Forward-Looking Volatility
-
-For BTC/ETH and liquid option markets, use options to understand expected volatility and positioning.
-
-Analyze when available:
-
-- ATM implied volatility (IV)
-- realized volatility (RV)
-- IV vs RV spread
-- 25-delta put/call skew
-- term structure
-- put/call OI
-- strike concentration
-- expiry calendar
-- dealer/gamma estimates only from transparent sources
-
-## 15.1 Interpretation examples
-
-### Rising IV before event
-
-Market expects larger future movement, not necessarily a specific direction.
-
-### Put skew steepening
-
-Downside protection demand is rising.
-
-### Call skew / call concentration rising
-
-Upside demand may be increasing, but could also represent overwriting or structured positions.
-
-Do not infer direction from options OI alone.
-
-## 15.2 Expiry effects
-
-Large expiries can alter hedging flows and intraday volatility.
-
-Treat "max pain" as low-weight context, never as a primary target.
-
----
-
-# 16. On-Chain Analysis
-
-Use on-chain data primarily for BTC, ETH, and chains where metrics are meaningful and well-defined.
-
-## 16.1 Exchange flows
-
-Analyze:
-
-- exchange inflow
-- exchange outflow
-- netflow
-- exchange reserve
-
-Potential interpretations:
-
-- rising deposits may increase available sell-side inventory
-- persistent withdrawals may indicate reduced exchange supply
-
-But never assume every exchange transfer is a sale or purchase.
-
-## 16.2 Holder profitability and valuation
-
-When available:
-
-- MVRV
-- SOPR
-- realized price
-- short-term-holder realized price
-- long-term-holder behavior
-- realized profit/loss
-
-Use historical percentiles rather than universal magical thresholds.
-
-## 16.3 Stablecoin liquidity
-
-Analyze:
-
-- stablecoin supply growth/contraction
-- stablecoin exchange balances/inflows
-- stablecoin dominance shifts
-
-This can help assess available crypto-native liquidity.
-
----
-
-# 17. Relative Strength and Capital Rotation
-
-Always compare an altcoin against relevant benchmarks.
-
-Examples:
-
-```text
-ALT/USDT
-ALT/BTC
-ALT/ETH
-BTC dominance
-TOTAL / TOTAL2 / TOTAL3 where reliable
-sector basket
-```
-
-An altcoin rising in USD but falling sharply against BTC may not represent true relative strength.
-
-## Rotation clues
-
-Look for sequences such as:
-
-```text
-BTC strength -> ETH confirmation -> large-cap alts -> mid/small caps
-```
-
-Do not assume the sequence will always occur.
-
----
-
-# 18. Tokenomics and Fundamental Overlay
-
-Mandatory for multi-week or long-term investment decisions.
-
-Check:
-
-- circulating supply
-- total / max supply
-- FDV
-- scheduled unlocks
-- emissions
-- staking inflation
-- insider / foundation allocation
-- treasury runway
-- protocol revenue / fees when meaningful
-- active users / developers where measurable
-- concentration of holders
-- chain/security model
-- bridge/custody risk
-- regulatory/listing risk
-
-A technically attractive chart can still be a poor long-term investment if supply expansion is severe.
-
----
-
-# 19. Macro and Cross-Asset Context
-
-Use macro to understand regime, not to replace the chart.
-
-Relevant variables can include:
-
-- USD liquidity
-- DXY
-- US Treasury yields / real yields
-- equity risk appetite
-- VIX or broader volatility
-- central-bank policy
-- inflation/employment releases
-- global liquidity conditions
-- major crypto ETF flows where relevant
-
-For BTC in particular, institutional derivatives and ETF-related flows may matter more than for small-cap tokens.
-
----
-
-# 20. Event and Catalyst Calendar
-
-Before recommending a new position, check for near-term event risk:
-
-- FOMC / central-bank decisions
-- CPI / PCE / payrolls
-- major options expiry
-- token unlock
-- network upgrade
-- governance vote
-- exchange listing/delisting
-- ETF/regulatory deadlines
-- court decisions
-- protocol migration
-- earnings of crypto-sensitive public companies if relevant
-
-Do not predict event outcomes solely from the chart.
-
-Instead distinguish:
-
-```text
-market positioning before event
-actual event result
-price reaction after event
-```
-
-The reaction can be more informative than the headline itself.
+# 5. Progressive Analysis References
+
+Keep this file as the core reasoning contract. Load only the lane-specific
+reference needed for the request:
+
+| Request lane | Reference |
+|---|---|
+| multi-timeframe chart, volume, momentum, volatility, patterns | `references/technical-analysis.md` |
+| CVD, taker flow, footprint, imbalance, absorption, execution quality | `references/order-flow.md` |
+| futures, OI, funding, basis, liquidations, leverage | `references/derivatives.md` |
+| options IV, skew, term structure, expiry | `references/options.md` |
+| on-chain flows, holders, stablecoin liquidity | `references/on-chain.md` |
+| relative strength, macro, event calendar | `references/market-context.md` |
+| supply, unlocks, adoption, fees, valuation fundamentals | `references/tokenomics.md` |
+| entries, stops, sizing, exits, DCA, confidence | `references/portfolio-risk.md` |
+| historical cutoffs, journals, trigger-aware outcomes, calibration | `references/backtesting.md` |
+| 2x/3x/5x/10x and holding-horizon feasibility | `references/valuation-multiples.md` |
+
+The core workflow, canonical decision states, evidence contract, safety rules,
+and concise response contract remain in this file. A missing lane reference is
+unavailable data, not permission to invent a signal.
 
 ---
 
@@ -1154,8 +374,9 @@ Rules:
 
 - Conflict alone is not a reason to default to HOLD.
 - Choose the stronger thesis when evidence is asymmetric.
-- Choose WAIT/HOLD only when evidence is genuinely balanced, insufficient, or entry asymmetry is poor.
-- Distinguish `directional thesis` from `entry timing`. A bullish market can still produce `WAIT FOR PULLBACK`.
+- Choose `HOLD` or `NO_TRADE` only when evidence is genuinely balanced,
+  insufficient, or entry asymmetry is poor. Distinguish `directional thesis`
+  from `entry timing`. A bullish market can still produce `WAIT_FOR_PULLBACK`.
 - State internally which 2-4 pieces of evidence actually decided the judgment.
 
 Internal research output:
@@ -1164,7 +385,7 @@ Internal research output:
 research_view:
   directional_bias: bullish | neutral | bearish
   evidence_strength: weak | moderate | strong
-  preferred_state: ACCUMULATE | ENTER_LONG | ENTER_SHORT | WAIT | HOLD | REDUCE | NO_TRADE
+  preferred_state: ACCUMULATE | ENTER_LONG | ENTER_SHORT | WAIT_FOR_PULLBACK | WAIT_FOR_BREAKOUT_CONFIRMATION | AVOID_CHASING | NO_TRADE | HOLD | REDUCE | TAKE_PARTIAL_PROFIT | HEDGE_DE_RISK | EXIT
   decisive_evidence: []
   unresolved_conflicts: []
   thesis_invalidation: []
@@ -1191,7 +412,8 @@ Internal execution object:
 
 ```yaml
 execution_plan:
-  action: BUY | ACCUMULATE | WAIT | HOLD | REDUCE | SELL | SHORT | NO_TRADE
+  decision_state: ACCUMULATE | ENTER_LONG | ENTER_SHORT | WAIT_FOR_PULLBACK | WAIT_FOR_BREAKOUT_CONFIRMATION | AVOID_CHASING | NO_TRADE | HOLD | REDUCE | TAKE_PARTIAL_PROFIT | HEDGE_DE_RISK | EXIT
+  execution_action: BUY | ACCUMULATE | WAIT | HOLD | REDUCE | SELL | SHORT | HEDGE | TAKE_PROFIT
   preferred_entry_zone: null
   secondary_entry_zone: null
   invalidation: null
@@ -1292,8 +514,17 @@ Before synthesis, maintain an internal evidence ledger so the model cannot quiet
 ```yaml
 evidence_ledger:
   - claim: "Daily structure remains HH/HL"
-    observation_time: "YYYY-MM-DD HH:MM TZ"
-    source: "exchange / analytics provider"
+    metric: daily_structure
+    value: "HH/HL"
+    unit: null
+    venue: Binance
+    instrument: spot
+    observed_at: "YYYY-MM-DDTHH:MM:SSZ"
+    retrieved_at: "YYYY-MM-DDTHH:MM:SSZ"
+    freshness_seconds: 0
+    source:
+      provider: "exchange / analytics provider"
+      type: primary | aggregator | charting | derived | news | other
     evidence_type: price_structure
     quality: high
     supports: bull
@@ -1317,16 +548,35 @@ Every actionable analysis should end with one primary state.
 
 ```text
 ACCUMULATE
-ENTER LONG
-ENTER SHORT
-WAIT FOR PULLBACK
-WAIT FOR BREAKOUT CONFIRMATION
+ENTER_LONG
+ENTER_SHORT
+WAIT_FOR_PULLBACK
+WAIT_FOR_BREAKOUT_CONFIRMATION
+AVOID_CHASING
+NO_TRADE
 HOLD
 REDUCE
-TAKE PARTIAL PROFIT
-HEDGE / DE-RISK
-AVOID CHASING
-NO TRADE
+TAKE_PARTIAL_PROFIT
+HEDGE_DE_RISK
+EXIT
+```
+
+These are the canonical final states defined in
+`schemas/decision-state.schema.json`. Human-readable labels, internal planner
+verbs, and adapter-specific states must map to this list before the decision is
+persisted or returned. Use `ENTER_LONG`/`ENTER_SHORT` only when the confirmation
+condition is already satisfied; `WAIT_FOR_PULLBACK` and
+`WAIT_FOR_BREAKOUT_CONFIRMATION` are timing decisions, not market orders.
+
+Internal execution labels map as follows:
+
+```text
+BUY + confirmed         -> ENTER_LONG
+SELL/SHORT + confirmed  -> ENTER_SHORT
+BUY without confirmation -> ACCUMULATE or WAIT_FOR_PULLBACK
+WAIT + breakout trigger  -> WAIT_FOR_BREAKOUT_CONFIRMATION
+HEDGE                    -> HEDGE_DE_RISK
+TAKE_PROFIT              -> TAKE_PARTIAL_PROFIT or EXIT
 ```
 
 The state must be conditional on evidence.
@@ -1334,192 +584,10 @@ The state must be conditional on evidence.
 Example:
 
 ```text
-Primary state: WAIT FOR PULLBACK
+Primary state: WAIT_FOR_PULLBACK
 Reason: HTF bullish, but price is > normal ATR extension above support while OI and funding are elevated.
 Preferred action: do not chase; reassess at prior breakout / AVWAP / value-area support.
 ```
-
----
-
-# 23. Entry Frameworks
-
-## 23.1 Pullback entry
-
-Requirements should normally include:
-
-- higher-timeframe trend intact
-- pullback into meaningful support/value
-- local selling pressure weakens
-- execution timeframe reclaims structure
-- leverage not excessively crowded
-
-## 23.2 Breakout entry
-
-Prefer:
-
-- close beyond resistance
-- volume expansion
-- spot confirmation
-- retest or acceptance above level
-- OI increase that is not accompanied by extreme funding
-
-## 23.3 Reversal entry
-
-Require more evidence than trend-following entries.
-
-Prefer:
-
-- HTF level
-- exhaustion or liquidation event
-- momentum/order-flow divergence
-- OI/funding reset
-- structural reclaim
-
-Never enter merely because RSI is oversold.
-
----
-
-# 24. Invalidation and Stop Logic
-
-Stops should be based on trade thesis, not arbitrary percentages.
-
-Possible invalidations:
-
-- structure low/high broken
-- failed reclaim
-- loss of volume-profile value boundary
-- anchored VWAP failure
-- volatility-adjusted level
-
-Use ATR to verify that a stop is not unrealistically tight.
-
----
-
-# 25. Position Sizing and Risk
-
-## 25.1 Risk-based sizing
-
-Use:
-
-```text
-risk_amount = account_equity * risk_fraction
-stop_distance = abs(entry - stop)
-position_units = risk_amount / stop_distance
-```
-
-For percentage notation:
-
-```text
-position_notional ≈ risk_amount / stop_distance_pct
-```
-
-Include estimated:
-
-- trading fees
-- slippage
-- funding cost
-- borrow cost where relevant
-
-## 25.2 Leverage does not create edge
-
-Leverage changes capital efficiency and liquidation risk; it does not improve setup quality.
-
-For futures positions:
-
-- calculate risk from stop distance first
-- choose leverage only after sizing
-- keep liquidation price meaningfully beyond invalidation/stop
-- use mark-price liquidation mechanics of the actual venue
-- account for maintenance margin
-
-If a position only looks attractive because of high leverage, classify it as poor risk structure.
-
-## 25.3 Risk/reward
-
-Calculate:
-
-```text
-R = abs(entry - stop)
-reward = abs(target - entry)
-RR = reward / R
-```
-
-Do not mechanically demand a fixed RR if market structure makes the target unrealistic.
-
----
-
-# 26. Profit-Taking Framework
-
-Use structure-aware exits.
-
-Possible plan:
-
-```yaml
-TP1: nearest liquidity / resistance
-TP2: major HTF level
-TP3: runner if trend remains intact
-stop_management: trail below/above validated structure
-```
-
-Consider partial profit when:
-
-- price reaches major opposing liquidity
-- momentum diverges
-- OI/funding becomes crowded
-- volatility expands excessively
-- spot confirmation weakens
-
-Do not move a stop to breakeven automatically if normal volatility would frequently hit it.
-
----
-
-# 27. DCA / Long-Term Accumulation
-
-For investors rather than active traders:
-
-- use weekly/monthly structure
-- identify valuation and supply risks
-- combine DCA with high-conviction support zones
-- avoid putting all capital into one entry
-- reserve dry powder for volatility events
-
-Example allocation framework:
-
-```yaml
-base_dca: 40%
-major_support_tranches: 40%
-breakout_or_capitulation_confirmation: 20%
-```
-
-This is a template, not a universal prescription.
-
----
-
-# 28. Evidence Quality Labels
-
-For every major claim, classify evidence:
-
-```text
-HIGH    = primary raw data or multiple independent confirmations
-MEDIUM  = reputable derived data or one strong source
-LOW     = narrative, social signal, uncertain methodology, or single weak indicator
-```
-
-Never hide data quality limitations.
-
----
-
-# 29. Confidence Language
-
-Use:
-
-- High confidence
-- Moderate confidence
-- Low confidence
-
-Confidence refers to consistency of evidence, **not** guaranteed probability of profit.
-
-Avoid fabricated percentages such as "78% chance to pump" unless a tested, calibrated model actually produced that probability.
 
 ---
 
@@ -1557,109 +625,32 @@ Avoid excessive indicator combinations designed only to fit past price.
 
 ---
 
+# 30A. Point-in-Time Integrity
 
-# 30A. Point-in-Time Integrity — No Future Leakage
-
-Historical analysis, backtests, and comparisons must use only information that was actually available at the analysis timestamp. This is mandatory.
-
-For any `as_of` analysis:
-
-- use candles that had already closed or clearly identify a still-open candle
-- use funding/OI/liquidation data timestamped no later than `as_of`
-- use macro releases only after their actual publication time
-- use token-unlock information that was publicly known by then
-- use news only if published by then
-- do not use later revisions, later labels, later narratives, or future outcome information
-- do not let a historical decision read a lesson whose outcome became known afterward
-
-This protects against **look-ahead bias**, which can make both AI reasoning and backtests appear much better than they were in real time.
-
-If point-in-time fidelity cannot be established, label the retrospective conclusion as approximate and do not use it as strong model-validation evidence.
-
----
+For historical analysis, backtests, and any `as_of` request, use only data
+that was public and observable by the cutoff. Freeze the cutoff first, record
+source timestamps, reject later outcomes or revisions, and label conclusions
+approximate when publication timing cannot be established. See
+`references/point-in-time.md` and `references/backtesting.md`.
 
 # 30B. Decision Memory and Outcome Learning
 
-When persistent memory or a trading journal is available, store **decisions and outcomes**, not just prose. The purpose is to learn which decision patterns worked in which regimes.
-
-Recommended record:
-
-```yaml
-decision_record:
-  analysis_time: null
-  asset: null
-  horizon: null
-  market_regime: null
-  decision_state: null
-  entry_zone: null
-  invalidation: null
-  targets: []
-  confidence: null
-  decisive_evidence: []
-  leverage_state: null
-  btc_regime: null
-  portfolio_context: null
-  outcome_window: null
-  raw_return: null
-  benchmark_return: null
-  alpha: null
-  max_favorable_excursion: null
-  max_adverse_excursion: null
-  thesis_result: pending | confirmed | invalidated | mixed
-  reflection: null
-  outcome_known_at: null
-```
-
-For crypto, choose a benchmark appropriate to the question:
-
-- BTC for many altcoin decisions
-- ETH for Ethereum-ecosystem relative trades
-- a sector/index benchmark when available
-- USD/USDT absolute return when the user's objective is absolute capital growth
-
-Reflection should ask:
-
-- Was the direction wrong, or only the timing?
-- Was leverage crowding correctly interpreted?
-- Did spot confirm the move?
-- Was the invalidation placed correctly?
-- Did the target require an unrealistic valuation or market regime?
-- Which evidence was genuinely predictive and which was noise?
-
-Do not blindly repeat past decisions. Use past outcomes as context, not authority.
-
----
+When a journal or persistent memory is available, store structured decisions
+and outcomes rather than prose alone. Keep direction quality separate from
+timing quality: `WAIT_FOR_PULLBACK` is evaluated first for zone/confirmation
+trigger quality, then for post-trigger target, invalidation, return, MFE, and
+MAE. Compare against an appropriate benchmark and treat prior outcomes as
+context, not authority. See `references/decision-memory.md`.
 
 # 30C. Backtest and Calibration Discipline
 
-A single good call proves almost nothing. When enough historical data is available, evaluate the **decision process** across many assets, dates, and regimes.
-
-At minimum segment results by decision state, horizon, market regime, leverage stress, BTC regime, confidence label, and asset-liquidity tier.
-
-Useful metrics:
-
-```text
-Directional hit rate
-Mean / median forward return
-Alpha vs benchmark
-Max adverse excursion (MAE)
-Max favorable excursion (MFE)
-Invalidation hit rate
-Target hit rate
-Time-to-target
-Drawdown distribution
-```
-
-Important limits:
-
-- Do not call a decision-quality backtest a portfolio PnL simulation if fills, fees, slippage, funding, position size, and cash ledger are not modeled.
-- Text/news/social feeds that are not historically archived can make results non-repeatable.
-- Optimize the process on multiple periods/regimes; do not tune rules to one bull market.
-- Prefer out-of-sample / walk-forward validation over repeated fitting to the same history.
-
-Use calibration to improve **when the model should act, wait, or lower confidence**, not merely to maximize the number of BUY calls.
-
----
+Evaluate the decision process across assets, dates, and regimes. Segment by
+canonical state, horizon, market regime, leverage stress, BTC regime,
+confidence, and liquidity tier. Report hit rate, benchmark alpha, MFE/MAE,
+invalidation/target rates, time-to-target, and drawdown when data supports it.
+Do not call a text review a portfolio-PnL backtest without fills, fees,
+slippage, funding, sizing, and cash accounting. Prefer walk-forward or
+out-of-sample checks. See `references/backtesting.md`.
 
 # 31. Mandatory Analysis Sequence
 
@@ -1722,7 +713,7 @@ The analysis may be extensive; the explanation should not be.
 For questions such as "Where should I buy SEI/USDT?" answer in this order:
 
 ```text
-1. Decision: BUY ZONE / WAIT / AVOID CHASING / HOLD / REDUCE
+1. Decision: ACCUMULATE / ENTER_LONG / ENTER_SHORT / WAIT_FOR_PULLBACK / WAIT_FOR_BREAKOUT_CONFIRMATION / AVOID_CHASING / HOLD / REDUCE / TAKE_PARTIAL_PROFIT / HEDGE_DE_RISK / EXIT / NO_TRADE
 2. Preferred entry zone
 3. Secondary entry / contingency zone
 4. Invalidation or stop-thesis level
@@ -1739,80 +730,10 @@ Do not begin with a long market history or news summary.
 Whenever practical, start with a one-line answer such as:
 
 ```text
-SEI/USDT: WAIT rather than chase; preferred accumulation is $X-$Y, invalidation below $Z, with $A/$B as the next major upside zones.
+SEI/USDT: WAIT_FOR_PULLBACK rather than chase; preferred accumulation is $X-$Y, invalidation below $Z, with $A/$B as the next major upside zones.
 ```
 
 Then provide only the evidence needed to support that decision.
-
----
-
-# 31B. Investment-Multiple and Holding-Horizon Questions
-
-When the user asks questions such as:
-
-- "If I invest 100,000 THB, can it become 5x?"
-- "How long would I need to hold?"
-- "What price must SEI reach for 5x?"
-
-perform both trading analysis and investment feasibility analysis.
-
-## Required calculations
-
-Calculate:
-
-```text
-units_acquired = investment_amount / assumed_entry_price
-portfolio_value_at_target = units_acquired * target_price
-required_price_for_Nx_value = assumed_entry_price * N
-profit = portfolio_value_at_target - investment_amount
-ROI_pct = (portfolio_value_at_target / investment_amount - 1) * 100
-```
-
-If "5x profit" is ambiguous, distinguish concisely:
-
-```text
-5x portfolio value = final value is 5 times principal = +400% profit
-5x profit = profit alone is 5 times principal = final value is 6 times principal = +500% profit
-```
-
-Do not ask a clarification question if both can be shown in one short line.
-
-## Feasibility test for large upside targets
-
-Do not judge a 3x, 5x, or 10x target from chart geometry alone. Estimate whether the required price is plausible by checking:
-
-1. Required market cap at target price
-2. Circulating supply and expected supply at the target horizon
-3. FDV and scheduled unlock dilution
-4. Previous ATH and prior cycle valuation
-5. BTC / ETH / total-alt market regime
-6. Relative strength and capital rotation
-7. Spot liquidity and sustainable volume required
-8. Protocol adoption, revenue/fees, TVL, users, or other relevant fundamentals
-9. Comparable assets and sector valuation where appropriate
-10. Macro liquidity and major regulatory/event risk
-
-A mathematically possible target is not automatically economically plausible.
-
-For a large target such as 3x/5x/10x, run the internal Bull/Bear challenge explicitly:
-
-- Bull case: what market regime, adoption, liquidity, and valuation expansion could make the target reachable?
-- Bear case: what supply dilution, unlocks, competition, leverage, liquidity, or macro constraints make the target unrealistic?
-- Judge: compare the required future market cap / FDV with plausible sector and cycle conditions before stating the feasibility label.
-
-## Holding-horizon estimation
-
-Never state a precise date as guaranteed. Provide a scenario-based time window:
-
-```text
-Fast bull case:     approximate window + required conditions
-Base case:          approximate window + required conditions
-Slow / invalidated: what would delay or invalidate the target
-```
-
-For the concise default response, usually report only the base horizon and one sentence describing the faster/slower cases.
-
-The horizon must be derived from market structure, volatility, historical cycle behavior, supply changes, and required valuation expansion—not from an arbitrary guess.
 
 ---
 
@@ -1898,7 +819,7 @@ Use this concise format by default unless the user explicitly asks for detailed 
 ## Decision
 
 ```text
-State: BUY / ACCUMULATE / WAIT / HOLD / REDUCE / NO TRADE
+State: ACCUMULATE / ENTER_LONG / ENTER_SHORT / WAIT_FOR_PULLBACK / WAIT_FOR_BREAKOUT_CONFIRMATION / AVOID_CHASING / NO_TRADE / HOLD / REDUCE / TAKE_PARTIAL_PROFIT / HEDGE_DE_RISK / EXIT
 Preferred entry: $X-$Y
 Secondary entry: $A-$B       # only if useful
 Invalidation: below/above $Z
@@ -2014,7 +935,7 @@ Use the following expanded format only when the user asks for a deep dive, detai
 ## Decision Object
 
 ```yaml
-state: WAIT | ENTER | ACCUMULATE | HOLD | REDUCE | HEDGE | NO_TRADE
+state: ACCUMULATE | ENTER_LONG | ENTER_SHORT | WAIT_FOR_PULLBACK | WAIT_FOR_BREAKOUT_CONFIRMATION | AVOID_CHASING | NO_TRADE | HOLD | REDUCE | TAKE_PARTIAL_PROFIT | HEDGE_DE_RISK | EXIT
 bias: bullish | neutral | bearish
 confidence: low | moderate | high
 entry_zone: optional
@@ -2059,7 +980,7 @@ BTC remains structurally bullish on the daily chart because the last higher low 
 
 However, the short-term setup is less attractive: perpetual OI is near the upper end of its recent range, OI-weighted funding is strongly positive, and futures volume is expanding faster than spot volume. That combination suggests the move is increasingly leverage-driven.
 
-Therefore the trend bias remains bullish, but the trade-quality bias is WAIT rather than chase. Preferred conditions are either:
+Therefore the trend bias remains bullish, but the trade-quality state is WAIT_FOR_PULLBACK rather than chase. Preferred conditions are either:
 1) a pullback into prior support with OI/funding cooling, or
 2) a clean breakout where spot CVD and volume confirm new demand.
 
@@ -2084,7 +1005,7 @@ For a question like:
 The response should resemble this shape, using **live data rather than these placeholder numbers**:
 
 ```text
-SEI/USDT — Decision: WAIT FOR PULLBACK
+SEI/USDT — Decision: WAIT_FOR_PULLBACK
 
 • Buy zone: $0.42-$0.45; secondary $0.37-$0.40
 • Invalidation: weekly loss of $0.34
@@ -2161,7 +1082,7 @@ Always check for:
 
 # 37. Final Pre-Trade Checklist
 
-Before outputting ENTER LONG or ENTER SHORT, confirm most of these are true:
+Before outputting `ENTER_LONG` or `ENTER_SHORT`, confirm most of these are true:
 
 - higher-timeframe thesis is clear
 - entry is at a meaningful level rather than in the middle of noise
@@ -2176,7 +1097,7 @@ Before outputting ENTER LONG or ENTER SHORT, confirm most of these are true:
 - fees/funding/slippage have been considered
 - position size follows risk budget
 
-If these conditions are not met, prefer WAIT or NO TRADE.
+If these conditions are not met, prefer `WAIT_FOR_PULLBACK`, `WAIT_FOR_BREAKOUT_CONFIRMATION`, or `NO_TRADE`.
 
 ---
 
@@ -2217,6 +1138,19 @@ When this skill is used from the repository checkout, load only the companion re
 - [Point-in-Time Integrity](references/point-in-time.md) for historical analysis, backtests, or any `as_of` request.
 - [Decision Memory](references/decision-memory.md) when a journal, outcome review, or calibration task is in scope.
 - [Market Data Contract](references/data-contract.md) when wiring or normalizing exchange, CMC, options, or on-chain data.
+- [Technical Analysis](references/technical-analysis.md) for structure, volume, momentum, volatility, or chart patterns.
+- [Order Flow](references/order-flow.md) for CVD, taker flow, footprint, imbalance, absorption, or execution quality.
+- [Derivatives](references/derivatives.md) for futures, OI, funding, basis, liquidations, or leverage.
+- [Options](references/options.md) for IV, skew, term structure, or expiry risk.
+- [On-Chain](references/on-chain.md) for holder, exchange-flow, stablecoin, or chain-specific metrics.
+- [Market Context](references/market-context.md) for relative strength, macro, rotation, or events.
+- [Tokenomics](references/tokenomics.md) for supply, unlocks, adoption, fees, or valuation fundamentals.
+- [Portfolio and Execution Risk](references/portfolio-risk.md) for entries, invalidation, sizing, exits, DCA, or confidence.
+- [Backtesting](references/backtesting.md) for historical cutoffs, trigger-aware outcomes, calibration, or journals.
+- [Valuation Multiples](references/valuation-multiples.md) for multi-x feasibility and holding-horizon questions.
 - [Concise Response Example](examples/concise-response.md) when checking the human-facing response shape.
 
-The repository also contains machine-readable contracts under `schemas/` and examples under the repository root `examples/`. These resources refine the workflow; they do not override system instructions, user scope, or current source data.
+The canonical final state is defined by `schemas/decision-state.schema.json` and
+the remaining machine-readable contracts live under `schemas/`, with fixtures
+under the repository root `examples/`. These resources refine the workflow; they
+do not override system instructions, user scope, or current source data.

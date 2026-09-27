@@ -8,20 +8,7 @@
   "properties": {
     "asset": {"type": "string"},
     "state": {
-      "type": "string",
-      "enum": [
-        "ACCUMULATE",
-        "ENTER_LONG",
-        "ENTER_SHORT",
-        "WAIT_FOR_PULLBACK",
-        "WAIT_FOR_BREAKOUT_CONFIRMATION",
-        "HOLD",
-        "REDUCE",
-        "TAKE_PARTIAL_PROFIT",
-        "HEDGE_DE_RISK",
-        "AVOID_CHASING",
-        "NO_TRADE"
-      ]
+      "$ref": "decision-state.schema.json"
     },
     "bias": {"type": "string", "enum": ["bullish", "neutral", "bearish"]},
     "confidence": {"type": "string", "enum": ["low", "moderate", "high"]},

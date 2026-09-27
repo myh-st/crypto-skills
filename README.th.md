@@ -11,11 +11,12 @@ repository นี้มี production skill หลักชื่อ `crypto-mar
 - แยกข้อเท็จจริงออกจากการตีความด้วย evidence ledger
 - ให้ price structure และ spot participation เป็นแกนหลัก แล้วใช้ derivatives อธิบายความเปราะบางของราคา
 - ให้ Bull และ Bear โต้แย้งจาก evidence ชุดเดียวกัน ไม่สร้าง narrative คนละชุด
-- แยก “ทิศทาง” ออกจาก “จังหวะเข้า” เพราะสินทรัพย์อาจ bullish แต่จังหวะปัจจุบันยังควร `WAIT FOR PULLBACK`
+- แยก “ทิศทาง” ออกจาก “จังหวะเข้า” เพราะสินทรัพย์อาจ bullish แต่จังหวะปัจจุบันยังควร `WAIT_FOR_PULLBACK`
 - กำหนด entry, invalidation และ target จากระดับราคา/สภาพคล่อง/volatility ที่สังเกตได้จริง
 - รักษา point-in-time integrity สำหรับการวิเคราะห์ย้อนหลังและ backtest
 - บันทึก decision และ outcome เพื่อเรียนรู้ว่า timing, leverage และ thesis แบบใดทำงานใน regime ใด
 - วิเคราะห์เชิงลึกภายใน แต่ตอบผู้ใช้แบบสั้น กระชับ และเริ่มจาก decision
+- ใช้ vocabulary ของ final decision state จาก `schemas/decision-state.schema.json` เพียงชุดเดียว
 
 ## Architecture
 
@@ -64,6 +65,7 @@ crypto-skills/
 │   └── architecture.md                 # workflow และขอบเขตการทำงาน
 ├── schemas/
 │   ├── analysis-output.schema.json     # สัญญา output ของ decision
+│   ├── decision-state.schema.json      # canonical final decision states
 │   ├── decision-record.schema.json     # สัญญา journal / outcome
 │   └── evidence-ledger.schema.json    # สัญญาของ fact ledger
 ├── examples/
@@ -72,6 +74,10 @@ crypto-skills/
 │   └── evidence-ledger.yaml
 ├── scripts/
 │   └── validate_repo.py                # ตรวจโครงสร้างโดยไม่พึ่ง dependency
+├── tests/
+│   └── test_contracts.py                # regression tests ของ schema/example
+├── .github/workflows/
+│   └── validate.yml                     # gate สำหรับ PR/push
 └── skills/
     └── crypto-market-trading-analysis/
         ├── SKILL.md                    # คำสั่งของ Codex skill ฉบับเต็ม
@@ -211,11 +217,15 @@ $crypto-market-trading-analysis วิเคราะห์ SEI/USDT แบบ s
 
 ```bash
 python3 scripts/validate_repo.py
-python3 ~/.codex/skills/.system/skill-creator/scripts/quick_validate.py \
+python3 -m unittest discover -s tests -v
+uv run --with pyyaml python ~/.codex/skills/.system/skill-creator/scripts/quick_validate.py \
   skills/crypto-market-trading-analysis
 ```
 
-คำสั่งแรกตรวจ repository contracts และ section สำคัญของ workflow ส่วนคำสั่งที่สองตรวจ frontmatter, naming และ scaffold hygiene ของ Codex skill
+คำสั่งแรกตรวจ JSON/YAML examples เทียบกับ schema, enum canonical, references ที่จำเป็น
+และ section สำคัญของ workflow คำสั่งที่สองรัน regression tests ของ schema/fixture
+ส่วนคำสั่งที่สามตรวจ frontmatter, naming และ scaffold hygiene ของ Codex skill
+GitHub Actions จะรัน validator และ regression tests ทุก PR และทุก push ไป `main`
 
 ## แนวทาง contribution
 

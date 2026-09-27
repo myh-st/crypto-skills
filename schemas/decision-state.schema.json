@@ -1,0 +1,21 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://github.com/myh-st/crypto-skills/schemas/decision-state.schema.json",
+  "title": "Canonical Crypto Decision State",
+  "description": "The only final decision-state vocabulary exposed by the skill.",
+  "type": "string",
+  "enum": [
+    "ACCUMULATE",
+    "ENTER_LONG",
+    "ENTER_SHORT",
+    "WAIT_FOR_PULLBACK",
+    "WAIT_FOR_BREAKOUT_CONFIRMATION",
+    "AVOID_CHASING",
+    "NO_TRADE",
+    "HOLD",
+    "REDUCE",
+    "TAKE_PARTIAL_PROFIT",
+    "HEDGE_DE_RISK",
+    "EXIT"
+  ]
+}
