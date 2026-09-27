@@ -1,0 +1,10 @@
+{
+  "goal_id": "crypto-live-eval-runtime",
+  "status": "building",
+  "iteration": 1,
+  "builder_model": "GPT:5.6-Luna",
+  "inspector_model": "GPT:5.6-Sol",
+  "initial_sha": "c821bd889dc8e8578a391ef8357f6793bf994b60",
+  "created_at": "2026-09-27T16:37:51+07:00",
+  "history": []
+}

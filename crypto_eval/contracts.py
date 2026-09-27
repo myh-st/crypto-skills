@@ -420,8 +420,13 @@ def validate_spec(spec: Any) -> dict[str, Any]:
     walk_forward = spec["walk_forward"]
     if not isinstance(walk_forward, dict):
         raise EvaluationError("dataset spec walk_forward must be an object")
-    if walk_forward.get("strategy") != "expanding_chronological":
-        raise EvaluationError("walk_forward.strategy must be expanding_chronological")
+    if walk_forward.get("strategy") not in {
+        "expanding_chronological",
+        "prospective_forward",
+    }:
+        raise EvaluationError(
+            "walk_forward.strategy must be expanding_chronological or prospective_forward"
+        )
     if walk_forward.get("shuffle") is not False:
         raise EvaluationError("walk_forward.shuffle must be false")
     fractions = [
@@ -476,6 +481,13 @@ def validate_candidate_bundle(
     }:
         raise EvaluationError(
             "data_origin must be historical_archive, forward_paper, or synthetic_fixture"
+        )
+    if (
+        spec["walk_forward"]["strategy"] == "prospective_forward"
+        and data_origin != "forward_paper"
+    ):
+        raise EvaluationError(
+            "prospective_forward datasets must declare data_origin forward_paper"
         )
     candidates = bundle.get("candidates")
     if not isinstance(candidates, list) or not candidates:
@@ -883,6 +895,12 @@ def chronological_fold_map(
     timestamps: list[datetime], split: dict[str, Any]
 ) -> dict[datetime, str]:
     unique_times = sorted(set(timestamps))
+    if split.get("strategy") == "prospective_forward":
+        if len(unique_times) != 1:
+            raise EvaluationError(
+                "prospective_forward construction requires one distinct as_of timestamp"
+            )
+        return {unique_times[0]: "test"}
     if len(unique_times) < 3:
         raise EvaluationError(
             "walk-forward construction needs at least three distinct as_of timestamps"

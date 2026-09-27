@@ -165,6 +165,12 @@ def validate_walk_forward(dataset: dict[str, Any]) -> None:
     """Fail if chronological folds are missing, shuffled, or overlap in time."""
 
     validate_dataset(dataset)
+    if dataset["spec"]["walk_forward"]["strategy"] == "prospective_forward":
+        if dataset["data_origin"] != "forward_paper" or len(dataset["cases"]) != 1:
+            raise EvaluationError(
+                "prospective_forward validation requires one forward_paper case"
+            )
+        return
     folds = {"train": [], "validation": [], "test": []}
     for case in dataset["cases"]:
         folds[case["fold"]].append(

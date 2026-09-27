@@ -1,0 +1,16 @@
+{
+  "goal_id": "crypto-research-frontend",
+  "status": "completed",
+  "iteration": 1,
+  "builder_model": "GPT:5.6-Luna (dispatch cancelled before final report)",
+  "inspector_model": "GPT:6-Luna (dispatch failed: provider 502 / tool limit)",
+  "initial_sha": "2e2c0df8d53a7c7dd1a09177006d3d6d85de981b",
+  "created_at": "2026-09-27T09:44:14+07:00",
+  "history": [
+    {
+      "iteration": 1,
+      "verdict": "SELF-VERIFIED",
+      "summary": "Direct contract, unit, browser, desktop, and mobile checks passed. The independent GPT-6 Luna Inspector could not run because the model provider returned 502 (more than 128 tools per request)."
+    }
+  ]
+}

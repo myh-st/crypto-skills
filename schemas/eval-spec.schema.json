@@ -77,7 +77,10 @@
         "shuffle"
       ],
       "properties": {
-        "strategy": {"type": "string", "enum": ["expanding_chronological"]},
+        "strategy": {
+          "type": "string",
+          "enum": ["expanding_chronological", "prospective_forward"]
+        },
         "train_fraction": {"type": "number", "minimum": 0},
         "validation_fraction": {"type": "number", "minimum": 0},
         "test_fraction": {"type": "number", "minimum": 0},
