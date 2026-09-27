@@ -1,7 +1,7 @@
 {
   "goal_id": "crypto-live-eval-runtime",
   "status": "inspecting",
-  "iteration": 1,
+  "iteration": 2,
   "builder_model": "GPT:5.6-Luna",
   "inspector_model": "GPT:5.6-Sol",
   "initial_sha": "c821bd889dc8e8578a391ef8357f6793bf994b60",
@@ -11,6 +11,11 @@
       "iteration": 1,
       "verdict": "FAIL",
       "summary": "The OpenAI runner sends a literal masked placeholder instead of a credentialed authorization value; the Binance range provider accepts a still-open candle when the requested cutoff is future; and unbounded valid targets can clip chart labels outside the SVG. Quality gates pass; no live model request was made."
+    },
+    {
+      "iteration": 2,
+      "verdict": "PASS",
+      "summary": "Independently verified the injected Responses Authorization contract and secret isolation, provider/archive retrieval-time rejection, and consistent five-target limits with max-overlay chart fit; all gates, mocked E2E, and isolated browser flow passed. Live model invocation remains unverified because no credential is configured and no paid call was made."
     }
   ]
 }
