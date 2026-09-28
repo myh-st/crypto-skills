@@ -1076,6 +1076,10 @@ class PaperFuturesRuntimeIntegrationTests(unittest.TestCase):
         )
         self.assertTrue(cycle["arms"]["hybrid"]["escalation"]["escalate"])
         self.assertEqual(cycle["primary_decision"]["intent"]["source_arm"], "hybrid")
+        frozen_decision = {
+            key: cycle[key]
+            for key in ("snapshot_hash", "decision_input_hash", "market_regime", "arms")
+        }
         self.assertTrue(
             all(
                 "future-label-never-forwarded" not in json.dumps(call["input"])
@@ -1121,16 +1125,109 @@ class PaperFuturesRuntimeIntegrationTests(unittest.TestCase):
         ]
         self.assertEqual(still_closed[0]["realized_pnl"], realized)
         self.assertEqual(still_closed[0]["closed_pnl_recorded"], 1)
+        stored_cycle = self.store.cycle(cycle["cycle_id"])
+        self.assertEqual(
+            {key: stored_cycle[key] for key in frozen_decision},
+            frozen_decision,
+        )
 
         metrics = runtime.metrics()
         self.assertTrue(metrics["reconciliation"]["ending_equity_equals_cash_plus_unrealized"])
         self.assertTrue(metrics["reconciliation"]["closed_pnl_matches_closed_trade_ledger"])
+        self.assertTrue(metrics["reconciliation"]["by_asset_pnl_reconciles"])
+        self.assertTrue(metrics["reconciliation"]["by_regime_pnl_reconciles"])
         self.assertEqual(metrics["portfolio"]["closed_trade_count"], 1)
+        self.assertEqual(metrics["escalation_rate"], 1.0)
+        self.assertEqual(metrics["escalation_rate_numerator"], 1)
+        self.assertEqual(metrics["escalation_rate_denominator"], 1)
+        self.assertIn("routing requirement", metrics["escalation_rate_definition"])
+        self.assertEqual(metrics["by_asset"][0]["symbol"], "BTCUSDT")
+        self.assertEqual(metrics["by_asset"][0]["closed_trade_count"], 1)
+        self.assertEqual(metrics["by_asset"][0]["data_origin"], "FIXTURE")
+        self.assertEqual(
+            set(metrics["by_asset"][0]),
+            {
+                "symbol",
+                "closed_trade_count",
+                "net_pnl_usdt",
+                "expectancy_usdt",
+                "max_drawdown",
+                "data_origin",
+            },
+        )
+        self.assertAlmostEqual(
+            metrics["by_asset"][0]["net_pnl_usdt"],
+            metrics["portfolio"]["realized_pnl_usdt"],
+            places=7,
+        )
+        self.assertEqual(metrics["by_asset"][0]["max_drawdown"], None)
+        self.assertEqual(metrics["by_regime"][0]["regime"], "bull")
+        self.assertEqual(metrics["by_regime"][0]["closed_trade_count"], 1)
+        self.assertEqual(metrics["by_regime"][0]["data_origin"], "FIXTURE")
+        self.assertEqual(
+            set(metrics["by_regime"][0]),
+            {
+                "regime",
+                "closed_trade_count",
+                "net_pnl_usdt",
+                "expectancy_usdt",
+                "max_drawdown",
+                "data_origin",
+            },
+        )
+        self.assertAlmostEqual(
+            metrics["by_regime"][0]["net_pnl_usdt"],
+            metrics["portfolio"]["realized_pnl_usdt"],
+            places=7,
+        )
+        self.assertEqual(metrics["by_regime"][0]["max_drawdown"], None)
         self.assertAlmostEqual(
             metrics["portfolio"]["net_pnl_usdt"],
             metrics["portfolio"]["cash_balance_usdt"] - 100,
             places=7,
         )
+        dashboard_cycle = next(
+            row
+            for row in runtime.dashboard()["cycles"]
+            if row["cycle_id"] == cycle["cycle_id"]
+        )
+        routing = dashboard_cycle["routing"]
+        self.assertEqual(
+            set(routing),
+            {
+                "quant_gate",
+                "jev_decision",
+                "escalation_required",
+                "luna_result",
+                "risk_decision",
+                "paper_execution",
+            },
+        )
+        self.assertEqual(
+            set(routing["quant_gate"]), {"decision", "signal_strength"}
+        )
+        self.assertEqual(
+            set(routing["jev_decision"]), {"decision", "confidence", "direction"}
+        )
+        self.assertEqual(
+            set(routing["risk_decision"]), {"approved", "code", "reason"}
+        )
+        self.assertEqual(
+            set(routing["paper_execution"]), {"status", "order_count", "fill_count"}
+        )
+        self.assertEqual(routing["quant_gate"]["decision"], "PASS")
+        self.assertIsNotNone(routing["quant_gate"]["signal_strength"])
+        self.assertEqual(routing["jev_decision"]["decision"], "ENTER_LONG")
+        self.assertIsNotNone(routing["jev_decision"]["confidence"])
+        self.assertEqual(routing["jev_decision"]["direction"], "long")
+        self.assertTrue(routing["escalation_required"])
+        self.assertEqual(routing["luna_result"]["status"], "COMPLETED")
+        self.assertEqual(routing["luna_result"]["decision"], "ENTER_LONG")
+        self.assertTrue(routing["risk_decision"]["approved"])
+        self.assertEqual(routing["risk_decision"]["code"], "APPROVED")
+        self.assertEqual(routing["paper_execution"]["status"], "FILLED")
+        self.assertEqual(routing["paper_execution"]["order_count"], 1)
+        self.assertEqual(routing["paper_execution"]["fill_count"], 2)
 
         archive_bytes, filename = runtime.export_bundle()
         self.assertTrue(filename.endswith(".zip"))
@@ -1150,6 +1247,7 @@ class PaperFuturesRuntimeIntegrationTests(unittest.TestCase):
                     "equity.csv",
                     "pnl-by-day.csv",
                     "pnl-by-asset.csv",
+                    "pnl-by-regime.csv",
                     "pnl-by-leverage.csv",
                     "decisions.jsonl",
                     "signals.jsonl",
@@ -1185,11 +1283,21 @@ class PaperFuturesRuntimeIntegrationTests(unittest.TestCase):
             trades = list(
                 csv.DictReader(io.StringIO(archive.read("trades.csv").decode("utf-8")))
             )
+            regime_pnl = list(
+                csv.DictReader(
+                    io.StringIO(archive.read("pnl-by-regime.csv").decode("utf-8"))
+                )
+            )
             primary_trades = [trade for trade in trades if trade["cohort"] == "primary"]
             self.assertEqual(len(primary_trades), 1)
             self.assertAlmostEqual(
                 sum(float(trade["realized_pnl"]) for trade in primary_trades),
                 exported_metrics["portfolio"]["realized_pnl_usdt"],
+                places=7,
+            )
+            self.assertAlmostEqual(
+                sum(float(row["net_pnl_usdt"]) for row in regime_pnl),
+                exported_metrics["reconciliation"]["all_cohort_closed_trade_net_pnl_usdt"],
                 places=7,
             )
             self.assertTrue(exported_metrics["reconciliation"]["ending_equity_equals_cash_plus_unrealized"])
@@ -1825,6 +1933,15 @@ class PaperFuturesRuntimeIntegrationTests(unittest.TestCase):
             0,
         )
         self.assertEqual(skipped_store.ai_usage("EXP-001")[0]["status"], "failed")
+        skipped_metrics = skipped.metrics()
+        self.assertEqual(skipped_metrics["escalation_rate_denominator"], 0)
+        self.assertIsNone(skipped_metrics["escalation_rate"])
+        skipped_routing = skipped.dashboard()["cycles"][0]["routing"]
+        self.assertEqual(skipped_routing["jev_decision"]["decision"], "FAILED")
+        self.assertIsNone(skipped_routing["jev_decision"]["confidence"])
+        self.assertIsNone(skipped_routing["jev_decision"]["direction"])
+        self.assertEqual(skipped_routing["luna_result"]["status"], "SKIPPED")
+        self.assertEqual(skipped_routing["paper_execution"]["status"], "NOT_SUBMITTED")
         skipped_store.close()
 
         fallback_store = PaperStore(":memory:")
@@ -1848,7 +1965,36 @@ class PaperFuturesRuntimeIntegrationTests(unittest.TestCase):
             "jev_unavailable_gpt_fallback",
             result["primary_decision"]["escalation"]["reasons"],
         )
+        fallback_metrics = fallback.metrics()
+        self.assertEqual(fallback_metrics["escalation_rate_denominator"], 1)
+        self.assertEqual(fallback_metrics["escalation_rate_numerator"], 1)
+        self.assertEqual(fallback_metrics["escalation_rate"], 1.0)
+        self.assertIn("routing requirement", fallback_metrics["escalation_rate_definition"])
         fallback_store.close()
+
+    def test_escalation_rate_is_required_routes_over_evaluated_hybrid_cases(self):
+        store = PaperStore(":memory:")
+        config = default_experiment_config()
+        config["evaluation_arms"] = ["hybrid"]
+        config["primary_arm"] = "hybrid"
+        store.save_experiment(config)
+        runtime = PaperRuntime(
+            store,
+            market_provider=FixtureFuturesMarketDataProvider(),
+            jev_provider=FixtureJevProvider(),
+            gpt_provider=CountingGPTProvider(),
+            clock=self.clock,
+        )
+        runtime.start()
+        cycle = runtime.run_cycle("BTCUSDT", as_of=self.now, manual=True)
+        self.assertFalse(cycle["primary_decision"]["escalation"]["escalate"])
+        metrics = runtime.metrics()
+        self.assertEqual(metrics["escalation_rate_denominator"], 1)
+        self.assertEqual(metrics["escalation_rate_numerator"], 0)
+        self.assertEqual(metrics["escalation_rate"], 0.0)
+        self.assertEqual(metrics["luna_avoided_rate"], 1.0)
+        self.assertIn("routing requirement", metrics["escalation_rate_definition"])
+        store.close()
 
     def test_experiment_can_disable_jev_and_routed_gpt_without_implicit_calls(self):
         store = PaperStore(":memory:")

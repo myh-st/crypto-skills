@@ -33,6 +33,35 @@ function usd(value) {
   return `$${Number(value).toFixed(6)}`;
 }
 
+function displayValue(value) {
+  return value === null || value === undefined || value === "" ? "—" : String(value);
+}
+
+function numericValue(value) {
+  if (value === null || value === undefined || value === "") return null;
+  const number = Number(value);
+  return Number.isFinite(number) ? number : null;
+}
+
+function fixedNumber(value, digits = 2) {
+  const number = numericValue(value);
+  return number === null ? "—" : number.toFixed(digits);
+}
+
+function percent(value, digits = 1) {
+  const number = numericValue(value);
+  return number === null ? "—" : `${(number * 100).toFixed(digits)}%`;
+}
+
+function dataOriginLabel(value) {
+  if (value === null || value === undefined || value === "") return "—";
+  return titleCase(String(value).replaceAll("_", " "));
+}
+
+function yesNo(value) {
+  return typeof value === "boolean" ? (value ? "Yes" : "No") : "—";
+}
+
 function metric(label, value, note = "") {
   return `
     <div class="paper-metric">
@@ -165,11 +194,27 @@ function renderArmRows(arms) {
   return Object.entries(arms || {}).map(([name, value]) => `
     <tr>
       <td>${escapeHtml(titleCase(name))}</td>
-      <td>${escapeHtml(value.closed_trade_count)}</td>
+      <td>${escapeHtml(displayValue(value.closed_trade_count))}</td>
       <td>${escapeHtml(money(value.net_pnl_usdt))}</td>
-      <td>${escapeHtml(value.expectancy_usdt === null ? "—" : money(value.expectancy_usdt))}</td>
-      <td>${escapeHtml(value.max_drawdown === null ? "—" : `${(value.max_drawdown * 100).toFixed(2)}%`)}</td>
-      <td>${escapeHtml(value.data_origin)}</td>
+      <td>${escapeHtml(money(value.expectancy_usdt))}</td>
+      <td>${escapeHtml(percent(value.max_drawdown, 2))}</td>
+      <td>${escapeHtml(dataOriginLabel(value.data_origin))}</td>
+    </tr>
+  `).join("");
+}
+
+function renderPerformanceRows(rows, dimension) {
+  if (!Array.isArray(rows) || !rows.length) {
+    return '<tr><td colspan="6" class="table-empty">No performance breakdown is available.</td></tr>';
+  }
+  return rows.map((value) => `
+    <tr>
+      <td>${escapeHtml(displayValue(value?.[dimension]))}</td>
+      <td>${escapeHtml(displayValue(value?.closed_trade_count))}</td>
+      <td>${escapeHtml(money(value?.net_pnl_usdt))}</td>
+      <td>${escapeHtml(money(value?.expectancy_usdt))}</td>
+      <td>${escapeHtml(percent(value?.max_drawdown, 2))}</td>
+      <td><span class="demo-tag">${escapeHtml(dataOriginLabel(value?.data_origin))}</span></td>
     </tr>
   `).join("");
 }
@@ -187,21 +232,28 @@ function renderLeverageRows(rows) {
 }
 
 function renderComparisonChart(arms) {
-  const rows = Object.entries(arms || {});
-  const maximum = Math.max(0, ...rows.map(([, value]) => Math.abs(Number(value.net_pnl_usdt) || 0)));
-  if (!rows.some(([, value]) => value.closed_trade_count > 0 || value.open_position_count > 0)) {
+  const rows = Object.entries(arms || {}).map(([name, value]) => ({
+    name,
+    value,
+    pnl: numericValue(value.net_pnl_usdt),
+  }));
+  if (!rows.some(({ value }) => value.closed_trade_count > 0 || value.open_position_count > 0)) {
     return '<p class="muted">No arm positions have been recorded.</p>';
   }
+  const recordedPnls = rows.filter((row) => row.pnl !== null);
+  if (!recordedPnls.length) {
+    return '<p class="muted">Net PnL is unavailable for the recorded experiment arms.</p>';
+  }
+  const maximum = Math.max(0, ...recordedPnls.map(({ pnl }) => Math.abs(pnl)));
   return `
     <div class="paper-comparison-chart" role="img" aria-label="Net paper PnL by experiment arm">
-      ${rows.map(([name, value]) => {
-        const pnl = Number(value.net_pnl_usdt) || 0;
-        const width = maximum > 0 ? Math.max(2, Math.abs(pnl) / maximum * 100) : 2;
+      ${rows.map(({ name, pnl }) => {
+        const width = pnl === null ? 0 : maximum > 0 ? Math.max(2, Math.abs(pnl) / maximum * 100) : 2;
         const tone = pnl > 0 ? "positive" : pnl < 0 ? "negative" : "neutral";
         return `
           <div class="paper-bar-row">
             <span>${escapeHtml(titleCase(name))}</span>
-            <div class="paper-bar-track"><span class="paper-bar-fill paper-bar-fill--${tone}" style="width:${width.toFixed(2)}%"></span></div>
+            <div class="paper-bar-track">${pnl === null ? "" : `<span class="paper-bar-fill paper-bar-fill--${tone}" style="width:${width.toFixed(2)}%"></span>`}</div>
             <strong>${escapeHtml(money(pnl))}</strong>
           </div>
         `;
@@ -263,18 +315,42 @@ function renderActivity(events) {
 }
 
 function renderCycles(cycles) {
-  if (!cycles.length) return '<tr><td colspan="6" class="table-empty">No cycles recorded yet.</td></tr>';
+  if (!Array.isArray(cycles) || !cycles.length) {
+    return '<tr><td colspan="6" class="table-empty">No cycles recorded yet.</td></tr>';
+  }
   return cycles.slice(0, 12).map((cycle) => {
-    const decision = cycle.primary_decision || {};
-    const risk = cycle.risk || {};
+    const routing = cycle.routing || null;
+    const quantGate = routing?.quant_gate || {};
+    const jevDecision = routing?.jev_decision || {};
+    const lunaResult = routing?.luna_result;
+    const risk = routing?.risk_decision || cycle.risk || {};
+    const paperExecution = routing?.paper_execution || {};
+    const outcome = cycle.primary_decision?.decision || cycle.status;
+    const riskDecision = typeof risk.approved === "boolean"
+      ? (risk.approved ? "Approved" : "Not approved")
+      : displayValue(risk.decision);
+    const lunaLabel = !routing
+      ? "—"
+      : lunaResult === null
+        ? "Not invoked"
+        : lunaResult && typeof lunaResult === "object"
+          ? `${displayValue(lunaResult.status)} · ${displayValue(lunaResult.decision)}`
+          : "—";
+    const snapshot = displayValue(cycle.snapshot_hash);
     return `
       <tr>
-        <td>${escapeHtml(cycle.symbol)}</td>
+        <td>${escapeHtml(displayValue(cycle.symbol))}</td>
         <td>${escapeHtml(formatTimestamp(cycle.data_cutoff || cycle.cycle_slot))}</td>
-        <td><span class="pill pill--neutral">${escapeHtml(decision.decision || cycle.status)}</span></td>
-        <td>${escapeHtml(risk.code || "—")}</td>
-        <td>${escapeHtml(cycle.data_origin || "—")}</td>
-        <td>${escapeHtml(String(cycle.snapshot_hash || "").slice(0, 12))}</td>
+        <td><span class="pill pill--neutral">${escapeHtml(displayValue(outcome))}</span></td>
+        <td class="paper-cycle-routing"><small>
+          <strong>Quant gate:</strong> ${escapeHtml(displayValue(quantGate.decision))} · signal strength ${escapeHtml(fixedNumber(quantGate.signal_strength))}
+          <br /><strong>Jev:</strong> ${escapeHtml(displayValue(jevDecision.decision))} · confidence ${escapeHtml(percent(jevDecision.confidence))} · direction ${escapeHtml(displayValue(jevDecision.direction))}
+          <br /><strong>Escalation:</strong> ${escapeHtml(yesNo(routing?.escalation_required))} · <strong>Luna:</strong> ${escapeHtml(lunaLabel)}
+          <br /><strong>Risk:</strong> ${escapeHtml(riskDecision)} · code ${escapeHtml(displayValue(risk.code))} · reason ${escapeHtml(displayValue(risk.reason))}
+          <br /><strong>Paper execution:</strong> ${escapeHtml(displayValue(paperExecution.status))} · orders ${escapeHtml(displayValue(paperExecution.order_count))} · fills ${escapeHtml(displayValue(paperExecution.fill_count))}
+        </small></td>
+        <td>${escapeHtml(dataOriginLabel(cycle.data_origin))}</td>
+        <td>${escapeHtml(snapshot === "—" ? snapshot : snapshot.slice(0, 12))}</td>
       </tr>
     `;
   }).join("");
@@ -310,7 +386,7 @@ function renderMetrics(dashboard) {
       ${metric("Equity", money(portfolio.ending_equity_usdt), `${portfolio.open_position_count} open positions`)}
       ${metric("Net PnL", money(portfolio.net_pnl_usdt), `${portfolio.closed_trade_count} closed trades`)}
       ${metric("Risk blocks", String(metrics.risk_block_count), `${metrics.risk_approval_count} risk approvals`)}
-      ${metric("Hybrid Luna avoided", metrics.luna_avoided_rate === null ? "—" : `${(metrics.luna_avoided_rate * 100).toFixed(1)}%`, `${metrics.sample_denominators.eligible_quant_cases} eligible cases`)}
+      ${metric("Escalation rate", percent(metrics.escalation_rate), `${displayValue(metrics.sample_denominators?.eligible_quant_cases)} eligible cases`)}
       ${metric("AI calls", String(metrics.jev_calls + metrics.gpt_calls), `${metrics.jev_calls} Jev · ${metrics.gpt_calls} GPT`)}
       ${metric("AI cost", costValue, metrics.ai_cost_status.replaceAll("_", " "))}
       ${metric("Cost / eligible case", usd(metrics.ai_cost_per_eligible_case_usd), "versioned provider pricing")}
@@ -321,7 +397,7 @@ function renderMetrics(dashboard) {
   `;
 }
 
-function renderDashboard(host, dashboard) {
+export function renderDashboard(host, dashboard) {
   const state = dashboard.experiment.status;
   const origin = dashboard.data_safety.origin;
   const { metrics } = dashboard;
@@ -376,6 +452,22 @@ function renderDashboard(host, dashboard) {
         <thead><tr><th>Arm</th><th>Closed n</th><th>Net PnL</th><th>Expectancy</th><th>Max drawdown</th><th>Origin</th></tr></thead>
         <tbody>${renderArmRows(metrics.arms)}</tbody>
       </table></div>
+      <div class="paper-dashboard-grid">
+        <section class="paper-subpanel">
+          <h3>Performance by regime</h3>
+          <div class="table-scroll"><table class="data-table">
+            <thead><tr><th>Regime</th><th>Closed n</th><th>Net PnL</th><th>Expectancy</th><th>Max drawdown</th><th>Data origin</th></tr></thead>
+            <tbody>${renderPerformanceRows(metrics.by_regime, "regime")}</tbody>
+          </table></div>
+        </section>
+        <section class="paper-subpanel">
+          <h3>Performance by asset</h3>
+          <div class="table-scroll"><table class="data-table">
+            <thead><tr><th>Asset</th><th>Closed n</th><th>Net PnL</th><th>Expectancy</th><th>Max drawdown</th><th>Data origin</th></tr></thead>
+            <tbody>${renderPerformanceRows(metrics.by_asset, "symbol")}</tbody>
+          </table></div>
+        </section>
+      </div>
     </section>
     <section class="panel">
       <div class="section-heading"><h2>Parallel leverage cohorts</h2><span class="demo-tag">Same intent · separate wallet</span></div>
@@ -386,7 +478,7 @@ function renderDashboard(host, dashboard) {
     </section>
     <section class="paper-dashboard-grid">
       <section class="panel"><h2>Recent cycles</h2><div class="table-scroll"><table class="data-table">
-        <thead><tr><th>Symbol</th><th>Cutoff</th><th>Decision</th><th>Risk</th><th>Origin</th><th>Snapshot</th></tr></thead>
+        <thead><tr><th>Symbol</th><th>Cutoff</th><th>Primary outcome</th><th>Routing and execution</th><th>Origin</th><th>Snapshot</th></tr></thead>
         <tbody>${renderCycles(dashboard.cycles)}</tbody>
       </table></div></section>
       <section class="panel"><h2>Risk journal</h2>${renderRiskEvents(dashboard.risk_events)}</section>

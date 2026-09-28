@@ -185,6 +185,7 @@ def compute_features(
     down_breakout = close < previous_low
     uptrend = ema12 > ema26 and ema12_1h > ema26_1h and ema12_4h > ema26_4h
     downtrend = ema12 < ema26 and ema12_1h < ema26_1h and ema12_4h < ema26_4h
+    quant_regime = "bull" if uptrend else "bear" if downtrend else "sideways"
     if up_breakout and uptrend:
         direction, trigger = "long", "breakout"
     elif down_breakout and downtrend:
@@ -232,6 +233,7 @@ def compute_features(
         "open_interest_change_1h": snapshot.open_interest_change_1h,
         "spread_bps": snapshot.spread_bps,
         "quant_direction": direction,
+        "quant_regime": quant_regime,
         "signal_trigger": trigger,
         "signal_strength": strength,
         "gate_eligible": bool(gate),
@@ -573,6 +575,8 @@ class PaperStore:
                 cohort TEXT NOT NULL,
                 is_shadow INTEGER NOT NULL,
                 source_arm TEXT NOT NULL,
+                market_regime TEXT NOT NULL DEFAULT 'unknown',
+                regime_source TEXT NOT NULL DEFAULT 'unknown',
                 side TEXT NOT NULL,
                 quantity REAL NOT NULL,
                 opened_quantity REAL NOT NULL,
@@ -746,6 +750,11 @@ class PaperStore:
                 self._db.execute(
                     "ALTER TABLE positions ADD COLUMN slippage_paid REAL NOT NULL DEFAULT 0"
                 )
+            for name in ("market_regime", "regime_source"):
+                if name not in position_columns:
+                    self._db.execute(
+                        f"ALTER TABLE positions ADD COLUMN {name} TEXT NOT NULL DEFAULT 'unknown'"
+                    )
             fill_columns = {
                 row["name"] for row in self._db.execute("PRAGMA table_info(fills)").fetchall()
             }
@@ -1613,6 +1622,14 @@ class PaperStore:
                 "actual isolated liquidation price would precede the stop",
             )
         fee = quantity * fill_price * fee_rate
+        stored_order_data = _loads(order["risk_json"], {})
+        execution_data = stored_order_data.get("execution", {})
+        market_regime = execution_data.get("market_regime", "unknown")
+        if market_regime not in {"bull", "bear", "sideways", "unstable"}:
+            market_regime = "unknown"
+        regime_source = execution_data.get("regime_source", "unknown")
+        if regime_source not in {"jev", "quant"}:
+            regime_source = "unknown"
         expected_entry = float(intent["entry_price"])
         slippage_cost = quantity * (
             max(0.0, fill_price - expected_entry)
@@ -1621,10 +1638,10 @@ class PaperStore:
         )
         db.execute(
             "INSERT OR IGNORE INTO positions(position_id, experiment_id, cycle_id, symbol, cohort, "
-            "is_shadow, source_arm, side, quantity, opened_quantity, entry_price, mark_price, "
+            "is_shadow, source_arm, market_regime, regime_source, side, quantity, opened_quantity, entry_price, mark_price, "
             "stop_price, target_price, leverage, margin, liquidation_price, entry_fee, "
             "entry_fee_remaining, slippage_paid, status, opened_at, last_funding_slot) "
-            "VALUES(?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'open', ?, ?)",
+            "VALUES(?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'open', ?, ?)",
             (
                 position_id,
                 experiment_id,
@@ -1633,6 +1650,8 @@ class PaperStore:
                 cohort,
                 0 if cohort == "primary" else 1,
                 intent["source_arm"],
+                market_regime,
+                regime_source,
                 intent["side"],
                 quantity,
                 quantity,
@@ -1853,6 +1872,59 @@ class PaperStore:
                     **_loads(row["payload_json"], {}),
                     "created_at": row["created_at"],
                 }
+            )
+        return result
+
+    def cycle_execution_metadata(
+        self, experiment_id: str, cycle_ids: list[str]
+    ) -> dict[str, dict[str, Any]]:
+        if not cycle_ids:
+            return {}
+        placeholders = ",".join("?" for _ in cycle_ids)
+        parameters = (experiment_id, *cycle_ids)
+        with self._lock:
+            order_rows = self._db.execute(
+                f"SELECT cycle_id, cohort, status, COUNT(*) AS count FROM orders "
+                f"WHERE experiment_id=? AND cycle_id IN ({placeholders}) "
+                f"GROUP BY cycle_id, cohort, status",
+                parameters,
+            ).fetchall()
+            fill_rows = self._db.execute(
+                f"SELECT cycle_id, cohort, COUNT(*) AS count FROM fills "
+                f"WHERE experiment_id=? AND cycle_id IN ({placeholders}) "
+                f"GROUP BY cycle_id, cohort",
+                parameters,
+            ).fetchall()
+            call_rows = self._db.execute(
+                f"SELECT cycle_id, path, status FROM ai_calls "
+                f"WHERE experiment_id=? AND cycle_id IN ({placeholders}) ORDER BY call_id",
+                parameters,
+            ).fetchall()
+        result = {
+            cycle_id: {
+                "order_count": 0,
+                "all_order_count": 0,
+                "order_status_counts": {},
+                "fill_count": 0,
+                "all_fill_count": 0,
+                "ai_calls": [],
+            }
+            for cycle_id in cycle_ids
+        }
+        for row in order_rows:
+            summary = result[row["cycle_id"]]
+            summary["all_order_count"] += int(row["count"])
+            if row["cohort"] == "primary":
+                summary["order_count"] += int(row["count"])
+                summary["order_status_counts"][row["status"]] = int(row["count"])
+        for row in fill_rows:
+            summary = result[row["cycle_id"]]
+            summary["all_fill_count"] += int(row["count"])
+            if row["cohort"] == "primary":
+                summary["fill_count"] = int(row["count"])
+        for row in call_rows:
+            result[row["cycle_id"]]["ai_calls"].append(
+                {"path": row["path"], "status": row["status"]}
             )
         return result
 
@@ -3433,6 +3505,28 @@ class PaperRuntime:
             decision_input_hash = jev_state(
                 snapshot, features, portfolio
             )["snapshot_hash"]
+            jev_regime = (
+                (jev_vector.get("answers", {}).get("market_regime") or {}).get("value")
+                if jev_vector
+                else None
+            )
+            if jev_regime not in {"bull", "bear", "sideways", "unstable"}:
+                market_regime = features["quant_regime"]
+                regime_source = "quant"
+            else:
+                market_regime = jev_regime
+                regime_source = "jev"
+            jev_status = (
+                "completed"
+                if jev_vector is not None
+                else "failed"
+                if jev_error
+                else "disabled"
+                if jev_disabled
+                else "skipped"
+                if jev_arms_selected
+                else "not_requested"
+            )
             for arm_result in arm_results.values():
                 arm_result["decision_input_hash"] = decision_input_hash
             primary = arm_results.get(config["primary_arm"])
@@ -3511,6 +3605,8 @@ class PaperRuntime:
                         "fee_rate": config["taker_fee_rate"],
                         "as_of": snapshot.as_of,
                         "data_origin": snapshot.data_origin,
+                        "market_regime": market_regime,
+                        "regime_source": regime_source,
                     }
                 )
 
@@ -3559,6 +3655,8 @@ class PaperRuntime:
                         "fee_rate": config["taker_fee_rate"],
                         "as_of": snapshot.as_of,
                         "data_origin": snapshot.data_origin,
+                        "market_regime": market_regime,
+                        "regime_source": regime_source,
                     }
                 )
 
@@ -3610,6 +3708,8 @@ class PaperRuntime:
                             "fee_rate": config["taker_fee_rate"],
                             "as_of": snapshot.as_of,
                             "data_origin": snapshot.data_origin,
+                            "market_regime": market_regime,
+                            "regime_source": regime_source,
                         }
                     )
 
@@ -3624,11 +3724,14 @@ class PaperRuntime:
                 "data_origin": snapshot.data_origin,
                 "snapshot_hash": snapshot.snapshot_hash,
                 "decision_input_hash": decision_input_hash,
+                "market_regime": market_regime,
+                "regime_source": regime_source,
                 "market_snapshot": snapshot.to_dict(),
                 "market_history_inserted": history_inserted,
                 "features": features,
                 "quant_gate": gate,
                 "jev_vector": jev_vector,
+                "jev_status": jev_status,
                 "escalation_events": escalation_events,
                 "arms": arm_results,
                 "primary_arm": config["primary_arm"],
@@ -4263,6 +4366,37 @@ class PaperRuntimeReports:
             "data_origin": equity[-1]["data_origin"] if equity else "NO_CYCLE",
         }
 
+    @staticmethod
+    def _bucket_trade_metrics(
+        closed_trades: list[dict[str, Any]],
+        *,
+        key_field: str,
+        key_name: str,
+        cycle_origins: dict[str, str],
+    ) -> list[dict[str, Any]]:
+        groups: dict[str, list[dict[str, Any]]] = {}
+        for trade in closed_trades:
+            key = trade.get(key_field) or "unknown"
+            groups.setdefault(str(key), []).append(trade)
+        results = []
+        for key, trades in sorted(groups.items()):
+            pnl = sum(float(trade["realized_pnl"] or 0) for trade in trades)
+            origins = {
+                cycle_origins.get(trade["cycle_id"], "UNKNOWN")
+                for trade in trades
+            }
+            results.append(
+                {
+                    key_name: key,
+                    "closed_trade_count": len(trades),
+                    "net_pnl_usdt": pnl,
+                    "expectancy_usdt": pnl / len(trades) if trades else None,
+                    "max_drawdown": None,
+                    "data_origin": next(iter(origins)) if len(origins) == 1 else "MIXED",
+                }
+            )
+        return results
+
     def metrics(self) -> dict[str, Any]:
         experiment = self.store.experiment()
         experiment_id = experiment["experiment_id"]
@@ -4277,18 +4411,51 @@ class PaperRuntimeReports:
             and position["status"] == "closed"
             and position["closed_pnl_recorded"]
         ]
+        cycle_origins = {
+            cycle["cycle_id"]: cycle["payload"].get("data_origin", "UNKNOWN")
+            for cycle in cycles
+        }
+        by_asset = self._bucket_trade_metrics(
+            closed,
+            key_field="symbol",
+            key_name="symbol",
+            cycle_origins=cycle_origins,
+        )
+        by_regime = self._bucket_trade_metrics(
+            closed,
+            key_field="market_regime",
+            key_name="regime",
+            cycle_origins=cycle_origins,
+        )
         blocks = [event for event in records["risk_events"] if event["status"] == "blocked"]
         eligible = sum(
             1
             for cycle in cycles
             if cycle["payload"].get("features", {}).get("gate_eligible") is True
         )
-        hybrid_cases = [
-            cycle["payload"].get("arms", {}).get("hybrid")
-            for cycle in cycles
-            if cycle["payload"].get("arms", {}).get("hybrid")
-            and cycle["payload"].get("features", {}).get("gate_eligible") is True
-        ]
+        hybrid_cases = []
+        for cycle in cycles:
+            payload = cycle["payload"]
+            decision = payload.get("arms", {}).get("hybrid")
+            route = decision.get("escalation") if isinstance(decision, dict) else None
+            if (
+                not isinstance(decision, dict)
+                or payload.get("features", {}).get("gate_eligible") is not True
+                or not isinstance(route, dict)
+            ):
+                continue
+            jev_status = payload.get("jev_status")
+            route_reasons = route.get("reasons")
+            fallback_route = isinstance(route_reasons, list) and any(
+                reason
+                in {
+                    "jev_disabled_gpt_fallback",
+                    "jev_unavailable_gpt_fallback",
+                }
+                for reason in route_reasons
+            )
+            if jev_status == "completed" or fallback_route:
+                hybrid_cases.append(decision)
         escalated = sum(
             1
             for decision in hybrid_cases
@@ -4483,11 +4650,19 @@ class PaperRuntimeReports:
                 position["realized_pnl"] or 0
             )
         grouped_closed_pnl = sum(pnl_by_asset.values())
+        grouped_asset_pnl = sum(row["net_pnl_usdt"] for row in by_asset)
+        grouped_regime_pnl = sum(row["net_pnl_usdt"] for row in by_regime)
+        asset_pnl_reconciles = math.isclose(
+            closed_trade_pnl, grouped_asset_pnl, rel_tol=0, abs_tol=1e-8
+        )
+        regime_pnl_reconciles = math.isclose(
+            closed_trade_pnl, grouped_regime_pnl, rel_tol=0, abs_tol=1e-8
+        )
         closed_pnl_reconciles = math.isclose(
             closed_trade_pnl, grouped_closed_pnl,
             rel_tol=0,
             abs_tol=1e-8,
-        )
+        ) and asset_pnl_reconciles and regime_pnl_reconciles
         return {
             "schema_version": "paper-futures-metrics.v1",
             "data_origin": (
@@ -4533,6 +4708,11 @@ class PaperRuntimeReports:
                 ),
             },
             "portfolio": primary,
+            "by_asset": by_asset,
+            "by_regime": by_regime,
+            "bucket_drawdown_status": (
+                "unavailable_without_independent_bucket_equity_curve"
+            ),
             "risk_block_count": len(blocks),
             "risk_approval_count": sum(
                 1 for event in records["risk_events"] if event["status"] == "approved"
@@ -4541,6 +4721,16 @@ class PaperRuntimeReports:
             "gpt_calls": sum(1 for call in calls if call["path"].startswith("gpt:")),
             "escalation_count": escalated,
             "escalation_rate": escalated / len(hybrid_cases) if hybrid_cases else None,
+            "escalation_rate_numerator": escalated,
+            "escalation_rate_denominator": len(hybrid_cases),
+            "escalation_rate_definition": (
+                "router-required deep reasoning divided by quant-gated Hybrid cases "
+                "with completed Jev decisions or explicit GPT fallback; it measures "
+                "routing requirement, not provider call success"
+            ),
+            "luna_avoided_rate_definition": (
+                "one minus escalation_rate; cases routed through the Jev fast path"
+            ),
             "luna_avoided_rate": (
                 (len(hybrid_cases) - escalated) / len(hybrid_cases)
                 if hybrid_cases
@@ -4578,6 +4768,8 @@ class PaperRuntimeReports:
                 "ending_equity_equals_cash_plus_unrealized": equity_reconciles,
                 "closed_pnl_matches_closed_trade_ledger": closed_pnl_reconciles,
                 "closed_trade_net_pnl_usdt": closed_trade_pnl,
+                "by_asset_pnl_reconciles": asset_pnl_reconciles,
+                "by_regime_pnl_reconciles": regime_pnl_reconciles,
                 "all_cohort_closed_trade_count": sum(
                     1 for position in records["positions"]
                     if position["status"] == "closed" and position["closed_pnl_recorded"]
@@ -4592,6 +4784,148 @@ class PaperRuntimeReports:
             },
         }
 
+    @staticmethod
+    def _cycle_routing(
+        cycle: dict[str, Any],
+        execution_metadata: dict[str, Any],
+    ) -> dict[str, Any]:
+        gate = cycle.get("quant_gate")
+        if isinstance(gate, dict) and isinstance(gate.get("eligible"), bool):
+            quant_gate_decision = "PASS" if gate["eligible"] else "BLOCKED"
+            raw_strength = gate.get("strength")
+            signal_strength = (
+                float(raw_strength)
+                if isinstance(raw_strength, (int, float))
+                and not isinstance(raw_strength, bool)
+                and math.isfinite(float(raw_strength))
+                else None
+            )
+        else:
+            quant_gate_decision = "UNKNOWN"
+            signal_strength = None
+
+        jev_vector = cycle.get("jev_vector")
+        if isinstance(jev_vector, dict):
+            answers = jev_vector.get("answers") or {}
+            regime_answer = answers.get("market_regime") or {}
+            regime = regime_answer.get("value")
+            arm_decision = (cycle.get("arms") or {}).get("jev")
+            if isinstance(arm_decision, dict) and isinstance(
+                arm_decision.get("decision"), str
+            ):
+                jev_decision_value = arm_decision["decision"]
+            elif isinstance(regime, str):
+                jev_decision_value = regime
+            else:
+                jev_decision_value = "UNKNOWN"
+            raw_confidence = regime_answer.get("confidence")
+            confidence = (
+                float(raw_confidence)
+                if isinstance(raw_confidence, (int, float))
+                and not isinstance(raw_confidence, bool)
+                and math.isfinite(float(raw_confidence))
+                else None
+            )
+            direction = (
+                "long" if regime == "bull" else "short" if regime == "bear" else None
+            )
+        else:
+            jev_status = cycle.get("jev_status", "not_requested")
+            jev_decision_value = (
+                jev_status.upper()
+                if jev_status
+                in {"failed", "disabled", "skipped", "not_requested"}
+                else "UNKNOWN"
+            )
+            confidence = None
+            direction = None
+
+        primary = cycle.get("primary_decision") or {}
+        route = primary.get("escalation")
+        escalation_required = (
+            route["escalate"]
+            if isinstance(route, dict) and isinstance(route.get("escalate"), bool)
+            else False
+        )
+        risk = cycle.get("risk")
+        if isinstance(risk, dict) and isinstance(risk.get("allowed"), bool):
+            risk_decision = {
+                "approved": risk["allowed"],
+                "code": risk.get("code") or "UNKNOWN",
+                "reason": risk.get("reason") or "Risk decision reason unavailable.",
+            }
+        else:
+            risk_decision = {
+                "approved": False,
+                "code": "NOT_EVALUATED",
+                "reason": "Cycle did not reach deterministic risk evaluation.",
+            }
+
+        primary_arm = cycle.get("primary_arm")
+        if primary_arm not in {"luna", "luna_skill", "hybrid"}:
+            luna_result = None
+        else:
+            ai_path = primary.get("ai_path")
+            matching_calls = [
+                call
+                for call in execution_metadata.get("ai_calls", [])
+                if isinstance(ai_path, str) and call.get("path") == ai_path
+            ]
+            if matching_calls:
+                if matching_calls[-1].get("status") == "ok":
+                    luna_result = {
+                        "status": "COMPLETED",
+                        "decision": primary.get("decision"),
+                    }
+                else:
+                    luna_result = {"status": "FAILED", "decision": None}
+            elif ai_path == "blocked_escalation":
+                luna_result = {"status": "BLOCKED", "decision": None}
+            elif cycle.get("status") in {"processing", "interrupted", "failed"}:
+                luna_result = {"status": "NOT_RUN", "decision": None}
+            else:
+                luna_result = {"status": "SKIPPED", "decision": None}
+
+        order_status_counts = execution_metadata.get("order_status_counts", {})
+        order_count = int(execution_metadata.get("order_count", 0))
+        fill_count = int(execution_metadata.get("fill_count", 0))
+        if cycle.get("status") in {"processing", "interrupted", "failed"}:
+            execution_status = cycle["status"].upper()
+        elif fill_count > 0 and order_status_counts.get("pending", 0) > 0:
+            execution_status = "PARTIAL"
+        elif fill_count > 0:
+            execution_status = "FILLED"
+        elif order_status_counts.get("pending", 0) > 0:
+            execution_status = "PENDING"
+        elif order_count > 0:
+            execution_status = "REJECTED"
+        elif risk_decision["code"] == "NO_INTENT":
+            execution_status = "NOT_SUBMITTED"
+        elif not risk_decision["approved"]:
+            execution_status = "BLOCKED"
+        else:
+            execution_status = "NO_ORDER"
+
+        return {
+            "quant_gate": {
+                "decision": quant_gate_decision,
+                "signal_strength": signal_strength,
+            },
+            "jev_decision": {
+                "decision": jev_decision_value,
+                "confidence": confidence,
+                "direction": direction,
+            },
+            "escalation_required": escalation_required,
+            "luna_result": luna_result,
+            "risk_decision": risk_decision,
+            "paper_execution": {
+                "status": execution_status,
+                "order_count": order_count,
+                "fill_count": fill_count,
+            },
+        }
+
     def dashboard(self) -> dict[str, Any]:
         experiment = self.store.experiment()
         experiment_id = experiment["experiment_id"]
@@ -4600,6 +4934,23 @@ class PaperRuntimeReports:
         current_slot = floor_time(now, "15m")
         next_slot = current_slot + timedelta(minutes=15, seconds=config["schedule_delay_seconds"])
         cycles = self.store.list_cycles(experiment_id, limit=30)
+        execution_metadata = self.store.cycle_execution_metadata(
+            experiment_id, [cycle["cycle_id"] for cycle in cycles]
+        )
+        for cycle in cycles:
+            cycle["routing"] = self._cycle_routing(
+                cycle,
+                execution_metadata.get(cycle["cycle_id"], {}),
+            )
+        cycle_metadata = self.store.cycle_execution_metadata(
+            experiment_id,
+            [cycle["cycle_id"] for cycle in cycles],
+        )
+        for cycle in cycles:
+            cycle["routing"] = self._cycle_routing(
+                cycle,
+                cycle_metadata.get(cycle["cycle_id"], {}),
+            )
         activity = self.store.activity(experiment_id, limit=40)
         return {
             "experiment": {
@@ -4640,6 +4991,149 @@ class PaperRuntimeReports:
                 "Decision quality is not scored until separate future market outcomes are observed. "
                 "Fixture results are synthetic mechanics checks, not market-performance evidence."
             ),
+        }
+
+    @staticmethod
+    def _cycle_routing(
+        cycle: dict[str, Any],
+        execution_metadata: dict[str, Any],
+    ) -> dict[str, Any]:
+        gate = cycle.get("quant_gate")
+        if isinstance(gate, dict) and isinstance(gate.get("eligible"), bool):
+            quant_decision = "PASS" if gate["eligible"] else "BLOCKED"
+            raw_strength = gate.get("strength")
+            signal_strength = (
+                float(raw_strength)
+                if isinstance(raw_strength, (int, float))
+                and not isinstance(raw_strength, bool)
+                and math.isfinite(float(raw_strength))
+                else None
+            )
+        else:
+            quant_decision = "UNKNOWN"
+            signal_strength = None
+
+        jev_vector = cycle.get("jev_vector")
+        jev_arm = (cycle.get("arms") or {}).get("jev")
+        if isinstance(jev_vector, dict):
+            answers = jev_vector.get("answers") or {}
+            regime_answer = answers.get("market_regime") or {}
+            regime = regime_answer.get("value")
+            raw_confidence = regime_answer.get("confidence")
+            confidence = (
+                float(raw_confidence)
+                if isinstance(raw_confidence, (int, float))
+                and not isinstance(raw_confidence, bool)
+                and math.isfinite(float(raw_confidence))
+                else None
+            )
+            direction = (
+                "long" if regime == "bull" else "short" if regime == "bear" else None
+            )
+            if isinstance(jev_arm, dict) and isinstance(jev_arm.get("decision"), str):
+                jev_decision = jev_arm["decision"]
+            elif isinstance(regime, str):
+                jev_decision = regime
+            else:
+                jev_decision = "UNKNOWN"
+        else:
+            jev_status = cycle.get("jev_status", "not_requested")
+            jev_decision = (
+                jev_status.upper()
+                if jev_status in {"failed", "disabled", "skipped", "not_requested"}
+                else "UNKNOWN"
+            )
+            confidence = None
+            direction = None
+
+        primary = cycle.get("primary_decision") or {}
+        route = primary.get("escalation")
+        escalation_required = (
+            bool(route.get("escalate"))
+            if isinstance(route, dict) and isinstance(route.get("escalate"), bool)
+            else False
+        )
+        risk = cycle.get("risk")
+        if isinstance(risk, dict) and isinstance(risk.get("allowed"), bool):
+            risk_decision = {
+                "approved": risk["allowed"],
+                "code": risk.get("code") or "UNKNOWN",
+                "reason": risk.get("reason") or "Risk engine did not record a reason.",
+            }
+        else:
+            risk_decision = {
+                "approved": False,
+                "code": "NOT_EVALUATED",
+                "reason": "Cycle did not reach deterministic risk evaluation.",
+            }
+
+        primary_arm = cycle.get("primary_arm")
+        if primary_arm not in {"luna", "luna_skill", "hybrid"}:
+            luna_result = None
+        else:
+            ai_path = primary.get("ai_path")
+            calls = [
+                call
+                for call in execution_metadata.get("ai_calls", [])
+                if isinstance(ai_path, str) and call["path"] == ai_path
+            ]
+            if calls:
+                call_status = calls[-1]["status"]
+                if call_status == "ok":
+                    luna_result = {
+                        "status": "COMPLETED",
+                        "decision": primary.get("decision"),
+                    }
+                else:
+                    luna_result = {"status": "FAILED", "decision": None}
+            elif ai_path == "blocked_escalation" or (
+                isinstance(route, dict)
+                and route.get("escalate") is True
+                and ai_path != "jev_fast_path"
+            ):
+                luna_result = {"status": "BLOCKED", "decision": None}
+            elif cycle.get("status") in {"processing", "interrupted", "failed"}:
+                luna_result = {"status": "NOT_RUN", "decision": None}
+            else:
+                luna_result = {"status": "SKIPPED", "decision": None}
+
+        order_status_counts = execution_metadata.get("order_status_counts", {})
+        order_count = int(execution_metadata.get("order_count", 0))
+        fill_count = int(execution_metadata.get("fill_count", 0))
+        if cycle.get("status") in {"processing", "interrupted", "failed"}:
+            execution_status = cycle["status"].upper()
+        elif fill_count > 0 and order_status_counts.get("pending", 0) > 0:
+            execution_status = "PARTIAL"
+        elif fill_count > 0:
+            execution_status = "FILLED"
+        elif order_status_counts.get("pending", 0) > 0:
+            execution_status = "PENDING"
+        elif order_count > 0:
+            execution_status = "REJECTED"
+        elif risk_decision["approved"]:
+            execution_status = "NO_ORDER"
+        elif risk_decision["code"] == "NO_INTENT":
+            execution_status = "NOT_SUBMITTED"
+        else:
+            execution_status = "BLOCKED"
+        return {
+            "quant_gate": {
+                "decision": quant_decision,
+                "signal_strength": signal_strength,
+            },
+            "jev_decision": {
+                "decision": jev_decision,
+                "confidence": confidence,
+                "direction": direction,
+            },
+            "escalation_required": escalation_required,
+            "luna_result": luna_result,
+            "risk_decision": risk_decision,
+            "paper_execution": {
+                "status": execution_status,
+                "order_count": order_count,
+                "fill_count": fill_count,
+            },
         }
 
     @staticmethod
@@ -4712,6 +5206,8 @@ class PaperRuntimeReports:
                 "position_id",
                 "cycle_id",
                 "symbol",
+                "market_regime",
+                "regime_source",
                 "cohort",
                 "source_arm",
                 "side",
@@ -4735,6 +5231,8 @@ class PaperRuntimeReports:
                 "position_id",
                 "cycle_id",
                 "symbol",
+                "market_regime",
+                "regime_source",
                 "cohort",
                 "is_shadow",
                 "source_arm",
@@ -4839,6 +5337,10 @@ class PaperRuntimeReports:
         )
         files["pnl-by-asset.csv"] = self._csv_bytes(
             group_pnl(lambda item: item["symbol"]),
+            ["group", "cohort", "closed_trade_count", "net_pnl_usdt"],
+        )
+        files["pnl-by-regime.csv"] = self._csv_bytes(
+            group_pnl(lambda item: item.get("market_regime") or "unknown"),
             ["group", "cohort", "closed_trade_count", "net_pnl_usdt"],
         )
         leverage_rows = []

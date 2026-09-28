@@ -220,6 +220,23 @@ Provider price rates are optional, versioned configuration. Without a pricing
 version and usage counts, cost is reported as unpriced. No current vendor rate
 is hard-coded as historical cost.
 
+Evaluation metrics include closed-trade PnL/expectancy by asset and by the
+point-in-time stored market regime (Jev classification when available,
+otherwise deterministic EMA regime). Both grouped PnL totals reconcile to the
+primary closed-trade ledger. Bucket `max_drawdown` is `null` because the
+runtime does not maintain separate funded equity curves per asset or regime.
+`escalation_rate` is the number of Hybrid cases whose persisted policy required
+deep reasoning divided by quant-gated Hybrid cases with a completed Jev route
+or an explicit GPT fallback; it measures routing requirement, not provider
+success.
+
+`GET /api/dashboard` includes a `routing` object on every persisted cycle.
+Its contract is defined in `schemas/paper-dashboard.schema.json`: unknown or
+not-run values are explicit, Luna status comes from persisted AI-call records,
+and primary order/fill counts come from SQLite. The same response exposes
+`metrics.by_regime`, `metrics.by_asset`, and the escalation numerator,
+denominator, and definition.
+
 ## Export
 
 **Export bundle** downloads a ZIP containing a manifest, sanitized config,
