@@ -676,3 +676,130 @@ This feature is complete only when, on the developer's local machine with valid 
 12. Export contains the complete evidence trail.
 13. CI remains deterministic.
 14. Gate live trading remains impossible.
+
+
+## AI Cost, Budget, and Economic Profit Requirements
+
+AI cost is a first-class risk and performance dimension. The scheduler must never be allowed to spend indefinitely just because market cycles continue.
+
+### Cost ledger
+
+Persist every real or attempted AI provider call with:
+
+- experiment/cycle/provider/model/deployment
+- reasoning effort
+- call purpose
+- latency
+- input/output/reasoning/cached token usage when returned
+- pricing version
+- estimated cost
+- billed cost when later reconciled
+- exact/estimated/unavailable cost status
+- sanitized provider request ID and error status
+
+Do not fabricate missing usage or cost.
+
+### Versioned price book
+
+Maintain provider/model pricing separately for Azure Foundry/OpenAI-compatible and TypeSafe Jev. Pricing must have an effective date/version and must not retroactively rewrite historical experiment cost.
+
+Do not assume public OpenAI pricing equals the user's Azure contract. Unknown pricing is not zero.
+
+### Hard budget guard
+
+Before every paid scheduled call, deterministic code must check and atomically reserve budget.
+
+Support limits for:
+
+- max estimated cost per call
+- max input tokens
+- max output/reasoning tokens
+- max AI spend per cycle
+- max GPT calls/hour and day
+- max Jev calls/day
+- max AI spend/day
+- max total experiment AI budget
+- optional maximum paid calls
+
+At the hard limit, no new paid AI call may start.
+
+Budget-limit actions must be explicit and versioned, such as:
+
+- PAUSE_NEW_ENTRIES
+- FALLBACK_QUANT
+- JEV_ONLY when GPT budget is exhausted
+- BLOCK_PAID_AI
+
+Existing open PAPER positions continue deterministic monitoring even when AI budget is exhausted.
+
+### UI requirements
+
+Settings must include Cost & Budgets with:
+
+- provider/model price book
+- daily budget
+- experiment budget
+- per-call limit
+- call/token limits
+- warning thresholds
+- action when budget is reached
+- projected spend clearly labeled as an estimate
+
+Runtime dashboard must show:
+
+- AI spend today
+- AI spend for experiment
+- budget remaining
+- Jev cost
+- GPT cost
+- cost per analysis/trade
+- budget warning/block events
+
+### Economic PnL
+
+Keep trading performance and system economics separate.
+
+Show:
+
+- gross trading PnL
+- fees
+- funding
+- slippage
+- net trading PnL
+- Jev cost
+- GPT cost
+- total AI cost
+- net experiment economics after AI cost
+
+Do not silently equate USD AI cost and USDT trading PnL. Record an explicit USD/USDT conversion policy and timestamp/rate. If no conversion is configured, show currencies separately and mark net economic PnL unavailable.
+
+### Cost-aware evaluation
+
+Track at least:
+
+- AI cost / analysis
+- AI cost / eligible case
+- AI cost / trade
+- AI cost as % of trading profit
+- net economic expectancy/trade
+- net economic PnL
+- cost by provider/model/asset/strategy arm
+- cost spent on NO_TRADE outcomes
+- GPT escalation cost
+
+When aligned experiment arms permit it, evaluate incremental AI PnL versus incremental AI cost. Do not claim AI economic value from unmatched samples.
+
+### Required acceptance
+
+This goal cannot PASS unless:
+
+- AI cost ledger is populated by real Jev and Azure calls
+- budget guard blocks paid calls at configured hard limits
+- concurrent scheduled cycles cannot overspend via race conditions
+- unknown price does not silently bypass a monetary budget
+- dashboard displays AI cost and remaining budget
+- net trading PnL and net economic PnL are separately visible
+- exports include AI usage, pricing version, budget events, and economic PnL
+- no secret appears in any cost/usage record
+
+Detailed requirements are in `docs/real-ai-live-paper-trading-plan.md`.
