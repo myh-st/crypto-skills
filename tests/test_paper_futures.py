@@ -5,6 +5,10 @@ import json
 import os
 import csv
 import time
+import threading
+import urllib.request
+import contextlib
+from unittest.mock import patch
 import unittest
 import urllib.error
 import zipfile
@@ -12,6 +16,8 @@ from datetime import datetime, timedelta, timezone
 from pathlib import Path
 from urllib.parse import parse_qs, urlsplit
 
+from crypto_eval.contracts import digest, parse_timestamp
+from crypto_eval.envfile import load_environment_file
 from crypto_eval.paper_ai import (
     AIProviderError,
     FixtureGPTProvider,
@@ -20,6 +26,7 @@ from crypto_eval.paper_ai import (
     ResponsesAdapter,
     build_gpt_input,
     build_jev_questions,
+    jev_state,
     parse_jev_response,
     route_escalation,
 )
@@ -35,12 +42,15 @@ from crypto_eval.paper_market import (
     BinanceUsdMFuturesMarketDataProvider,
     FixtureFuturesMarketDataProvider,
     MarketDataError,
+    WARMUP_PROFILES,
     floor_time,
 )
+from crypto_eval.paper_server import PaperHTTPServer, PaperRequestHandler
 from crypto_eval.paper_runtime import (
     PaperRuntime,
     PaperScheduler,
     PaperStore,
+    PaperScheduler,
     RiskEngine,
     RiskDecision,
     build_fast_intent,
@@ -51,6 +61,54 @@ from crypto_eval.paper_runtime import (
 
 ROOT = Path(__file__).resolve().parents[1]
 UNIT_TOKEN = "local-unit-test-placeholder-not-a-credential"
+ENV_SENTINEL = "UNIT_ENV_SECRET_SENTINEL_NOT_A_REAL_KEY"
+
+
+class LocalEnvironmentFileTests(unittest.TestCase):
+    def test_dotenv_parser_loads_plain_values_without_evaluation_or_logging(self):
+        path = ROOT / f".test-envfile-{os.getpid()}"
+        path.write_text(
+            "\n".join(
+                [
+                    "# local-only fixture values",
+                    f"TYPESAFE_API_KEY={ENV_SENTINEL}",
+                    "AZURE_OPENAI_API_KEY=dotenv-value",
+                    'OPENAI_API_KEY="$(echo must-not-run)"',
+                    "",
+                ]
+            ),
+            encoding="utf-8",
+        )
+        self.addCleanup(path.unlink, missing_ok=True)
+        environment = {"AZURE_OPENAI_API_KEY": "process-value"}
+        output = io.StringIO()
+        with contextlib.redirect_stdout(output), contextlib.redirect_stderr(output):
+            loaded_count = load_environment_file(path, environ=environment)
+
+        self.assertEqual(loaded_count, 2)
+        self.assertEqual(environment["TYPESAFE_API_KEY"], ENV_SENTINEL)
+        self.assertEqual(environment["AZURE_OPENAI_API_KEY"], "process-value")
+        self.assertEqual(environment["OPENAI_API_KEY"], "$(echo must-not-run)")
+        self.assertEqual(output.getvalue(), "")
+        self.assertNotIn(ENV_SENTINEL, output.getvalue())
+
+    def test_dotenv_example_contains_only_supported_blank_variables(self):
+        example = ROOT / ".env.example"
+        entries = {
+            line.split("=", 1)[0]: line.split("=", 1)[1]
+            for line in example.read_text(encoding="utf-8").splitlines()
+            if line and not line.startswith("#")
+        }
+        self.assertEqual(
+            set(entries),
+            {
+                "TYPESAFE_API_KEY",
+                "OPENAI_API_KEY",
+                "AZURE_OPENAI_API_KEY",
+                "COMPATIBLE_AI_API_KEY",
+            },
+        )
+        self.assertTrue(all(value == "" for value in entries.values()))
 
 
 class FixedClock:
@@ -233,10 +291,15 @@ class PaperFuturesContractsAndProviderTests(unittest.TestCase):
         self.assertEqual(urlsplit(calls[0][0]).path, "/v1/systemone")
         self.assertEqual(calls[0][1]["Authorization"], f"Bearer {UNIT_TOKEN}")
         self.assertEqual(calls[0][2]["model"], "jev-latest")
-        self.assertEqual(calls[0][2]["state"]["snapshot_hash"], snapshot.snapshot_hash)
+        self.assertEqual(
+            calls[0][2]["state"]["snapshot_hash"],
+            jev_state(snapshot, features, {})["snapshot_hash"],
+        )
         self.assertEqual({item["type"] for item in calls[0][2]["questions"].values()}, {"choice", "score", "noul"})
         self.assertEqual(vector["schema_version"], "jev-decision-vector.v1")
-        self.assertEqual(vector["snapshot_hash"], snapshot.snapshot_hash)
+        self.assertEqual(
+            vector["snapshot_hash"], jev_state(snapshot, features, {})["snapshot_hash"]
+        )
         self.assertEqual(vector["answers"]["market_regime"]["value"], "bull")
         self.assertEqual(vector["answers"]["setup_quality"]["type"], "score")
         self.assertEqual(vector["answers"]["funding_concern"]["type"], "noul")
@@ -573,6 +636,56 @@ class PaperFuturesContractsAndProviderTests(unittest.TestCase):
 
 
 class PaperFuturesMarketDataTests(unittest.TestCase):
+    def test_public_history_provider_pages_exact_closed_ranges_without_live_io(self):
+        as_of = datetime(2026, 8, 22, 13, 17, 31, tzinfo=timezone.utc)
+        cutoff = floor_time(as_of, "15m")
+        requested_bars = 1005
+        interval_seconds = 900
+        start = cutoff - timedelta(seconds=requested_bars * interval_seconds)
+        calls = []
+
+        def transport(url, _timeout):
+            parsed = urlsplit(url)
+            query = parse_qs(parsed.query)
+            calls.append((parsed.path, query))
+            self.assertEqual(parsed.path, "/fapi/v1/klines")
+            cursor = int(query["startTime"][0])
+            limit = int(query["limit"][0])
+            rows = []
+            for index in range(limit):
+                opened_ms = cursor + index * interval_seconds * 1000
+                price = 100 + (len(calls) * 1000 + index) * 0.001
+                rows.append(
+                    [
+                        opened_ms,
+                        str(price),
+                        str(price + 0.1),
+                        str(price - 0.1),
+                        str(price + 0.01),
+                        "2",
+                        opened_ms + interval_seconds * 1000 - 1,
+                    ]
+                )
+            return json.dumps(rows).encode()
+
+        provider = BinanceUsdMFuturesMarketDataProvider(transport=transport)
+        candles = provider.fetch_history(
+            "BTCUSDT",
+            "15m",
+            bars=requested_bars,
+            as_of=as_of,
+        )
+        self.assertEqual(len(candles), requested_bars)
+        self.assertEqual(len(calls), 2)
+        self.assertEqual(
+            datetime.fromisoformat(candles[0]["open_time"].replace("Z", "+00:00")),
+            start,
+        )
+        self.assertEqual(
+            datetime.fromisoformat(candles[-1]["close_time"].replace("Z", "+00:00")),
+            cutoff,
+        )
+
     def test_monitor_backfills_closed_bars_in_pages_and_uses_historical_funding(self):
         after = datetime(2026, 8, 18, 0, 0, tzinfo=timezone.utc)
         as_of = after + timedelta(minutes=1005)
@@ -817,6 +930,13 @@ class PaperFuturesRuntimeIntegrationTests(unittest.TestCase):
         )
         hashes = {arm["snapshot_hash"] for arm in cycle["arms"].values()}
         self.assertEqual(hashes, {cycle["snapshot_hash"]})
+        decision_hashes = {
+            arm["decision_input_hash"] for arm in cycle["arms"].values()
+        }
+        self.assertEqual(decision_hashes, {cycle["decision_input_hash"]})
+        self.assertEqual(
+            cycle["jev_vector"]["snapshot_hash"], cycle["decision_input_hash"]
+        )
         self.assertTrue(cycle["arms"]["hybrid"]["escalation"]["escalate"])
         self.assertEqual(cycle["primary_decision"]["intent"]["source_arm"], "hybrid")
         self.assertTrue(
@@ -902,6 +1022,9 @@ class PaperFuturesRuntimeIntegrationTests(unittest.TestCase):
                     "ai-usage.csv",
                     "ai-cost-by-provider.csv",
                     "latency.csv",
+                    "market-history.csv",
+                    "market-snapshots.jsonl",
+                    "warmup-bars.jsonl",
                 }.issubset(names)
             )
             bundle_text = "".join(
@@ -1070,6 +1193,196 @@ class PaperFuturesRuntimeIntegrationTests(unittest.TestCase):
         self.assertEqual(daily.code, "DAILY_LOSS_LIMIT")
         self.assertEqual(drawdown.code, "DRAWDOWN_LIMIT")
         self.assertEqual(leverage.code, "LEVERAGE_LIMIT")
+
+    def test_exp001_fixture_warmup_archives_point_in_time_lanes_idempotently(self):
+        config = default_experiment_config()
+        config["symbols"] = ["BTCUSDT"]
+        self.store.save_experiment(config)
+        runtime = PaperRuntime(
+            self.store,
+            market_provider=FixtureFuturesMarketDataProvider(),
+            clock=self.clock,
+        )
+        result = runtime.warm_up_market_history(as_of=self.now)
+        expected_bars = sum(WARMUP_PROFILES["EXP-001"].values())
+        self.assertEqual(result["status"], "complete")
+        self.assertEqual(result["completed_lane_count"], 4)
+        self.assertEqual(result["retrieved_bars"], expected_bars)
+        self.assertEqual(result["inserted_bars"], expected_bars)
+        self.assertEqual(result["data_origin"], "FIXTURE")
+        for lane in result["history"]["lanes"]:
+            self.assertEqual(lane["stored_bars"], WARMUP_PROFILES["EXP-001"][lane["interval"]])
+            self.assertLessEqual(
+                parse_timestamp(lane["last_close_time"], "warmup.last_close_time"),
+                self.now,
+            )
+
+        repeated = runtime.warm_up_market_history(as_of=self.now)
+        self.assertEqual(repeated["retrieved_bars"], expected_bars)
+        self.assertEqual(repeated["inserted_bars"], 0)
+        self.assertEqual(len(repeated["history"]["runs"]), 4)
+
+        archive, _ = runtime.export_bundle()
+        with zipfile.ZipFile(io.BytesIO(archive)) as bundle:
+            self.assertIn("market-history.csv", bundle.namelist())
+            self.assertIn("warmup-bars.jsonl", bundle.namelist())
+            warmup_rows = [
+                json.loads(line)
+                for line in bundle.read("warmup-bars.jsonl").decode("utf-8").splitlines()
+                if line
+            ]
+            self.assertEqual(len(warmup_rows), expected_bars)
+            self.assertTrue(
+                all(
+                    parse_timestamp(row["close_time"], "export.close_time") <= self.now
+                    for row in warmup_rows
+                )
+            )
+            market_history = json.loads(
+                bundle.read("manifest.json").decode("utf-8")
+            )
+        self.assertEqual(market_history["warmup_lanes"], 4)
+        self.assertEqual(market_history["warmup_requested_bars"], expected_bars)
+        self.assertEqual(market_history["market_history_stored_bars"], expected_bars)
+
+    def test_archived_warmup_history_is_consumed_by_quant_features_and_hashed(self):
+        config = default_experiment_config()
+        config["symbols"] = ["BTCUSDT"]
+        config["evaluation_arms"] = ["quant"]
+        config["primary_arm"] = "quant"
+        self.store.save_experiment(config)
+        provider = FixtureFuturesMarketDataProvider()
+        runtime = PaperRuntime(
+            self.store,
+            market_provider=provider,
+            clock=self.clock,
+        )
+        warmup = runtime.warm_up_market_history(as_of=self.now)
+        raw_snapshot = provider.fetch_snapshot("BTCUSDT", self.now)
+        without_archive = compute_features(raw_snapshot)
+        runtime.start()
+        cycle = runtime.run_cycle("BTCUSDT", as_of=self.now, manual=True)
+        features = cycle["features"]
+        self.assertEqual(warmup["status"], "complete")
+        self.assertGreater(features["feature_history_15m_bars"], 0)
+        self.assertGreater(features["feature_history_1h_bars"], 0)
+        self.assertGreater(features["feature_history_4h_bars"], 0)
+        self.assertNotEqual(features["feature_history_hash"], digest({}))
+        self.assertEqual(
+            cycle["decision_input_hash"],
+            cycle["arms"]["quant"]["decision_input_hash"],
+        )
+        self.assertEqual(
+            features["feature_history_15m_bars"],
+            WARMUP_PROFILES["EXP-001"]["15m"] - len(raw_snapshot.candles_15m),
+        )
+        self.assertEqual(
+            features["last_price"], without_archive["last_price"]
+        )
+
+    def test_loopback_warmup_endpoints_return_fixture_archive_status(self):
+        config = default_experiment_config()
+        config["symbols"] = ["BTCUSDT"]
+        self.store.save_experiment(config)
+        runtime = PaperRuntime(
+            self.store,
+            market_provider=FixtureFuturesMarketDataProvider(),
+            clock=self.clock,
+        )
+        scheduler = PaperScheduler(runtime)
+        server = PaperHTTPServer(("127.0.0.1", 0), PaperRequestHandler, runtime, scheduler)
+        worker = threading.Thread(target=server.serve_forever, daemon=True)
+        worker.start()
+        self.addCleanup(scheduler.shutdown)
+        self.addCleanup(server.server_close)
+        self.addCleanup(worker.join, 5)
+        self.addCleanup(server.shutdown)
+        base_url = f"http://127.0.0.1:{server.server_address[1]}"
+        request = urllib.request.Request(
+            f"{base_url}/api/market-data/warm-up",
+            data=json.dumps({"profile": "EXP-001"}).encode(),
+            headers={"Content-Type": "application/json"},
+            method="POST",
+        )
+        with urllib.request.urlopen(request, timeout=5) as response:
+            warmed = json.loads(response.read())
+        with urllib.request.urlopen(
+            f"{base_url}/api/market-data/status", timeout=5
+        ) as response:
+            status = json.loads(response.read())
+        self.assertEqual(warmed["result"]["status"], "complete")
+        self.assertEqual(warmed["result"]["completed_lane_count"], 4)
+        self.assertEqual(len(status["history"]["lanes"]), 4)
+
+    def test_loopback_jev_test_connection_resolves_env_server_side_with_mock_transport(self):
+        env_path = ROOT / f".test-env-provider-{os.getpid()}"
+        env_path.write_text(
+            f"TYPESAFE_API_KEY={ENV_SENTINEL}\n",
+            encoding="utf-8",
+        )
+        self.addCleanup(env_path.unlink, missing_ok=True)
+        local_environment: dict[str, str] = {}
+        self.assertEqual(load_environment_file(env_path, environ=local_environment), 1)
+        provider = {
+            "provider_id": "jev-loopback-mock",
+            "kind": "typesafe_jev",
+            "display_name": "Mocked Jev connection",
+            "base_url": "https://api.typesafe.ai",
+            "model": "jev-latest",
+            "enabled": True,
+            "credential_env": "TYPESAFE_API_KEY",
+        }
+        self.store.save_provider(provider)
+        runtime = PaperRuntime(self.store, clock=self.clock)
+        scheduler = PaperScheduler(runtime)
+        server = PaperHTTPServer(("127.0.0.1", 0), PaperRequestHandler, runtime, scheduler)
+        worker = threading.Thread(target=server.serve_forever, daemon=True)
+        worker.start()
+        self.addCleanup(scheduler.shutdown)
+        self.addCleanup(server.server_close)
+        self.addCleanup(worker.join, 5)
+        self.addCleanup(server.shutdown)
+        requests = []
+
+        def mocked_post(url, headers, body, timeout):
+            request_data = json.loads(body)
+            requests.append(
+                {
+                    "url": url,
+                    "authorization": headers.get("Authorization"),
+                    "body": request_data,
+                }
+            )
+            return json.dumps(
+                make_type_safe_response(request_data["questions"])
+            ).encode("utf-8")
+
+        request = urllib.request.Request(
+            f"http://127.0.0.1:{server.server_address[1]}/api/providers/"
+            "jev-loopback-mock/test",
+            data=b"{}",
+            headers={"Content-Type": "application/json"},
+            method="POST",
+        )
+        logs = io.StringIO()
+        with patch.dict(os.environ, local_environment), patch(
+            "crypto_eval.paper_ai._post_json", mocked_post
+        ), contextlib.redirect_stdout(logs), contextlib.redirect_stderr(logs):
+            with urllib.request.urlopen(request, timeout=5) as response:
+                response_body = response.read().decode("utf-8")
+
+        self.assertEqual(len(requests), 1)
+        self.assertEqual(
+            requests[0]["authorization"], f"Bearer {ENV_SENTINEL}"
+        )
+        self.assertIn("/v1/systemone", requests[0]["url"])
+        self.assertNotIn(ENV_SENTINEL, response_body)
+        self.assertNotIn("credential_env", response_body)
+        self.assertNotIn(ENV_SENTINEL, logs.getvalue())
+        self.assertEqual(
+            self.store.provider_validation_status("jev-loopback-mock"),
+            "passed",
+        )
 
     def test_reduce_only_clips_to_open_position_and_never_increases_exposure(self):
         runtime = PaperRuntime(
@@ -1510,6 +1823,47 @@ class PaperFuturesRuntimeIntegrationTests(unittest.TestCase):
             text = "".join(archive.read(name).decode("utf-8") for name in archive.namelist())
         self.assertNotIn("UNIT_TEST_SECRET_ENV_NAME", text)
         self.assertNotIn(UNIT_TOKEN, text)
+
+    def test_loaded_env_value_is_absent_from_local_api_logs_and_export(self):
+        self.store.save_provider(
+            {
+                "provider_id": "foundry-env-test",
+                "kind": "foundry_responses",
+                "display_name": "Foundry env isolation test",
+                "base_url": "https://example.invalid/openai/v1",
+                "model": "deployment-test",
+                "enabled": True,
+                "credential_env": "AZURE_OPENAI_API_KEY",
+            }
+        )
+        runtime = PaperRuntime(self.store, clock=self.clock)
+        scheduler = PaperScheduler(runtime)
+        server = PaperHTTPServer(("127.0.0.1", 0), PaperRequestHandler, runtime, scheduler)
+        worker = threading.Thread(target=server.serve_forever, daemon=True)
+        worker.start()
+        self.addCleanup(scheduler.shutdown)
+        self.addCleanup(server.server_close)
+        self.addCleanup(worker.join, 5)
+        self.addCleanup(server.shutdown)
+        base_url = f"http://127.0.0.1:{server.server_address[1]}"
+        logs = io.StringIO()
+        with patch.dict(os.environ, {"AZURE_OPENAI_API_KEY": ENV_SENTINEL}), contextlib.redirect_stdout(
+            logs
+        ), contextlib.redirect_stderr(logs):
+            with urllib.request.urlopen(f"{base_url}/api/providers", timeout=5) as response:
+                public_body = response.read().decode("utf-8")
+            archive, _ = runtime.export_bundle()
+        with zipfile.ZipFile(io.BytesIO(archive)) as bundle:
+            export_body = "".join(
+                bundle.read(name).decode("utf-8")
+                for name in bundle.namelist()
+                if name.endswith((".json", ".jsonl", ".csv", ".md"))
+            )
+        self.assertNotIn(ENV_SENTINEL, public_body)
+        self.assertNotIn("AZURE_OPENAI_API_KEY", public_body)
+        self.assertNotIn(ENV_SENTINEL, export_body)
+        self.assertNotIn("AZURE_OPENAI_API_KEY", export_body)
+        self.assertNotIn(ENV_SENTINEL, logs.getvalue())
 
     def test_scheduler_keeps_running_without_browser_and_recovers_idempotently(self):
         config = default_experiment_config()

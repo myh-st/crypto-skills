@@ -235,7 +235,6 @@ def jev_state(
         "symbol": snapshot.symbol,
         "decision_tf": "15m",
         "context_tf": ["1h", "4h"],
-        "snapshot_hash": snapshot.snapshot_hash,
         "market": safe_snapshot,
         "features": safe_features,
         "quant": {
@@ -245,6 +244,7 @@ def jev_state(
         },
         "portfolio": portfolio_state,
     }
+    state["snapshot_hash"] = digest(state)
     return state
 
 
@@ -429,7 +429,7 @@ class JevAdapter:
         return parse_jev_response(
             response,
             questions,
-            snapshot_hash=snapshot.snapshot_hash,
+            snapshot_hash=state["snapshot_hash"],
             latency_ms=latency,
             observed_at=self._clock(),
         )
@@ -589,7 +589,7 @@ class FixtureJevProvider:
         return parse_jev_response(
             response,
             questions,
-            snapshot_hash=snapshot.snapshot_hash,
+            snapshot_hash=jev_state(snapshot, features, portfolio)["snapshot_hash"],
             latency_ms=0,
             observed_at=parse_utc(snapshot.as_of, "snapshot.as_of"),
         )
@@ -726,6 +726,10 @@ def build_gpt_input(
             "ema12_4h",
             "ema26_4h",
             "market_mark_price",
+            "feature_history_hash",
+            "feature_history_15m_bars",
+            "feature_history_1h_bars",
+            "feature_history_4h_bars",
             "atr",
             "atr_pct",
             "rsi14",
@@ -770,7 +774,7 @@ def build_gpt_input(
             "question_schema_version": jev_vector["question_schema_version"],
             "answers": jev_vector["answers"],
         }
-    return {
+    result = {
         "snapshot": _safe_snapshot(snapshot),
         "features": safe_features,
         "jev_decision_vector": safe_jev,
@@ -783,6 +787,8 @@ def build_gpt_input(
             "objective stop and target levels; otherwise return no_trade."
         ),
     }
+    result["responses_input_hash"] = digest(result)
+    return result
 
 
 def _responses_url(provider: dict[str, Any]) -> str:

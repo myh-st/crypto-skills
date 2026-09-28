@@ -14,6 +14,7 @@ from pathlib import Path
 from typing import Any
 
 from .contracts import EvaluationError
+from .envfile import load_environment_file
 from .paper_contracts import PaperTradingError
 from .paper_runtime import PaperRuntime, PaperScheduler, PaperStore
 
@@ -207,6 +208,16 @@ class PaperRequestHandler(BaseHTTPRequestHandler):
                 )
             elif path == "/api/providers":
                 self._send_json(200, {"providers": self.runtime.store.list_providers()})
+            elif path == "/api/market-data/status":
+                experiment = self.runtime.store.experiment()
+                self._send_json(
+                    200,
+                    {
+                        "history": self.runtime.store.market_history_status(
+                            experiment["experiment_id"]
+                        )
+                    },
+                )
             elif path == "/api/dashboard":
                 self._send_json(200, self.runtime.dashboard())
             elif path == "/api/evaluation":
@@ -310,6 +321,16 @@ class PaperRequestHandler(BaseHTTPRequestHandler):
                     raise PaperTradingError("mode must be fixture or binance_usdm")
                 self._send_json(200, {"result": self.runtime.test_data_source(mode)})
                 return
+            if path == "/api/market-data/warm-up":
+                body = self._read_json()
+                profile = body.get("profile", "EXP-001")
+                if not isinstance(profile, str):
+                    raise PaperTradingError("profile must be EXP-001")
+                self._send_json(
+                    200,
+                    {"result": self.runtime.warm_up_market_history(profile=profile)},
+                )
+                return
             if path.startswith("/api/positions/") and path.endswith("/reduce"):
                 position_id = urllib.parse.unquote(
                     path[len("/api/positions/") : -len("/reduce")].strip("/")
@@ -350,6 +371,7 @@ def serve(
         raise PaperTradingError("the local research server must bind to a loopback address")
     if isinstance(port, bool) or not isinstance(port, int) or not 1024 <= port <= 65535:
         raise PaperTradingError("port must be between 1024 and 65535")
+    load_environment_file(REPOSITORY_ROOT / ".env")
     store = PaperStore(database or default_database_path())
     runtime = PaperRuntime(store)
     scheduler = PaperScheduler(runtime)

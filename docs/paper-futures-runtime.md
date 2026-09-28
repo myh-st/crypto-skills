@@ -22,6 +22,12 @@ data directory. To use a disposable local database for a smoke test:
 python3 -m crypto_eval paper-server --database .paper-futures-smoke.sqlite3
 ```
 
+`paper-server` reads a local repository-root `.env` as plain key/value text;
+existing process environment values take precedence. It never sources or
+evaluates the file. `.env` is git-ignored and created with blank provider
+variable slots when absent. `.env.example` documents the supported names and
+contains no secret values.
+
 The web process owns a 15-minute scheduler and an independent bar-monitor
 worker. They continue while the browser is closed, subject to the local server
 process remaining up. Running experiments resume after a server restart when
@@ -34,6 +40,34 @@ available for open positions.
 The public 1m monitor backfills up to 20,000 closed bars after a process gap.
 Larger or incomplete gaps are surfaced as monitor errors rather than simulated
 with a fabricated path.
+
+### Point-in-time feature warm-up
+
+The app does not silently download long histories when started. Before starting
+EXP-001, a local API client can explicitly request the versioned warm-up profile:
+
+```bash
+curl -X POST http://127.0.0.1:8765/api/market-data/warm-up \
+  -H 'Content-Type: application/json' \
+  -d '{"profile":"EXP-001"}'
+curl http://127.0.0.1:8765/api/market-data/status
+```
+
+EXP-001 requests 7 days of 1m execution bars, 60 days of 15m bars, 90 days of
+1h bars, and 180 days of 4h bars per supported symbol. Public history is
+fetched in bounded 1,000-bar pages and must be complete, contiguous, and
+closed at or before the request cutoff. Fixture mode produces the same
+deterministic ranges locally. Bars and content-addressed lane receipts are
+stored in SQLite with unique provider/symbol/interval/open-time identities;
+repeating the same warm-up does not duplicate stored bars. Partial failures
+are reported by lane and do not invent missing observations. Warm-up is
+explicit, only allowed while the runtime is stopped, and makes no model calls.
+Archived 15m/1h/4h lanes extend deterministic EMA initialization when their
+history is contiguous with current closed bars. The feature-history hash and
+additional-bar counts are included in Jev/GPT decision inputs and exports.
+The market `snapshot_hash` identifies the fetched closed-bar snapshot;
+`decision_input_hash` separately fingerprints the deterministic features and
+portfolio context derived from that snapshot and any archived history.
 
 ## EXP-001 defaults
 
@@ -125,6 +159,36 @@ server process environment before starting the server. For example, set your
 own variable in your shell, then restart the server; do not paste credentials
 into source, browser forms, logs, or this document.
 
+Credentials previously pasted into chat must be treated as compromised: revoke
+them and issue fresh keys before any live provider test. The built-in server
+does not read the OS keychain itself; a local Keychain-backed launcher may
+inject credentials into its child process environment without writing them to
+the repository or SQLite. The documented direct setup uses a hidden terminal
+prompt in a short-lived Bash process:
+
+```bash
+bash
+read -r -s -p 'Fresh TypeSafe Jev key: ' TYPESAFE_API_KEY
+printf '\n'
+read -r -s -p 'Fresh Foundry key: ' AZURE_OPENAI_API_KEY
+printf '\n'
+export TYPESAFE_API_KEY AZURE_OPENAI_API_KEY
+python3 -m crypto_eval paper-server
+unset TYPESAFE_API_KEY AZURE_OPENAI_API_KEY
+```
+
+Alternatively, fill the blank entries in the ignored, mode-`0600` repository
+`.env` locally with only fresh rotated values, then restart `paper-server`.
+Never copy `.env` into another file or include it in a commit.
+
+The UI should store only the matching names (for example
+`TYPESAFE_API_KEY` and `AZURE_OPENAI_API_KEY`). Do not enter the key values in
+the browser. Start from fixture providers first; only click a live provider's
+**Test connection** after rotating the old key and confirming the new variable
+is present in the server process. Provider connection tests make external
+requests and may incur usage. Leaving a variable unset is safe: the adapter
+fails closed with a sanitized error.
+
 Supported providers:
 
 - **TypeSafe Jev** — isolated adapter for `POST /v1/systemone` with
@@ -141,8 +205,12 @@ Supported providers:
 - **Generic Responses-compatible** — capability-checked with a structured
   connection test before use.
 
-The provider `Test connection` controls make one explicit vendor request and
-may incur usage. Fixture-provider tests are local and free of network calls.
+The Settings **Test connection** button sends
+`POST /api/providers/{provider_id}/test`; it resolves the configured
+environment-variable name only in the server process. The server does not
+automatically test providers at startup. A real TypeSafe/Foundry/OpenAI test
+makes one explicit vendor request and may incur usage. Fixture-provider tests
+are local, make no network calls, and are suitable for UI smoke testing.
 Request timeouts and response failures are reduced to sanitized status
 messages. The runtime does not silently approve trades when Jev/GPT is
 unavailable: the configured Jev fallback is `SKIP`, `DEFER`, or an explicit
@@ -157,7 +225,8 @@ is hard-coded as historical cost.
 **Export bundle** downloads a ZIP containing a manifest, sanitized config,
 summary, primary/arm/leverage wallets, orders, fills, trades, positions, equity,
 daily / asset / leverage PnL, frozen decisions, signals, Jev vectors, escalation
-events, provider usage/cost/latency, and risk events. The manifest reports
+events, frozen market snapshots, warm-up lane receipts and bars, provider
+usage/cost/latency, and risk events. The manifest reports
 sample denominators and reconciliation checks. Provider environment-variable
 references and all secret values are omitted.
 

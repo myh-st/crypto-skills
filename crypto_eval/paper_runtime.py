@@ -23,6 +23,7 @@ from .paper_ai import (
     FixtureJevProvider,
     JevAdapter,
     ResponsesAdapter,
+    jev_state,
     parse_gpt_intent,
     route_escalation,
 )
@@ -46,6 +47,7 @@ from .paper_market import (
     FuturesMarketDataProvider,
     INTERVAL_SECONDS,
     MarketSnapshot,
+    WARMUP_PROFILES,
     floor_time,
 )
 
@@ -108,25 +110,66 @@ def _atr(candles: list[dict[str, Any]], period: int = 14) -> float:
     return sum(ranges) / period
 
 
+def _merge_history_lane(
+    current: list[dict[str, Any]],
+    archived: list[dict[str, Any]],
+    interval: str,
+) -> list[dict[str, Any]]:
+    seconds = INTERVAL_SECONDS[interval]
+    current_cutoff = parse_utc(current[-1]["close_time"], f"{interval}.current_cutoff")
+    merged = {
+        candle["open_time"]: dict(candle)
+        for candle in archived
+        if parse_utc(candle["close_time"], f"{interval}.archive_close") <= current_cutoff
+    }
+    merged.update({candle["open_time"]: dict(candle) for candle in current})
+    ordered = sorted(merged.values(), key=lambda candle: candle["open_time"])
+    contiguous: list[dict[str, Any]] = []
+    previous_close: datetime | None = None
+    for candle in ordered:
+        opened = parse_utc(candle["open_time"], f"{interval}.open_time")
+        closed = parse_utc(candle["close_time"], f"{interval}.close_time")
+        if (closed - opened).total_seconds() != seconds:
+            raise PaperTradingError("archived feature history has an invalid interval")
+        if previous_close is None or opened != previous_close:
+            contiguous = [candle]
+        else:
+            contiguous.append(candle)
+        previous_close = closed
+    if contiguous[-1]["close_time"] != current[-1]["close_time"]:
+        raise PaperTradingError("archived feature history does not reach the latest closed bar")
+    return contiguous
+
+
 def compute_features(
     snapshot: MarketSnapshot,
     *,
     minimum_signal_strength: float = 0.55,
     signal_gate_enabled: bool = True,
+    historical_bars: dict[str, list[dict[str, Any]]] | None = None,
 ) -> dict[str, Any]:
     """Compute deterministic price/volume features from closed bars only."""
 
     snapshot.validate()
-    bars = snapshot.candles_15m
+    archived = historical_bars or {}
+    bars = _merge_history_lane(
+        snapshot.candles_15m, archived.get("15m", []), "15m"
+    )
+    bars_1h = _merge_history_lane(
+        snapshot.candles_1h, archived.get("1h", []), "1h"
+    )
+    bars_4h = _merge_history_lane(
+        snapshot.candles_4h, archived.get("4h", []), "4h"
+    )
     closes = [float(bar["close"]) for bar in bars]
     volumes = [float(bar["volume"]) for bar in bars]
     last = bars[-1]
     ema12 = _ema(closes, 12)
     ema26 = _ema(closes, 26)
-    ema12_1h = _ema([float(bar["close"]) for bar in snapshot.candles_1h], 12)
-    ema26_1h = _ema([float(bar["close"]) for bar in snapshot.candles_1h], 26)
-    ema12_4h = _ema([float(bar["close"]) for bar in snapshot.candles_4h], 12)
-    ema26_4h = _ema([float(bar["close"]) for bar in snapshot.candles_4h], 26)
+    ema12_1h = _ema([float(bar["close"]) for bar in bars_1h], 12)
+    ema26_1h = _ema([float(bar["close"]) for bar in bars_1h], 26)
+    ema12_4h = _ema([float(bar["close"]) for bar in bars_4h], 12)
+    ema26_4h = _ema([float(bar["close"]) for bar in bars_4h], 26)
     atr = _atr(bars)
     previous_high = max(bar["high"] for bar in bars[-21:-1])
     previous_low = min(bar["low"] for bar in bars[-21:-1])
@@ -166,6 +209,12 @@ def compute_features(
         "last_bar_close_time": last["close_time"],
         "last_price": close,
         "market_mark_price": float(snapshot.candles_1m[-1]["close"]),
+        "feature_history_hash": digest(
+            {"15m": bars, "1h": bars_1h, "4h": bars_4h}
+        ),
+        "feature_history_15m_bars": max(0, len(bars) - len(snapshot.candles_15m)),
+        "feature_history_1h_bars": max(0, len(bars_1h) - len(snapshot.candles_1h)),
+        "feature_history_4h_bars": max(0, len(bars_4h) - len(snapshot.candles_4h)),
         "ema12": ema12,
         "ema26": ema26,
         "ema12_1h": ema12_1h,
@@ -648,6 +697,42 @@ class PaperStore:
                 close_time TEXT NOT NULL,
                 PRIMARY KEY(experiment_id, position_id, close_time)
             );
+            CREATE TABLE IF NOT EXISTS market_history(
+                provider_id TEXT NOT NULL,
+                symbol TEXT NOT NULL,
+                interval TEXT NOT NULL,
+                open_time TEXT NOT NULL,
+                close_time TEXT NOT NULL,
+                open REAL NOT NULL,
+                high REAL NOT NULL,
+                low REAL NOT NULL,
+                close REAL NOT NULL,
+                volume REAL NOT NULL,
+                data_origin TEXT NOT NULL,
+                recorded_at TEXT NOT NULL,
+                PRIMARY KEY(provider_id, symbol, interval, open_time)
+            );
+            CREATE INDEX IF NOT EXISTS market_history_cutoff_idx
+                ON market_history(provider_id, symbol, interval, close_time);
+            CREATE TABLE IF NOT EXISTS market_history_runs(
+                run_id TEXT PRIMARY KEY,
+                experiment_id TEXT NOT NULL,
+                provider_id TEXT NOT NULL,
+                symbol TEXT NOT NULL,
+                interval TEXT NOT NULL,
+                requested_bars INTEGER NOT NULL,
+                retrieved_bars INTEGER NOT NULL,
+                inserted_bars INTEGER NOT NULL,
+                start_time TEXT NOT NULL,
+                data_cutoff TEXT NOT NULL,
+                data_origin TEXT NOT NULL,
+                content_sha256 TEXT NOT NULL,
+                status TEXT NOT NULL,
+                error_code TEXT,
+                created_at TEXT NOT NULL
+            );
+            CREATE INDEX IF NOT EXISTS market_history_runs_lookup_idx
+                ON market_history_runs(experiment_id, created_at DESC);
             """
         )
 
@@ -1899,6 +1984,22 @@ class PaperStore:
                 "WHERE experiment_id=? ORDER BY event_id",
                 (experiment_id,),
             ).fetchall()
+            market_history_runs = self._db.execute(
+                "SELECT run_id, provider_id, symbol, interval, requested_bars, retrieved_bars, "
+                "inserted_bars, start_time, data_cutoff, data_origin, content_sha256, status, "
+                "error_code, created_at FROM market_history_runs WHERE experiment_id=? "
+                "ORDER BY created_at, run_id",
+                (experiment_id,),
+            ).fetchall()
+            market_history_bars = self._db.execute(
+                "SELECT DISTINCT h.provider_id, h.symbol, h.interval, h.open_time, h.close_time, "
+                "h.open, h.high, h.low, h.close, h.volume, h.data_origin "
+                "FROM market_history AS h JOIN market_history_runs AS r "
+                "ON h.provider_id=r.provider_id AND h.symbol=r.symbol AND h.interval=r.interval "
+                "AND h.open_time>=r.start_time AND h.close_time<=r.data_cutoff "
+                "WHERE r.experiment_id=? ORDER BY h.provider_id, h.symbol, h.interval, h.open_time",
+                (experiment_id,),
+            ).fetchall()
         return {
             "cycles": [
                 {
@@ -1926,7 +2027,223 @@ class PaperStore:
                 {**dict(row), "payload": _loads(row["payload_json"], {})}
                 for row in events
             ],
+            "market_history_runs": [dict(row) for row in market_history_runs],
+            "market_history_bars": [dict(row) for row in market_history_bars],
         }
+
+    def save_market_history_lane(
+        self,
+        *,
+        experiment_id: str,
+        provider_id: str,
+        symbol: str,
+        interval: str,
+        candles: list[dict[str, Any]],
+        requested_bars: int,
+        start_time: str,
+        data_cutoff: str,
+        data_origin: str,
+    ) -> dict[str, Any]:
+        if interval not in INTERVAL_SECONDS:
+            raise PaperTradingError("warm-up interval is unsupported")
+        if (
+            not isinstance(candles, list)
+            or isinstance(requested_bars, bool)
+            or not isinstance(requested_bars, int)
+            or len(candles) != requested_bars
+        ):
+            raise PaperTradingError("warm-up candle count does not match the requested profile")
+        if data_origin not in {"FIXTURE", "BINANCE_USDM_PUBLIC"}:
+            raise PaperTradingError("warm-up data origin is unsupported")
+        cutoff = parse_utc(data_cutoff, "warmup.data_cutoff")
+        expected_open = parse_utc(start_time, "warmup.start_time")
+        interval_seconds = INTERVAL_SECONDS[interval]
+        for index, candle in enumerate(candles):
+            if not isinstance(candle, dict) or set(candle) != {
+                "open_time",
+                "close_time",
+                "open",
+                "high",
+                "low",
+                "close",
+                "volume",
+            }:
+                raise PaperTradingError(f"warm-up candle {index} is malformed")
+            opened = parse_utc(candle["open_time"], f"warmup.candles[{index}].open_time")
+            closed = parse_utc(candle["close_time"], f"warmup.candles[{index}].close_time")
+            if opened != expected_open or (closed - opened).total_seconds() != interval_seconds:
+                raise PaperTradingError("warm-up candles are not contiguous for their interval")
+            if closed > cutoff:
+                raise PaperTradingError("warm-up candle closes after the requested cutoff")
+            values = {
+                name: _finite(candle[name], f"warmup.candles[{index}].{name}")
+                for name in ("open", "high", "low", "close", "volume")
+            }
+            if (
+                values["open"] <= 0
+                or values["high"] <= 0
+                or values["low"] <= 0
+                or values["close"] <= 0
+                or values["volume"] < 0
+                or values["high"] < max(values["open"], values["close"], values["low"])
+                or values["low"] > min(values["open"], values["close"], values["high"])
+            ):
+                raise PaperTradingError("warm-up candle values are inconsistent")
+            expected_open = closed
+        if candles and parse_utc(candles[-1]["close_time"], "warmup.last.close_time") > cutoff:
+            raise PaperTradingError("warm-up history exceeds its point-in-time cutoff")
+
+        content_hash = digest(candles)
+        identity = {
+            "experiment_id": experiment_id,
+            "provider_id": provider_id,
+            "symbol": symbol,
+            "interval": interval,
+            "start_time": start_time,
+            "data_cutoff": data_cutoff,
+            "content_sha256": content_hash,
+        }
+        run_id = f"warmup-{digest(identity)[:24]}"
+        now = iso_utc(datetime.now(timezone.utc))
+        inserted = 0
+        with self.transaction() as db:
+            for candle in candles:
+                cursor = db.execute(
+                    "INSERT OR IGNORE INTO market_history(provider_id, symbol, interval, "
+                    "open_time, close_time, open, high, low, close, volume, data_origin, recorded_at) "
+                    "VALUES(?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
+                    (
+                        provider_id,
+                        symbol,
+                        interval,
+                        candle["open_time"],
+                        candle["close_time"],
+                        candle["open"],
+                        candle["high"],
+                        candle["low"],
+                        candle["close"],
+                        candle["volume"],
+                        data_origin,
+                        now,
+                    ),
+                )
+                inserted += cursor.rowcount
+            db.execute(
+                "INSERT OR IGNORE INTO market_history_runs(run_id, experiment_id, provider_id, "
+                "symbol, interval, requested_bars, retrieved_bars, inserted_bars, start_time, "
+                "data_cutoff, data_origin, content_sha256, status, error_code, created_at) "
+                "VALUES(?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'complete', NULL, ?)",
+                (
+                    run_id,
+                    experiment_id,
+                    provider_id,
+                    symbol,
+                    interval,
+                    requested_bars,
+                    len(candles),
+                    inserted,
+                    start_time,
+                    data_cutoff,
+                    data_origin,
+                    content_hash,
+                    now,
+                ),
+            )
+        return {
+            **identity,
+            "run_id": run_id,
+            "requested_bars": requested_bars,
+            "retrieved_bars": len(candles),
+            "inserted_bars": inserted,
+            "status": "complete",
+        }
+
+    def market_history_status(self, experiment_id: str) -> dict[str, Any]:
+        with self._lock:
+            runs = self._db.execute(
+                "SELECT run_id, provider_id, symbol, interval, requested_bars, retrieved_bars, "
+                "inserted_bars, start_time, data_cutoff, data_origin, content_sha256, status, "
+                "error_code, created_at FROM market_history_runs WHERE experiment_id=? "
+                "ORDER BY created_at DESC, symbol, interval",
+                (experiment_id,),
+            ).fetchall()
+            summary = self._db.execute(
+                "SELECT provider_id, symbol, interval, COUNT(*) AS stored_bars, "
+                "MIN(open_time) AS first_open_time, MAX(close_time) AS last_close_time, "
+                "MAX(data_origin) AS data_origin FROM market_history "
+                "GROUP BY provider_id, symbol, interval "
+                "ORDER BY symbol, interval",
+            ).fetchall()
+        return {
+            "runs": [dict(row) for row in runs],
+            "lanes": [dict(row) for row in summary],
+        }
+
+    def archive_market_snapshot(
+        self,
+        snapshot: MarketSnapshot,
+        provider_id: str,
+    ) -> dict[str, int]:
+        snapshot.validate()
+        now = iso_utc(datetime.now(timezone.utc))
+        lane_data = {
+            "15m": snapshot.candles_15m,
+            "1h": snapshot.candles_1h,
+            "4h": snapshot.candles_4h,
+        }
+        inserted = {interval: 0 for interval in lane_data}
+        with self.transaction() as db:
+            for interval, candles in lane_data.items():
+                for candle in candles:
+                    close_time = parse_utc(
+                        candle["close_time"], f"snapshot.{interval}.close_time"
+                    )
+                    if close_time > parse_utc(snapshot.data_cutoff, "snapshot.data_cutoff"):
+                        raise PaperTradingError(
+                            "cannot archive market data newer than its point-in-time cutoff"
+                        )
+                    cursor = db.execute(
+                        "INSERT OR IGNORE INTO market_history(provider_id, symbol, interval, "
+                        "open_time, close_time, open, high, low, close, volume, data_origin, recorded_at) "
+                        "VALUES(?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
+                        (
+                            provider_id,
+                            snapshot.symbol,
+                            interval,
+                            candle["open_time"],
+                            candle["close_time"],
+                            candle["open"],
+                            candle["high"],
+                            candle["low"],
+                            candle["close"],
+                            candle["volume"],
+                            snapshot.data_origin,
+                            now,
+                        ),
+                    )
+                    inserted[interval] += cursor.rowcount
+        return inserted
+
+    def load_market_history(
+        self,
+        *,
+        provider_id: str,
+        symbol: str,
+        interval: str,
+        through: str,
+        limit: int = 20_000,
+    ) -> list[dict[str, Any]]:
+        if isinstance(limit, bool) or not isinstance(limit, int) or not 1 <= limit <= 20_000:
+            raise PaperTradingError("market history limit must be between 1 and 20000")
+        cutoff = iso_utc(parse_utc(through, "market_history.through"))
+        with self._lock:
+            rows = self._db.execute(
+                "SELECT open_time, close_time, open, high, low, close, volume "
+                "FROM market_history WHERE provider_id=? AND symbol=? AND interval=? "
+                "AND close_time<=? ORDER BY open_time DESC LIMIT ?",
+                (provider_id, symbol, interval, cutoff, limit),
+            ).fetchall()
+        return [dict(row) for row in reversed(rows)]
 
     def wallet_summary(self, experiment_id: str, cohort: str = "primary") -> dict[str, Any]:
         with self.transaction() as db:
@@ -2631,6 +2948,26 @@ class PaperRuntime:
             streak += 1
         return daily_loss, drawdown, streak
 
+    def _feature_history(
+        self,
+        snapshot: MarketSnapshot,
+        provider_id: str,
+    ) -> dict[str, list[dict[str, Any]]]:
+        lanes = {
+            "15m": snapshot.candles_15m,
+            "1h": snapshot.candles_1h,
+            "4h": snapshot.candles_4h,
+        }
+        return {
+            interval: self.store.load_market_history(
+                provider_id=provider_id,
+                symbol=snapshot.symbol,
+                interval=interval,
+                through=lane[-1]["close_time"],
+            )
+            for interval, lane in lanes.items()
+        }
+
     def _build_arm_result(
         self,
         arm: str,
@@ -2701,8 +3038,9 @@ class PaperRuntime:
             return existing
 
         cycle_started = time.perf_counter()
+        market_provider = self._market(config)
         try:
-            snapshot = self._market(config).fetch_snapshot(normalized_symbol, current_time).validate()
+            snapshot = market_provider.fetch_snapshot(normalized_symbol, current_time).validate()
         except PaperTradingError:
             self.store.record_runtime_event(
                 experiment["experiment_id"],
@@ -2734,10 +3072,16 @@ class PaperRuntime:
 
         started = cycle_started
         try:
+            history_inserted = self.store.archive_market_snapshot(
+                snapshot, market_provider.provider_id
+            )
             features = compute_features(
                 snapshot,
                 minimum_signal_strength=config["minimum_signal_strength"],
                 signal_gate_enabled=config["signal_gate_enabled"],
+                historical_bars=self._feature_history(
+                    snapshot, market_provider.provider_id
+                ),
             )
             portfolio = self._portfolio_context(
                 experiment["experiment_id"], snapshot, features
@@ -2774,7 +3118,8 @@ class PaperRuntime:
                     provider, jev_provider_config = self._jev(config)
                     jev_vector = provider.evaluate(snapshot, features, portfolio)
                     if (
-                        jev_vector.get("snapshot_hash") != snapshot.snapshot_hash
+                        jev_vector.get("snapshot_hash")
+                        != jev_state(snapshot, features, portfolio)["snapshot_hash"]
                         or jev_vector.get("schema_version") != "jev-decision-vector.v1"
                     ):
                         raise AIProviderError("Jev response did not match the frozen snapshot")
@@ -3085,6 +3430,11 @@ class PaperRuntime:
                         ),
                     )
 
+            decision_input_hash = jev_state(
+                snapshot, features, portfolio
+            )["snapshot_hash"]
+            for arm_result in arm_results.values():
+                arm_result["decision_input_hash"] = decision_input_hash
             primary = arm_results.get(config["primary_arm"])
             if primary is None:
                 primary = self._build_arm_result(
@@ -3273,7 +3623,9 @@ class PaperRuntime:
                 "data_cutoff": snapshot.data_cutoff,
                 "data_origin": snapshot.data_origin,
                 "snapshot_hash": snapshot.snapshot_hash,
+                "decision_input_hash": decision_input_hash,
                 "market_snapshot": snapshot.to_dict(),
+                "market_history_inserted": history_inserted,
                 "features": features,
                 "quant_gate": gate,
                 "jev_vector": jev_vector,
@@ -3594,6 +3946,128 @@ class PaperRuntime:
             "excluded_symbols": support["excluded"],
             "data_cutoff": sample.data_cutoff,
         }
+
+    def warm_up_market_history(
+        self,
+        *,
+        profile: str = "EXP-001",
+        as_of: datetime | None = None,
+    ) -> dict[str, Any]:
+        """Opt-in local history preload; tests and fixture mode make no network request."""
+        if profile not in WARMUP_PROFILES:
+            raise PaperTradingError("warm-up profile is unsupported")
+        experiment = self.store.experiment()
+        if experiment["status"] != "stopped":
+            raise PaperTradingError("stop the runtime before warming up market history")
+        config = experiment["config"]
+        current_time = (as_of or self._clock()).astimezone(timezone.utc)
+        if current_time > self._clock().astimezone(timezone.utc) + timedelta(seconds=1):
+            raise PaperTradingError("warm-up cutoff cannot be in the future")
+        provider = self._market(config)
+        symbol_validator = getattr(provider, "validate_symbols", None)
+        fetch_history = getattr(provider, "fetch_history", None)
+        if not callable(symbol_validator) or not callable(fetch_history):
+            raise PaperTradingError("selected market provider does not support history warm-up")
+        support = symbol_validator(config["symbols"])
+        lanes = []
+        failures = []
+        for excluded in support["excluded"]:
+            self.store.record_runtime_event(
+                experiment["experiment_id"],
+                None,
+                "warmup_symbol_excluded",
+                excluded,
+            )
+        for symbol in support["supported"]:
+            for interval, bars in WARMUP_PROFILES[profile].items():
+                cutoff = floor_time(current_time, interval)
+                start = cutoff - timedelta(
+                    seconds=bars * INTERVAL_SECONDS[interval]
+                )
+                try:
+                    candles = fetch_history(
+                        symbol,
+                        interval,
+                        bars=bars,
+                        as_of=current_time,
+                    )
+                    if (
+                        not candles
+                        or candles[0]["open_time"] != iso_utc(start)
+                        or candles[-1]["close_time"] != iso_utc(cutoff)
+                    ):
+                        raise PaperTradingError(
+                            "warm-up provider returned a different closed-bar range"
+                        )
+                    lanes.append(
+                        self.store.save_market_history_lane(
+                            experiment_id=experiment["experiment_id"],
+                            provider_id=provider.provider_id,
+                            symbol=symbol,
+                            interval=interval,
+                            candles=candles,
+                            requested_bars=bars,
+                            start_time=iso_utc(start),
+                            data_cutoff=iso_utc(cutoff),
+                            data_origin=(
+                                "FIXTURE"
+                                if config["market_data_mode"] == "fixture"
+                                else "BINANCE_USDM_PUBLIC"
+                            ),
+                        )
+                    )
+                except PaperTradingError:
+                    failure = {
+                        "symbol": symbol,
+                        "interval": interval,
+                        "requested_bars": bars,
+                        "error_code": "history_warmup_failed",
+                    }
+                    failures.append(failure)
+                    self.store.record_runtime_event(
+                        experiment["experiment_id"],
+                        None,
+                        "warmup_lane_failed",
+                        failure,
+                    )
+        result = {
+            "profile": profile,
+            "profile_version": "paper-warmup.exp001.v1",
+            "experiment_id": experiment["experiment_id"],
+            "provider_id": provider.provider_id,
+            "data_origin": (
+                "FIXTURE"
+                if config["market_data_mode"] == "fixture"
+                else "BINANCE_USDM_PUBLIC"
+            ),
+            "as_of": iso_utc(current_time),
+            "supported_symbols": support["supported"],
+            "excluded_symbols": support["excluded"],
+            "requested_lane_count": len(support["supported"])
+            * len(WARMUP_PROFILES[profile]),
+            "completed_lane_count": len(lanes),
+            "retrieved_bars": sum(lane["retrieved_bars"] for lane in lanes),
+            "inserted_bars": sum(lane["inserted_bars"] for lane in lanes),
+            "status": "failed"
+            if not support["supported"] or (failures and not lanes)
+            else "partial"
+            if failures or support["excluded"]
+            else "complete",
+            "failures": failures,
+            "history": self.store.market_history_status(experiment["experiment_id"]),
+        }
+        self.store.record_runtime_event(
+            experiment["experiment_id"],
+            None,
+            "warmup_completed",
+            {
+                "profile": profile,
+                "status": result["status"],
+                "completed_lane_count": len(lanes),
+                "retrieved_bars": result["retrieved_bars"],
+            },
+        )
+        return result
 
     def metrics(self) -> dict[str, Any]:
         return PaperRuntimeReports(self).metrics()
@@ -4188,6 +4662,7 @@ class PaperRuntimeReports:
         experiment = self.store.experiment()
         experiment_id = experiment["experiment_id"]
         records = self.store.export_records(experiment_id)
+        history_status = self.store.market_history_status(experiment_id)
         metrics = self.metrics()
         public_providers = self.store.list_providers()
         safe_config = {
@@ -4213,6 +4688,14 @@ class PaperRuntimeReports:
             "contains_credential_references": False,
             "metric_denominators": metrics["sample_denominators"],
             "reconciliation": metrics["reconciliation"],
+            "warmup_lanes": len(history_status["runs"]),
+            "warmup_requested_bars": sum(
+                row["retrieved_bars"] for row in history_status["runs"]
+            ),
+            "market_history_lanes": len(history_status["lanes"]),
+            "market_history_stored_bars": sum(
+                row["stored_bars"] for row in history_status["lanes"]
+            ),
         }
         files["manifest.json"] = json.dumps(manifest, indent=2, sort_keys=True).encode("utf-8")
         files["config.json"] = json.dumps(safe_config, indent=2, sort_keys=True).encode("utf-8")
@@ -4389,6 +4872,7 @@ class PaperRuntimeReports:
                     "cycle_slot": cycle.get("cycle_slot"),
                     "data_cutoff": cycle.get("data_cutoff"),
                     "snapshot_hash": cycle.get("snapshot_hash"),
+                    "decision_input_hash": cycle.get("decision_input_hash"),
                     "primary_arm": cycle.get("primary_arm"),
                     "primary_decision": cycle.get("primary_decision"),
                     "arms": cycle.get("arms"),
@@ -4397,6 +4881,23 @@ class PaperRuntimeReports:
                     "data_origin": cycle.get("data_origin"),
                 }
                 for cycle in cycle_payloads
+            ]
+        )
+        files["market-snapshots.jsonl"] = jsonl(
+            [
+                {
+                    "cycle_id": cycle.get("cycle_id"),
+                    "symbol": cycle.get("symbol"),
+                    "cycle_slot": cycle.get("cycle_slot"),
+                    "as_of": cycle.get("as_of"),
+                    "data_cutoff": cycle.get("data_cutoff"),
+                    "snapshot_hash": cycle.get("snapshot_hash"),
+                    "decision_input_hash": cycle.get("decision_input_hash"),
+                    "data_origin": cycle.get("data_origin"),
+                    "snapshot": cycle.get("market_snapshot"),
+                }
+                for cycle in cycle_payloads
+                if cycle.get("market_snapshot") is not None
             ]
         )
         files["signals.jsonl"] = jsonl(
@@ -4543,6 +5044,26 @@ class PaperRuntimeReports:
             ],
             ["cycle_id", "symbol", "path", "latency_ms", "as_of"],
         )
+        files["market-history.csv"] = self._csv_bytes(
+            records["market_history_runs"],
+            [
+                "run_id",
+                "provider_id",
+                "symbol",
+                "interval",
+                "requested_bars",
+                "retrieved_bars",
+                "inserted_bars",
+                "start_time",
+                "data_cutoff",
+                "data_origin",
+                "content_sha256",
+                "status",
+                "error_code",
+                "created_at",
+            ],
+        )
+        files["warmup-bars.jsonl"] = jsonl(records["market_history_bars"])
         report = [
             "# EXP-001 PAPER futures research export",
             "",
@@ -4561,6 +5082,11 @@ class PaperRuntimeReports:
             f"- Equity reconciliation: {metrics['reconciliation']['ending_equity_equals_cash_plus_unrealized']}",
             f"- Closed PnL reconciliation: {metrics['reconciliation']['closed_pnl_matches_closed_trade_ledger']}",
             f"- Exported files: {len(files) + 1}",
+            f"- Warm-up lanes: {len(history_status['runs'])}",
+            "- Warm-up bars requested: "
+            f"{sum(row['retrieved_bars'] for row in history_status['runs'])}",
+            "- Total point-in-time bars archived: "
+            f"{sum(row['stored_bars'] for row in history_status['lanes'])}",
         ]
         files["summary.md"] = ("\n".join(report) + "\n").encode("utf-8")
         manifest["files"] = sorted([*files, "manifest.json"])

@@ -1,5 +1,6 @@
 import test from "node:test";
 import assert from "node:assert/strict";
+import { readFileSync } from "node:fs";
 
 import { createPaperApi } from "../modules/paperApi.js";
 
@@ -184,4 +185,9 @@ test("provider failures with unreadable bodies return a bounded status message",
   });
   assert.equal(calls.length, 1);
   assertRequestPolicy(calls);
+});
+
+test("paper API code never reads persistent browser storage", () => {
+  const source = readFileSync(new URL("../modules/paperApi.js", import.meta.url), "utf8");
+  assert.doesNotMatch(source, /localStorage|sessionStorage/);
 });

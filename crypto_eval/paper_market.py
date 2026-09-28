@@ -18,7 +18,17 @@ from .paper_contracts import PaperTradingError, iso_utc, parse_utc
 
 BINANCE_USDM_BASE_URL = "https://fapi.binance.com"
 MAX_RESPONSE_BYTES = 4 * 1024 * 1024
+MAX_HISTORY_BARS = 20_000
+HISTORY_PAGE_SIZE = 1000
 INTERVAL_SECONDS = {"1m": 60, "15m": 900, "1h": 3600, "4h": 14400}
+WARMUP_PROFILES = {
+    "EXP-001": {
+        "1m": 7 * 24 * 60,
+        "15m": 60 * 24 * 4,
+        "1h": 90 * 24,
+        "4h": 180 * 6,
+    }
+}
 SYMBOL_BASE_PRICES = {
     "BTCUSDT": 62_000.0,
     "ETHUSDT": 3_100.0,
@@ -204,6 +214,10 @@ class FuturesMarketDataProvider(Protocol):
 
     def fetch_funding_rate(self, symbol: str, as_of: datetime) -> float | None: ...
 
+    def fetch_history(
+        self, symbol: str, interval: str, *, bars: int, as_of: datetime
+    ) -> list[dict[str, Any]]: ...
+
     def fetch_monitor_bars(
         self, symbol: str, after: datetime, as_of: datetime
     ) -> list[dict[str, Any]]: ...
@@ -338,6 +352,25 @@ class FixtureFuturesMarketDataProvider:
     def fetch_funding_rate(self, symbol: str, as_of: datetime) -> float | None:
         return 0.0001
 
+    def fetch_history(
+        self,
+        symbol: str,
+        interval: str,
+        *,
+        bars: int,
+        as_of: datetime,
+    ) -> list[dict[str, Any]]:
+        if interval not in INTERVAL_SECONDS:
+            raise MarketDataError("unsupported fixture history interval")
+        if (
+            isinstance(bars, bool)
+            or not isinstance(bars, int)
+            or not 1 <= bars <= MAX_HISTORY_BARS
+        ):
+            raise MarketDataError("history bars must be between 1 and 20000")
+        cutoff = floor_time(as_of, interval)
+        return self._lane(symbol.strip().upper(), interval, bars, cutoff)
+
 
 class BinanceUsdMFuturesMarketDataProvider:
     """Unauthenticated Binance USD-M futures read-only market-data adapter."""
@@ -430,6 +463,62 @@ class BinanceUsdMFuturesMarketDataProvider:
             cutoff,
             minimum=min(count, 30 if interval == "15m" else 20 if interval == "1h" else 12 if interval == "4h" else 1),
         )
+
+    def fetch_history(
+        self,
+        symbol: str,
+        interval: str,
+        *,
+        bars: int,
+        as_of: datetime,
+    ) -> list[dict[str, Any]]:
+        normalized_symbol = symbol.strip().upper()
+        if not normalized_symbol.isalnum() or not 5 <= len(normalized_symbol) <= 20:
+            raise MarketDataError("unsupported futures symbol")
+        if interval not in INTERVAL_SECONDS:
+            raise MarketDataError("unsupported futures history interval")
+        if (
+            isinstance(bars, bool)
+            or not isinstance(bars, int)
+            or not 1 <= bars <= MAX_HISTORY_BARS
+        ):
+            raise MarketDataError("history bars must be between 1 and 20000")
+        cutoff = floor_time(as_of, interval)
+        step_seconds = INTERVAL_SECONDS[interval]
+        start = cutoff - timedelta(seconds=bars * step_seconds)
+        cursor = start
+        candles: list[dict[str, Any]] = []
+        while cursor < cutoff:
+            remaining = int((cutoff - cursor).total_seconds() // step_seconds)
+            limit = min(HISTORY_PAGE_SIZE, remaining)
+            raw_rows = self._json_get(
+                "/fapi/v1/klines",
+                {
+                    "symbol": normalized_symbol,
+                    "interval": interval,
+                    "startTime": int(cursor.timestamp() * 1000),
+                    "endTime": int(cutoff.timestamp() * 1000) - 1,
+                    "limit": limit,
+                },
+            )
+            if not isinstance(raw_rows, list) or not raw_rows:
+                raise MarketDataError(f"futures {interval} warm-up history is incomplete")
+            if len(raw_rows) > limit:
+                raise MarketDataError(f"futures {interval} warm-up page exceeded its requested limit")
+            page = [
+                _normalize_candle(row, interval, cutoff, symbol=normalized_symbol)
+                for row in raw_rows
+            ]
+            _validate_candle_lane(page, interval, cutoff, minimum=len(page))
+            if parse_utc(page[0]["open_time"], f"{interval}.open_time") != cursor:
+                raise MarketDataError(f"futures {interval} warm-up history has a missing interval")
+            candles.extend(page)
+            cursor = parse_utc(page[-1]["close_time"], f"{interval}.close_time")
+            if len(page) < limit and cursor < cutoff:
+                raise MarketDataError(f"futures {interval} warm-up history is incomplete")
+        if len(candles) != bars:
+            raise MarketDataError(f"futures {interval} warm-up returned an unexpected bar count")
+        return _validate_candle_lane(candles, interval, cutoff, minimum=bars)
 
     def fetch_snapshot(self, symbol: str, as_of: datetime) -> MarketSnapshot:
         normalized_symbol = symbol.strip().upper()
