@@ -12,7 +12,7 @@
 
 ## Other required rechecks
 
-- Provider environment-variable resolution, TypeSafe authorization, Responses bearer authentication, Foundry `api-key`, and configured GPT reasoning-mode validation remain covered by synthetic-token/mock-transport tests. Secret redaction and credential-free API/export behavior tests pass. No live credentials were used.
+- Provider environment-variable resolution, TypeSafe bearer authorization, Responses bearer authentication for inference and connection tests, Foundry `api-key`, and configured GPT reasoning-mode validation are covered by synthetic-token/mock-transport tests. These tests verify bearer credentials in request headers and confirm tokens are absent from request bodies and returned results. Secret redaction and credential-free API/export behavior tests pass. No live credentials were used.
 - Execution remains PAPER-only: config validation rejects other modes, and the local server exposes simulated runtime operations rather than a live exchange order route.
 - Scheduler idempotence/recovery tests pass; the database retains a unique experiment/symbol/slot constraint.
 - Accounting invariants and export reconciliation pass, including equity versus cash plus unrealized PnL and closed-PnL reconciliation across the trade ledger and grouped asset/regime metrics.

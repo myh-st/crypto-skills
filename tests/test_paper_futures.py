@@ -264,10 +264,37 @@ class PaperFuturesContractsAndProviderTests(unittest.TestCase):
             "as_of": now,
         }
         self.assertEqual(TradingIntent.from_dict(intent).side, "long")
+        for schema_required_field in ("reduce_fraction", "position_id"):
+            with self.assertRaisesRegex(PaperTradingError, "missing required fields"):
+                TradingIntent.from_dict(
+                    {key: value for key, value in intent.items() if key != schema_required_field}
+                )
         with self.assertRaisesRegex(PaperTradingError, "credentials|unsupported fields"):
             TradingIntent.from_dict({**intent, "quantity": 100, "leverage": 10})
         with self.assertRaises(PaperTradingError):
             TradingIntent.from_dict({**intent, "action": "reduce", "reduce_only": False})
+        reduce_intent = {
+            **intent,
+            "action": "reduce",
+            "entry_price": None,
+            "stop_price": None,
+            "target_price": None,
+            "reduce_only": True,
+            "reduce_fraction": 0.5,
+            "position_id": "position-1",
+        }
+        for action, fraction in (("close", None), ("reduce", 0.5)):
+            target_intent = {
+                **reduce_intent,
+                "action": action,
+                "reduce_fraction": fraction,
+            }
+            with self.assertRaisesRegex(PaperTradingError, "require a position_id"):
+                TradingIntent.from_dict(
+                    {key: value for key, value in target_intent.items() if key != "position_id"}
+                )
+            with self.assertRaisesRegex(PaperTradingError, "require a position_id"):
+                TradingIntent.from_dict({**target_intent, "position_id": None})
 
     def test_typesafe_request_has_choice_score_noul_and_normalizes_vector(self):
         snapshot = FixtureFuturesMarketDataProvider().fetch_snapshot(
@@ -567,17 +594,33 @@ class PaperFuturesContractsAndProviderTests(unittest.TestCase):
                     "credential_env": "UNIT_TEST_RESPONSES_KEY",
                 }
             )
-            result = ResponsesAdapter(
+            adapter = ResponsesAdapter(
                 provider,
                 environ={"UNIT_TEST_RESPONSES_KEY": UNIT_TOKEN},
                 transport=transport,
-            ).test_connection()
+            )
+            result = adapter.test_connection()
             request_url, headers, body = captured[-1]
             self.assertEqual(headers["Authorization"], f"Bearer {UNIT_TOKEN}")
             self.assertNotIn(UNIT_TOKEN, json.dumps(body))
             self.assertNotIn(UNIT_TOKEN, json.dumps(result))
             self.assertEqual(result["reasoning_effort_validated"], "high")
             self.assertTrue(request_url.endswith("/responses"))
+            snapshot = FixtureFuturesMarketDataProvider().fetch_snapshot(
+                "BTCUSDT", datetime.now(timezone.utc)
+            )
+            inference_result = adapter.generate_intent(
+                snapshot,
+                compute_features(snapshot),
+                {},
+                jev_vector=None,
+                source_arm="luna",
+                include_skill=False,
+            )
+            _, inference_headers, inference_body = captured[-1]
+            self.assertEqual(inference_headers["Authorization"], headers["Authorization"])
+            self.assertNotIn(UNIT_TOKEN, json.dumps(inference_body))
+            self.assertNotIn(UNIT_TOKEN, json.dumps(inference_result))
 
     def test_responses_connection_validates_every_configured_reasoning_effort(self):
         observed = []

@@ -3,6 +3,7 @@
   "$id": "paper-dashboard.schema.json",
   "title": "PAPER Futures Dashboard",
   "type": "object",
+  "required": ["cycles", "metrics"],
   "properties": {
     "cycles": {
       "type": "array",

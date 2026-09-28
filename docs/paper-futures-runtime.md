@@ -24,9 +24,9 @@ python3 -m crypto_eval paper-server --database .paper-futures-smoke.sqlite3
 
 `paper-server` reads a local repository-root `.env` as plain key/value text;
 existing process environment values take precedence. It never sources or
-evaluates the file. `.env` is git-ignored and created with blank provider
-variable slots when absent. `.env.example` documents the supported names and
-contains no secret values.
+evaluates the file. Create `.env` yourself if needed; the runtime does not create
+it. `.env` is git-ignored, and `.env.example` documents the supported names
+without secret values.
 
 The web process owns a 15-minute scheduler and an independent bar-monitor
 worker. They continue while the browser is closed, subject to the local server

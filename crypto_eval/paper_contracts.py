@@ -512,8 +512,10 @@ class TradingIntent:
         if not isinstance(value, dict):
             raise PaperTradingError("TradingIntent must be an object")
         _unknown_fields(value, INTENT_FIELDS, "TradingIntent")
-        required = INTENT_FIELDS - {"reduce_fraction", "position_id"}
-        if not required <= set(value):
+        missing = INTENT_FIELDS - set(value)
+        if "position_id" in missing and value.get("action") in {"close", "reduce"}:
+            raise PaperTradingError("close and reduce intents require a position_id")
+        if missing:
             raise PaperTradingError("TradingIntent is missing required fields")
         if value["schema_version"] != INTENT_SCHEMA_VERSION:
             raise PaperTradingError("TradingIntent schema version is unsupported")
@@ -556,7 +558,9 @@ class TradingIntent:
             if order_type != "market":
                 raise PaperTradingError("close and reduce intents must use market execution")
             position_id = value.get("position_id")
-            if position_id is not None and (
+            if position_id is None:
+                raise PaperTradingError("close and reduce intents require a position_id")
+            if (
                 not isinstance(position_id, str) or not re.fullmatch(r"[A-Za-z0-9._:-]{1,120}", position_id)
             ):
                 raise PaperTradingError("TradingIntent position_id is invalid")
