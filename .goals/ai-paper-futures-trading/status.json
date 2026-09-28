@@ -4,7 +4,7 @@
   "branch": "feature/ai-paper-futures-trading",
   "base_commit": "887ced89866fb53748519170d19b3080cadab230",
   "state": "building",
-  "iteration": 2,
+  "iteration": 4,
   "builder_model": "GPT-6-Luna",
   "inspector_model": "GPT-6-Luna",
   "initial_sha": "048b3f42c42f7c1be902e72473f32aaead1ecb31",
@@ -19,6 +19,11 @@
       "iteration": 2,
       "verdict": "FAIL",
       "summary": "Mocked provider authentication and reasoning validation now pass; runtime decision details and evaluation performance by regime/asset are still missing from the dashboards."
+    },
+    {
+      "iteration": 3,
+      "verdict": "FAIL",
+      "summary": "Provider auth/reasoning and completed-cycle routing are verified, but interrupted cycles misstate unknown routing, regime/asset drawdown remains unavailable, and Export/Data Retention settings are incomplete."
     }
   ],
   "implementation_started": true,
