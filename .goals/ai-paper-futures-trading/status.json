@@ -6,7 +6,7 @@
   "state": "building",
   "iteration": 2,
   "builder_model": "GPT-6-Luna",
-  "inspector_model": "GPT-6-Sol",
+  "inspector_model": "GPT-6-Luna",
   "initial_sha": "048b3f42c42f7c1be902e72473f32aaead1ecb31",
   "started_at": "2026-09-28T08:36:51+07:00",
   "history": [
@@ -14,6 +14,11 @@
       "iteration": 1,
       "verdict": "FAIL",
       "summary": "Default TypeSafe/OpenAI-compatible authentication sends a literal mask instead of the configured key; Responses Test Connection omits the configured reasoning mode."
+    },
+    {
+      "iteration": 2,
+      "verdict": "FAIL",
+      "summary": "Mocked provider authentication and reasoning validation now pass; runtime decision details and evaluation performance by regime/asset are still missing from the dashboards."
     }
   ],
   "implementation_started": true,
