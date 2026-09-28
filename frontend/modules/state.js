@@ -49,6 +49,7 @@ export function createStore(seed) {
     watchlist: linkWatchlistToRuns(seed.watchlist, runs),
     dataSources: seed.dataSources,
     evaluationDemo: seed.evaluationDemo,
+    forwardEvaluations: [],
   };
 
   function notify() {
@@ -81,6 +82,10 @@ export function createStore(seed) {
     },
     updateSettings(patch) {
       state.settings = { ...state.settings, ...patch };
+      notify();
+    },
+    setForwardEvaluations(rows) {
+      state.forwardEvaluations = Array.isArray(rows) ? rows : [];
       notify();
     },
     resetDemoData(seedData) {

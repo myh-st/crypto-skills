@@ -153,6 +153,96 @@ Inputs and outputs are versioned JSON/JSONL contracts under `schemas/`.
    `waiting_for_outcome`, `ready_to_score`, and `scored`. The projection is
    derived from immutable inputs; it does not rewrite them.
 
+## Read-only market archives
+
+The live provider uses Binance's public Spot klines endpoint; market candles
+require no exchange credentials. Request an interval-aligned historical range
+and write a normalized, immutable archive with retrieval/cutoff metadata and a
+SHA-256 content hash:
+
+```bash
+python3 -m crypto_eval archive-binance \
+  --symbol BTCUSDT \
+  --interval 1h \
+  --start 2026-09-01T00:00:00Z \
+  --end 2026-09-02T00:00:00Z \
+  --out-dir .crypto-eval/archives
+```
+
+Archive files record the provider ID, public endpoint, pair, interval, requested
+range, last closed candle cutoff, retrieval time, candle count, and content
+hash. The writer is create-only; identical content reuses the existing file.
+Kline requests use UTC Unix-millisecond `startTime`/`endTime` and explicitly set
+`timeZone=0`; response millisecond timestamps are normalized to UTC. Any row
+whose closed-candle timestamp exceeds the requested cutoff is rejected.
+Malformed, duplicate, future, stale, missing, rate-limited, or unavailable
+candles fail closed. Archives contain public OHLCV only and never contain API
+credentials. Tests use mocked HTTP transports; CI does not contact Binance.
+
+## Local GPT-6 Luna runtime and forward cases
+
+The same-origin local runtime binds to `127.0.0.1` by default and only accepts
+loopback bind addresses. It serves the existing `frontend/` and these APIs:
+
+- `GET /api/status` reports runtime/model configuration without exposing a key.
+- `POST /api/analyze` accepts a Binance USDT Spot symbol, horizon, and question;
+  it fetches closed candles, archives the snapshot, then freezes a skill/control
+  pair over the same case and model configuration.
+- `GET /api/evaluations` lists saved forward lifecycle states.
+- `POST /api/forward/{run_id}/score` fetches and scores a separate outcome only
+  after that case's configured horizon has closed. Clients cannot submit
+  outcome candles to this route.
+
+Start the runtime from the repository root:
+
+```bash
+# Set OPENAI_API_KEY in this server shell from your local secret store.
+python3 -m crypto_eval serve --host 127.0.0.1 --port 8765 --interval 1h
+```
+
+Then open `http://127.0.0.1:8765/frontend/`. Set the API key in the server
+process environment; it is never accepted from a browser request, written to a
+file, logged, or included in runner metadata. The explicit defaults are model
+`gpt-6-luna`, base URL `https://api.openai.com/v1`, endpoint `/responses`, and
+`reasoning.effort=max`. An explicit server-only `OPENAI_BASE_URL` override is
+supported (HTTPS required except loopback); `OPENAI_MODEL`,
+`OPENAI_REASONING_EFFORT`, and `OPENAI_TIMEOUT_SECONDS` can also be set in the
+server environment. Missing credentials and API failures are returned as
+explicit errors; live requests never fall back to synthetic analysis. One
+Analyze action makes two Responses API calls (skill and control), which may
+incur model charges. Requests set `store: false`; only normalized frozen
+predictions are written locally, not raw API responses or credentials.
+
+The CLI supports the same lifecycle:
+
+```bash
+python3 -m crypto_eval forward-create \
+  --symbol BTCUSDT --instrument spot --horizon intraday
+python3 -m crypto_eval forward-status
+python3 -m crypto_eval forward-score --run-id <run-id>
+```
+
+`forward-create` uses the latest closed candle window, saves the dataset and
+append-only skill/control prediction records under `.crypto-eval/forward/`,
+and returns a pending run ID. `forward-score` refuses to fetch outcomes before
+the full horizon closes; it stores later candles in a separate immutable
+outcome file, validates them against the existing outcome contract, and writes
+separate skill/control scores plus a descriptive paired comparison. The
+single-case `prospective_forward` dataset strategy does not claim a historical
+walk-forward benchmark. No order execution, portfolio PnL, accuracy claim, or
+statistical significance is produced.
+
+The static command `python3 -m http.server 8000` remains a fixture-only preview.
+In connected runtime mode, Overview cards still identify themselves as
+synthetic; the Analyze flow and its report use archived Binance Spot candles.
+Unit tests exercise the provider → paired runner → frozen prediction → forward
+outcome path with mocks. CI remains offline and never invokes a paid model.
+
+The earlier three-case paired pilot is a smoke test over synthetic snapshots,
+not real historical or prospective market evidence. It does not establish
+accuracy, calibration, profitability, or skill improvement. Only a
+preregistered, sufficiently powered forward cohort can support such claims.
+
 ## Point-in-time and data boundaries
 
 - Case snapshots are input-only. All timestamps must include a timezone, and
@@ -174,9 +264,10 @@ Inputs and outputs are versioned JSON/JSONL contracts under `schemas/`.
 - Outcome candles must open at or after the cutoff and are stored in a
   separate outcome bundle with a later `known_at`. Labels, reflections, and
   realized returns cannot be inserted into frozen cases.
-- Data providers implement a read-only interface. No credentials, live
-  exchange adapter, paid data dependency, or fabricated derivatives/news/
-  on-chain data is included. Unsupported lanes are marked unavailable.
+- The Binance Spot adapter is read-only and public. Spot OHLCV does not imply
+  derivatives, news, options, on-chain, macro, or portfolio data; unsupported
+  lanes remain explicitly unavailable. No Binance credentials or order API is
+  used.
 - Historical model outputs generated after their outcome is known cannot be
   presented as point-in-time predictions. Prefer predictions archived before
   the outcome window closes, or collect new cases prospectively via forward
@@ -189,6 +280,9 @@ Predictions use the canonical states in
 direction, zone, and confirmation; breakout waits require a level and close
 confirmation. Immediate entries require an explicit reference. `NO_TRADE`,
 `AVOID_CHASING`, and other non-entry states do not acquire an invented fill.
+Structured analysis, frozen predictions, and decision records accept at most
+five ordered targets; larger target arrays fail validation rather than being
+silently clipped by the chart.
 
 A wait that does not trigger within a complete evaluation window is recorded as
 `not_triggered`. It contributes to the trigger-rate denominator but has no
@@ -251,13 +345,15 @@ intervals.
 
 `PredictionRunner` is the model extension point; its metadata must identify the
 provider/model, inference configuration hash, prompt version, skill commit,
-variant, run ID, and whether invocation actually occurred. An actually invoked
-runner must return its timezone-aware `frozen_at` in the prediction response,
-which the harness removes from the decision body and preserves as record
-metadata. A plugin must freeze its output before the outcome is available. The
-harness intentionally does not load arbitrary Python plugins or store model
-credentials. Read-only data providers should yield the normalized candidate
-contract and mark unsupported features unavailable.
+variant, run ID, and whether invocation actually occurred. The server-side
+OpenAI Responses runner uses the configured API key only in its Authorization
+header, validates structured output against the frozen prediction contract,
+and never persists the raw API response. An actually invoked runner must return
+its timezone-aware `frozen_at` in the prediction response, which the harness
+removes from the decision body and preserves as record metadata. A plugin must
+freeze its output before the outcome is available. The harness does not load
+arbitrary Python plugins or store model credentials. Read-only data providers
+yield normalized candles and mark unsupported features unavailable.
 
 Decision-quality scores are not portfolio PnL. A portfolio backtest would also
 need a cash ledger, capital allocation, position sizing, fills, exits, fees,

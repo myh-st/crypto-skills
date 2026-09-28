@@ -7,7 +7,7 @@ import urllib.error
 from datetime import datetime, timezone
 from typing import Any
 
-from crypto_eval.contracts import DECISION_STATES, EvaluationError
+from crypto_eval.contracts import DECISION_STATES, MAX_TARGET_LEVELS, EvaluationError
 from crypto_eval.openai_runner import (
     DEFAULT_MODEL_ID,
     DEFAULT_OPENAI_BASE_URL,
@@ -15,6 +15,7 @@ from crypto_eval.openai_runner import (
     OpenAIResponsesConfig,
     OpenAIResponsesError,
     OpenAIResponsesRunner,
+    load_skill_instructions,
 )
 from crypto_eval.runner import run_predictions
 from tests.eval_test_support import demo_dataset
@@ -103,15 +104,24 @@ class OpenAIResponsesRunnerTests(unittest.TestCase):
         self.assertEqual(prediction["dataset_hash"], self.dataset["dataset_hash"])
         self.assertEqual(prediction["frozen_at"], "2026-01-11T00:00:00.000000Z")
         self.assertEqual(calls[0]["url"], f"{DEFAULT_OPENAI_BASE_URL}/responses")
-        self.assertEqual(calls[0]["headers"]["Authorization"], f"Bearer {self.mock_key}")
+        auth_header = calls[0]["headers"].get("Authorization", "")
+        self.assertTrue(auth_header.startswith("Bearer "))
+        self.assertEqual(auth_header.partition(" ")[2], self.mock_key)
+        self.assertEqual(
+            set(calls[0]["headers"]),
+            {"Authorization", "Content-Type", "Accept"},
+        )
         request_body = calls[0]["body"]
         self.assertEqual(request_body["model"], "gpt-6-luna")
         self.assertEqual(request_body["reasoning"], {"effort": "max"})
+        self.assertFalse(request_body["store"])
         self.assertEqual(request_body["text"]["format"]["type"], "json_schema")
         self.assertTrue(request_body["text"]["format"]["strict"])
         self.assertIn("Use only the supplied closed candles.", request_body["instructions"])
         self.assertNotIn("outcomes", request_body["input"].lower())
         self.assertNotIn("future_candles", request_body["input"].lower())
+        self.assertNotIn(self.mock_key, json.dumps(request_body))
+        self.assertNotIn(self.mock_key, json.dumps(prediction["runner"]))
         self.assertNotIn(self.mock_key, json.dumps(prediction))
 
     def test_paired_arms_share_everything_except_the_skill_instruction_text(self) -> None:
@@ -166,6 +176,14 @@ class OpenAIResponsesRunnerTests(unittest.TestCase):
             control_request["text"]["format"],
         )
         self.assertEqual(
+            {key: value for key, value in skill_request.items() if key != "instructions"},
+            {key: value for key, value in control_request.items() if key != "instructions"},
+        )
+        self.assertNotEqual(
+            skill_request["instructions"],
+            control_request["instructions"],
+        )
+        self.assertEqual(
             skill_request["instructions"].replace("One exact skill payload.", ""),
             control_request["instructions"],
         )
@@ -173,7 +191,15 @@ class OpenAIResponsesRunnerTests(unittest.TestCase):
             skill_prediction["runner"]["inference_config_hash"],
             control_prediction["runner"]["inference_config_hash"],
         )
-        self.assertEqual(skill_prediction["runner"]["prompt_version"], control_prediction["runner"]["prompt_version"])
+        self.assertTrue(
+            skill_prediction["runner"]["prompt_version"].startswith(
+                "crypto-market-decision.v1:skill-sha256-"
+            )
+        )
+        self.assertEqual(
+            control_prediction["runner"]["prompt_version"],
+            "crypto-market-decision.v1:control-no-skill",
+        )
         self.assertEqual(skill_prediction["runner"]["run_id"], control_prediction["runner"]["run_id"])
         self.assertEqual(skill_prediction["dataset_hash"], control_prediction["dataset_hash"])
         self.assertEqual(skill_prediction["case_id"], control_prediction["case_id"])
@@ -277,6 +303,34 @@ class OpenAIResponsesRunnerTests(unittest.TestCase):
                 runner.predict(self.case)
 
         self.assertIn("NO_TRADE", DECISION_STATES)
+
+    def test_model_schema_and_parser_reject_more_than_five_targets(self) -> None:
+        captured_body: dict[str, Any] = {}
+        decision = valid_decision(self.case)
+        decision["targets"] = [
+            float(self.case["snapshot"]["candles"][-1]["close"]) * (1 + 0.01 * index)
+            for index in range(1, MAX_TARGET_LEVELS + 2)
+        ]
+
+        def transport(_url: str, _headers: dict[str, str], body: bytes, _timeout: float) -> bytes:
+            captured_body.update(json.loads(body))
+            return response_for(decision)
+
+        runner = OpenAIResponsesRunner(
+            OpenAIResponsesConfig(),
+            api_key=self.mock_key,
+            variant="control",
+            run_id="target-limit-test",
+            skill_text="",
+            transport=transport,
+        )
+
+        with self.assertRaisesRegex(OpenAIResponsesError, "at most 5 levels"):
+            runner.predict(self.case)
+        self.assertEqual(
+            captured_body["text"]["format"]["schema"]["properties"]["targets"]["maxItems"],
+            MAX_TARGET_LEVELS,
+        )
 
 
 if __name__ == "__main__":

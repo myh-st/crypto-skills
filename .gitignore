@@ -14,6 +14,7 @@ coverage.xml
 .coverage
 reports/
 snapshots/
+.crypto-eval/
 *.jsonl
 eval-output/
 .eval-cache/

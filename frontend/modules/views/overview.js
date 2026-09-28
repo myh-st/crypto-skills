@@ -3,7 +3,7 @@ import { escapeHtml, formatPrice, formatRange, relativeTime, titleCase } from ".
 import { STATE_TONE } from "../contracts.js";
 import { MARKET_SERIES, renderMarketOverviewChart } from "../components/marketOverviewChart.js";
 import { renderSparkline } from "../components/sparkline.js";
-import { analysisService, decisionService, marketDataService, runService } from "../services.js";
+import { analysisService, decisionService, marketDataService, runService, runtimeService } from "../services.js";
 
 function assetOptions(selected) {
   return ASSET_CATALOG
@@ -94,30 +94,60 @@ function activityRows(runs) {
       <td><a class="table-asset-link" href="#/runs/${encodeURIComponent(run.id)}">${escapeHtml(run.asset)} / USDT</a></td>
       <td>${titleCase(run.horizon)} analysis</td>
       <td>${relativeTime(run.createdAt)}</td>
-      <td class="fixture-duration">Fixture · instant</td>
+      <td class="fixture-duration">${run.runtimeMode === "live"
+        ? `Forward · ${escapeHtml(titleCase((run.evaluationStatus || "waiting_for_outcome").replaceAll("_", " ")))}`
+        : "Fixture · instant"}</td>
     </tr>
   `).join("");
 }
 
-function runAnalysis(store, navigate, input) {
+async function runAnalysis(store, navigate, input, button, error) {
   const asset = input.asset || "BTC";
   const catalogEntry = ASSET_CATALOG.find((entry) => entry.symbol === asset);
-  const run = analysisService.create({
-    asset,
-    analysisType: input.analysisType || "spot",
-    horizon: input.horizon || "swing",
-    question: input.question || "",
-    riskStyle: store.getState().settings.defaultRiskStyle,
-    capital: null,
-    basePrice: catalogEntry?.basePrice,
-  });
-  runService.add(store, run);
-  navigate(`runs/${run.id}`);
+  const originalLabel = button?.innerHTML;
+  if (button) {
+    button.disabled = true;
+    button.textContent = analysisService.mode === "live"
+      ? "Fetching closed candles and analyzing…"
+      : "Generating fixture analysis…";
+  }
+  if (error) {
+    error.hidden = true;
+    error.textContent = "";
+  }
+  try {
+    const run = await analysisService.create({
+      asset,
+      analysisType: input.analysisType || "spot",
+      horizon: input.horizon || "swing",
+      question: input.question || "",
+      riskStyle: store.getState().settings.defaultRiskStyle,
+      capital: null,
+      basePrice: catalogEntry?.basePrice,
+    });
+    runService.add(store, run);
+    navigate(`runs/${run.id}`);
+  } catch (requestError) {
+    if (error) {
+      error.hidden = false;
+      error.textContent = requestError instanceof Error
+        ? requestError.message
+        : "Analysis request failed. Check the local runtime and try again.";
+    }
+    if (button) {
+      button.disabled = analysisService.mode === "unavailable"
+        || (analysisService.mode === "live" && !runtimeService.status?.model_configured);
+      button.innerHTML = originalLabel;
+    }
+  }
 }
 
 export function render(root, ctx) {
   const { store, navigate } = ctx;
   const state = store.getState();
+  const liveMode = analysisService.mode === "live";
+  const submitDisabled = analysisService.mode === "unavailable"
+    || (liveMode && !runtimeService.status?.model_configured);
   const marketSnapshot = marketDataService.getSnapshot();
   const recentDecisions = decisionService.list(store).slice(0, 5);
   const recentRuns = runService.list(store).slice(0, 5);
@@ -151,11 +181,14 @@ export function render(root, ctx) {
         <select id="overview-asset" name="asset">${assetOptions("SEI")}</select>
         <label class="sr-only" for="overview-question">Research question</label>
         <input id="overview-question" name="question" type="text" placeholder="Analyze SEI / USDT for a 3–6 month position..." required />
-        <button type="submit" class="btn btn--primary">Run analysis <span aria-hidden="true">→</span></button>
+        <button type="submit" class="btn btn--primary" ${submitDisabled ? "disabled" : ""}>
+          ${liveMode ? "Analyze with Luna" : "Run analysis"} <span aria-hidden="true">→</span>
+        </button>
       </form>
+      <p class="form-error" data-role="overview-error" role="alert" hidden></p>
       <div class="quick-start-grid quick-start-grid--compact" aria-label="Quick start">
         ${QUICK_START_PROMPTS.map((prompt) => `
-          <button type="button" class="quick-start-card" data-quick-start="${prompt.id}">
+          <button type="button" class="quick-start-card" data-quick-start="${prompt.id}" ${submitDisabled ? "disabled" : ""}>
             <strong>${escapeHtml(prompt.label)}</strong>
             <span>${escapeHtml(prompt.asset)} / USDT · ${titleCase(prompt.horizon)}</span>
           </button>
@@ -254,14 +287,20 @@ export function render(root, ctx) {
       asset: formData.get("asset"),
       horizon: "swing",
       question: formData.get("question"),
-    });
+    }, event.target.querySelector('button[type="submit"]'), root.querySelector('[data-role="overview-error"]'));
   });
 
   root.querySelectorAll("[data-quick-start]").forEach((button) => {
     button.addEventListener("click", () => {
       const prompt = QUICK_START_PROMPTS.find((entry) => entry.id === button.dataset.quickStart);
       if (!prompt) return;
-      runAnalysis(store, navigate, prompt);
+      runAnalysis(
+        store,
+        navigate,
+        prompt,
+        button,
+        root.querySelector('[data-role="overview-error"]'),
+      );
     });
   });
 

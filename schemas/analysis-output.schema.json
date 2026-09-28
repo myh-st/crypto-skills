@@ -16,7 +16,7 @@
     "secondary_entry": {"type": ["string", "null"]},
     "confirmation": {"type": ["string", "null"]},
     "invalidation": {"type": ["string", "null"]},
-    "targets": {"type": "array", "items": {"type": "string"}},
+    "targets": {"type": "array", "items": {"type": "string"}, "maxItems": 5},
     "horizon": {"type": ["string", "null"]},
     "reasons": {"type": "array", "items": {"type": "string"}, "maxItems": 5},
     "risk": {"type": "string", "minLength": 1},

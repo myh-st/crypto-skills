@@ -21,6 +21,7 @@ BINANCE_PROVIDER_ID = "binance-public-spot"
 BINANCE_KLINES_URL = "https://api.binance.com/api/v3/klines"
 MAX_KLINE_LIMIT = 1000
 MAX_RESPONSE_BYTES = 8 * 1024 * 1024
+UTC_EPOCH = datetime(1970, 1, 1, tzinfo=timezone.utc)
 
 INTERVAL_SECONDS = {
     "1m": 60,
@@ -63,6 +64,19 @@ def _as_utc(value: datetime | str, location: str) -> datetime:
     if not isinstance(value, datetime) or value.tzinfo is None or value.utcoffset() is None:
         raise MarketDataError(f"{location} must be a timezone-aware timestamp")
     return value.astimezone(timezone.utc)
+
+
+def _epoch_milliseconds(value: datetime) -> int:
+    delta = value.astimezone(timezone.utc) - UTC_EPOCH
+    whole_seconds = delta.days * 24 * 60 * 60 + delta.seconds
+    return whole_seconds * 1000 + delta.microseconds // 1000
+
+
+def _datetime_from_epoch_milliseconds(value: int) -> datetime:
+    seconds, milliseconds = divmod(value, 1000)
+    return datetime.fromtimestamp(seconds, tz=timezone.utc) + timedelta(
+        milliseconds=milliseconds
+    )
 
 
 def _interval_floor(value: datetime, interval: str) -> datetime:
@@ -152,10 +166,11 @@ class BinanceSpotKlinesProvider:
         normalized_interval, interval_seconds = _interval(interval)
         start_time = _as_utc(start, "start")
         requested_end = _as_utc(end, "end")
+        retrieval_time = _as_utc(self._clock(), "clock")
         cutoff = _interval_floor(requested_end, normalized_interval)
         step_ms = interval_seconds * 1000
-        start_ms = int(start_time.timestamp() * 1000)
-        cutoff_ms = int(cutoff.timestamp() * 1000)
+        start_ms = _epoch_milliseconds(start_time)
+        cutoff_ms = _epoch_milliseconds(cutoff)
 
         if _interval_floor(start_time, normalized_interval) != start_time:
             raise MarketDataError("start must be aligned to the requested candle interval")
@@ -163,6 +178,8 @@ class BinanceSpotKlinesProvider:
             raise MarketDataError("requested range contains no fully closed candle")
         if requested_end < start_time:
             raise MarketDataError("end must be after start")
+        if requested_end > retrieval_time or cutoff > retrieval_time:
+            raise MarketDataError("requested end is after the provider retrieval time")
         if (
             isinstance(limit, bool)
             or not isinstance(limit, int)
@@ -184,6 +201,7 @@ class BinanceSpotKlinesProvider:
                     "interval": normalized_interval,
                     "startTime": cursor_ms,
                     "endTime": cutoff_ms - 1,
+                    "timeZone": 0,
                     "limit": limit,
                 }
             )
@@ -222,6 +240,7 @@ class BinanceSpotKlinesProvider:
                     interval_seconds,
                     cutoff,
                     f"klines[{index}]",
+                    retrieved_at=retrieval_time,
                 )
                 if open_ms < cursor_ms:
                     raise MarketDataError("Binance Spot klines are duplicated or out of order")
@@ -295,6 +314,8 @@ class BinanceSpotKlinesProvider:
         interval_seconds: int,
         cutoff: datetime,
         location: str,
+        *,
+        retrieved_at: datetime | None = None,
     ) -> tuple[dict[str, Any], int]:
         if not isinstance(raw, list) or len(raw) < 7:
             raise MarketDataError(f"{location} is malformed for {symbol} {interval}")
@@ -304,11 +325,21 @@ class BinanceSpotKlinesProvider:
         expected_source_close = open_ms + interval_ms - 1
         if abs(close_ms - expected_source_close) > 2:
             raise MarketDataError(f"{location} does not match the declared interval")
+        if close_ms > _epoch_milliseconds(cutoff):
+            raise MarketDataError(
+                f"{location} source close timestamp is after the requested data cutoff"
+            )
+        if retrieved_at is not None and close_ms > _epoch_milliseconds(retrieved_at):
+            raise MarketDataError(
+                f"{location} source close timestamp is after the provider retrieval time"
+            )
 
-        open_time = datetime.fromtimestamp(open_ms / 1000, tz=timezone.utc)
-        close_boundary = datetime.fromtimestamp((open_ms + interval_ms) / 1000, tz=timezone.utc)
+        open_time = _datetime_from_epoch_milliseconds(open_ms)
+        close_boundary = _datetime_from_epoch_milliseconds(open_ms + interval_ms)
         if close_boundary > cutoff:
             raise MarketDataError(f"{location} closes after the requested data cutoff")
+        if retrieved_at is not None and close_boundary > retrieved_at:
+            raise MarketDataError(f"{location} closes after the provider retrieval time")
         candle = {
             "open_time": iso_utc(open_time),
             "close_time": iso_utc(close_boundary),
@@ -363,8 +394,13 @@ def build_market_archive_record(
     expected_count = int((cutoff - start).total_seconds()) // interval_seconds
     if len(normalized) != expected_count:
         raise MarketDataError("archive candles are missing an interval")
-    if retrieval_time < cutoff:
-        raise MarketDataError("retrieved_at cannot precede the candle cutoff")
+    if end > retrieval_time or retrieval_time < cutoff:
+        raise MarketDataError("archive requested range extends after retrieved_at")
+    if any(
+        parse_timestamp(candle["close_time"], "archive.candle.close_time") > retrieval_time
+        for candle in normalized
+    ):
+        raise MarketDataError("archive contains a candle after retrieved_at")
 
     content_hash = digest(normalized)
     identity = {
@@ -417,8 +453,8 @@ def validate_market_archive(value: Any) -> dict[str, Any]:
     retrieved_at = _as_utc(value["retrieved_at"], "archive.retrieved_at")
     if cutoff != _interval_floor(requested_end, normalized_interval):
         raise MarketDataError("market archive cutoff does not match the requested range")
-    if retrieved_at < cutoff:
-        raise MarketDataError("market archive retrieved_at precedes its data cutoff")
+    if requested_end > retrieved_at or retrieved_at < cutoff:
+        raise MarketDataError("market archive requested range extends after retrieved_at")
     if _interval_floor(start, normalized_interval) != start:
         raise MarketDataError("market archive start is not interval-aligned")
     if (
@@ -436,6 +472,11 @@ def validate_market_archive(value: Any) -> dict[str, Any]:
     )
     if candles[0]["open_time"] != iso_utc(start) or candles[-1]["close_time"] != iso_utc(cutoff):
         raise MarketDataError("market archive candles do not match their requested range")
+    if any(
+        parse_timestamp(candle["close_time"], "archive.candle.close_time") > retrieved_at
+        for candle in candles
+    ):
+        raise MarketDataError("market archive contains a candle after retrieved_at")
     if len(candles) != value["candle_count"]:
         raise MarketDataError("market archive candle_count does not match its contents")
     if digest(candles) != value["content_sha256"]:

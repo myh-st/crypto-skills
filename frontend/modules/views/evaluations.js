@@ -1,5 +1,5 @@
 import { escapeHtml, formatTimestamp, titleCase } from "../format.js";
-import { evaluationService } from "../services.js";
+import { evaluationService, runService, runtimeService } from "../services.js";
 
 const RESULT_TONE = {
   pending: "neutral",
@@ -10,7 +10,7 @@ const RESULT_TONE = {
 
 export function render(root, ctx) {
   const { store } = ctx;
-  const { decisions, evaluationDemo } = evaluationService.snapshot(store);
+  const { decisions, evaluationDemo, forwardRuns } = evaluationService.snapshot(store);
 
   const countByResult = (result) => decisions.filter((decision) => decision.thesis_result === result).length;
   const metrics = [
@@ -41,6 +41,43 @@ export function render(root, ctx) {
           </div>
         `).join("")}
       </div>
+    </section>
+
+    <section class="panel" data-role="forward-evaluation-list">
+      <div class="section-heading">
+        <h2>Forward paper evaluation</h2>
+        <span class="demo-tag">Real Spot snapshots · no trade execution</span>
+      </div>
+      <div class="report-actions">
+        <button type="button" class="btn btn--ghost" data-refresh-forward ${runtimeService.mode !== "live" ? "disabled" : ""}>
+          Refresh forward status
+        </button>
+      </div>
+      <p class="panel-subtitle">
+        Frozen skill/control predictions remain pending until the configured horizon closes.
+        Outcome candles are fetched separately and never enter either prompt.
+      </p>
+      <ul class="list list--table">
+        ${forwardRuns.map((item) => `
+          <li class="list-row">
+            <div class="list-row-link">
+              <span class="pill pill--${item.status === "scored" ? "positive" : item.status === "ready_to_score" ? "caution" : "neutral"}">${titleCase(item.status)}</span>
+              <span class="list-row-title">${escapeHtml(item.symbol || `${item.asset} / USDT`)}</span>
+              <span class="list-row-meta">${titleCase(item.horizon)} · cutoff ${formatTimestamp(item.data_cutoff)}</span>
+              <span class="list-row-status">Horizon closes ${formatTimestamp(item.horizon_closes_at)}</span>
+            </div>
+            <div class="report-actions">
+              ${item.run ? `<a class="btn btn--ghost" href="#/runs/${encodeURIComponent(item.run_id)}">Open analysis</a>` : ""}
+              ${item.status === "scored"
+                ? '<button type="button" class="btn btn--ghost" disabled>Scored ✓</button>'
+                : `<button type="button" class="btn btn--primary" data-score-forward="${escapeHtml(item.run_id)}" ${item.status !== "ready_to_score" || runtimeService.mode !== "live" ? "disabled" : ""}>
+                    ${item.status === "ready_to_score" ? "Fetch & score outcome" : "Awaiting horizon"}
+                  </button>`}
+            </div>
+          </li>
+        `).join("") || '<li class="list-empty">No forward paper cases have been created.</li>'}
+      </ul>
+      <p class="form-error" data-role="forward-evaluation-error" role="alert" hidden></p>
     </section>
 
     <section class="panel">
@@ -82,4 +119,50 @@ export function render(root, ctx) {
       </ul>
     </section>
   `;
+
+  const refreshButton = root.querySelector("[data-refresh-forward]");
+  refreshButton?.addEventListener("click", async () => {
+    const error = root.querySelector('[data-role="forward-evaluation-error"]');
+    error.hidden = true;
+    refreshButton.disabled = true;
+    refreshButton.textContent = "Refreshing…";
+    try {
+  store.setForwardEvaluations(await evaluationService.listForward());
+    } catch (requestError) {
+  error.hidden = false;
+  error.textContent = requestError instanceof Error
+    ? requestError.message
+    : "Could not refresh forward-evaluation status.";
+  refreshButton.disabled = false;
+  refreshButton.textContent = "Retry status refresh";
+    }
+  });
+
+  root.querySelectorAll("[data-score-forward]").forEach((button) => {
+    button.addEventListener("click", async () => {
+      const runId = button.dataset.scoreForward;
+      const error = root.querySelector('[data-role="forward-evaluation-error"]');
+      error.hidden = true;
+      button.disabled = true;
+      button.textContent = "Fetching and scoring…";
+      try {
+        const response = await runtimeService.scoreForward(runId);
+        const run = runService.get(store, runId);
+        if (run) {
+          store.updateRun(runId, {
+            evaluationStatus: response.run.evaluationStatus,
+            horizonClosesAt: response.run.horizonClosesAt,
+          });
+        }
+        store.setForwardEvaluations(await evaluationService.listForward());
+      } catch (requestError) {
+        error.hidden = false;
+        error.textContent = requestError instanceof Error
+          ? requestError.message
+          : "Could not score the matured forward outcome.";
+        button.disabled = false;
+        button.textContent = "Retry scoring";
+      }
+    });
+  });
 }

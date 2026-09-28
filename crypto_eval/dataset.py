@@ -95,7 +95,9 @@ def build_dataset(bundle: Any, raw_spec: Any) -> dict[str, Any]:
 
     coverage = spec["coverage"]
     counts_by_asset = Counter(case["asset"] for case in cases)
-    counts_by_regime = Counter(case.get("market_regime") for case in cases)
+    counts_by_regime = Counter(
+        case["market_regime"] for case in cases if case.get("market_regime") is not None
+    )
     missing_assets = [
         asset.upper() for asset in spec["universe"] if counts_by_asset[asset.upper()] == 0
     ]

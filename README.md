@@ -90,8 +90,10 @@ crypto-skills/
 ├── README.th.md                        # ภาษาไทย
 ├── docs/
 │   ├── architecture.md                 # workflow and implementation boundaries
-│   ├── evaluation.md                   # harness CLI, metrics, data limits, and experiments
+│   ├── evaluation.md                   # harness, runtime, forward CLI, and data limits
 │   └── paper-futures-runtime.md        # PAPER research runtime and safe local setup
+├── frontend/                           # local-first research and PAPER futures UI
+│   └── README.md                       # local startup, modes, and limitations
 ├── schemas/
 │   ├── analysis-output.schema.json     # final decision contract
 │   ├── decision-state.schema.json      # canonical final decision states
@@ -110,7 +112,11 @@ crypto-skills/
 │   └── specs/crypto-market-v1.json     # versioned multi-asset walk-forward target
 ├── tests/
 │   ├── test_contracts.py               # contract and evaluation regression tests
-│   └── test_paper_futures.py            # mocked-provider PAPER vertical slice tests
+│   ├── test_market_data.py             # mocked Binance Spot provider contracts
+│   ├── test_openai_runner.py           # mocked Responses API runner contracts
+│   ├── test_forward_runtime.py         # mocked runtime/API/lifecycle integration
+│   ├── test_paper_futures.py           # mocked-provider PAPER vertical slice tests
+│   └── test_frontend_smoke.py          # frontend structural smoke checks
 ├── .github/workflows/
 │   └── validate.yml                     # PR/push contract gate
 └── skills/
@@ -307,14 +313,23 @@ random comparators. Missing data stays unavailable. The drawdown result is an
 equal-weight decision-sequence proxy—not portfolio PnL; sizing, cash, fills,
 fees, slippage, and funding are not modeled.
 
-The separate `crypto_eval` evaluation harness has pluggable model and read-only
-provider interfaces, but no live market adapter, credentials, paid API, or
-model invocation. Historical
-model predictions are meaningful only when they were frozen before the outcome
-window was known; otherwise use forward paper evaluation. A skill-vs-control
-claim requires archived, same-model, same-configuration predictions on the
-same chronological out-of-sample cases and sufficient samples. The harness can
-compare such paired runs, but it cannot manufacture them.
+The optional local runtime includes a read-only public Binance Spot klines
+provider and a server-side GPT-6 Luna Responses runner. It binds to loopback by
+default, reads `OPENAI_API_KEY` only from the server process environment, and
+keeps the static frontend in clearly labeled fixture mode when no runtime API
+is available. CI and unit tests use mocked transports only. See
+[`docs/evaluation.md`](docs/evaluation.md) for archive, startup, configuration,
+and forward-score commands.
+
+Historical model predictions are meaningful only when they were frozen before
+the outcome window was known; otherwise use forward paper evaluation. The
+earlier three-case paired pilot used synthetic snapshots and is not real market
+evidence. A skill-vs-control claim requires archived, same-model,
+same-configuration predictions on the same prospective cases and sufficient
+samples. The harness can compare such paired runs, but it cannot manufacture
+accuracy or performance evidence. The separate PAPER futures lab uses its own
+loopback server, provider references, deterministic risk controls, and simulated
+fills only; it does not submit real-money orders.
 
 ### PAPER futures lab
 
