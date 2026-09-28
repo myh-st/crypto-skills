@@ -97,7 +97,7 @@
             }
           }
         },
-        "escalation_required": {"type": "boolean"},
+        "escalation_required": {"type": ["boolean", "null"]},
         "luna_result": {
           "oneOf": [
             {"type": "null"},
@@ -108,12 +108,10 @@
               "properties": {
                 "status": {
                   "enum": [
-                    "COMPLETED",
-                    "FAILED",
-                    "BLOCKED",
-                    "SKIPPED",
-                    "NOT_RUN",
-                    "UNKNOWN"
+                    "not_evaluated",
+                    "not_invoked",
+                    "invoked",
+                    "failed"
                   ]
                 },
                 "decision": {
@@ -128,7 +126,7 @@
           "additionalProperties": false,
           "required": ["approved", "code", "reason"],
           "properties": {
-            "approved": {"type": "boolean"},
+            "approved": {"type": ["boolean", "null"]},
             "code": {"type": "string"},
             "reason": {"type": "string"}
           }

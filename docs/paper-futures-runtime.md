@@ -69,6 +69,14 @@ The market `snapshot_hash` identifies the fetched closed-bar snapshot;
 `decision_input_hash` separately fingerprints the deterministic features and
 portfolio context derived from that snapshot and any archived history.
 
+`market_data_retention_days` defaults to `null` (retain indefinitely) and
+accepts `30`, `90`, or `365`. When set, retention prunes only rows in the raw
+`market_history` candle archive older than the cutoff, during a stopped
+configuration save and bounded cycle/warm-up maintenance. It preserves
+market-history receipts and all cycle decisions, positions, orders, fills,
+risk events, wallets, and equity. The setting may be changed after cycles
+because it is an operational storage policy, not a strategy parameter.
+
 ## EXP-001 defaults
 
 The first run is `PAPER`, uses offline fixture candles and local fixture AI
@@ -82,9 +90,10 @@ All configured arms read one frozen snapshot per symbol/cycle; one Jev result
 is shared by Jev-dependent arms. GPT calls are keyed by their distinct,
 declared research treatment, not retried as duplicate cycle work.
 
-Material EXP-001 configuration and provider settings are frozen after the
-first cycle. This avoids silently changing a prospective experiment's risk,
-data, model, or pricing assumptions while retaining the same experiment ID.
+Material EXP-001 strategy and provider settings are frozen after the first
+cycle. The market-data retention policy remains separately adjustable as
+described above. This avoids silently changing a prospective experiment's
+risk, data, model, or pricing assumptions while retaining the same experiment ID.
 
 ## Market data and point-in-time boundary
 

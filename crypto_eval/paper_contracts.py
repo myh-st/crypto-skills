@@ -71,6 +71,7 @@ EXPERIMENT_FIELDS = {
     "maker_fee_rate",
     "slippage_bps",
     "maintenance_margin_rate",
+    "market_data_retention_days",
     "schedule_delay_seconds",
     "monitor_interval_seconds",
     "signal_gate_enabled",
@@ -178,6 +179,7 @@ def default_experiment_config() -> dict[str, Any]:
         "maker_fee_rate": 0.0002,
         "slippage_bps": 2.0,
         "maintenance_margin_rate": 0.005,
+        "market_data_retention_days": None,
         "schedule_delay_seconds": 60,
         "monitor_interval_seconds": 30,
         "signal_gate_enabled": True,
@@ -271,6 +273,15 @@ def validate_experiment_config(value: Any) -> dict[str, Any]:
         config[field] = _number(config[field], field, minimum=0)
         if config[field] > 0.02:
             raise PaperTradingError(f"{field} is outside the supported range")
+    retention_days = config["market_data_retention_days"]
+    if retention_days is not None and (
+        isinstance(retention_days, bool)
+        or not isinstance(retention_days, int)
+        or retention_days not in {30, 90, 365}
+    ):
+        raise PaperTradingError(
+            "market_data_retention_days must be null, 30, 90, or 365"
+        )
     config["slippage_bps"] = _number(config["slippage_bps"], "slippage_bps", minimum=0)
     if config["slippage_bps"] > 500:
         raise PaperTradingError("slippage_bps cannot exceed 500")

@@ -26,6 +26,7 @@
     "maker_fee_rate",
     "slippage_bps",
     "maintenance_margin_rate",
+    "market_data_retention_days",
     "schedule_delay_seconds",
     "monitor_interval_seconds",
     "signal_gate_enabled",
@@ -141,6 +142,9 @@
       "type": "number",
       "minimum": 0,
       "maximum": 0.02
+    },
+    "market_data_retention_days": {
+      "enum": [null, 30, 90, 365]
     },
     "schedule_delay_seconds": {
       "type": "integer",

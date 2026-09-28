@@ -1,14 +1,14 @@
 import test from "node:test";
 import assert from "node:assert/strict";
 
-import { renderDashboard } from "../modules/views/paperTrading.js";
+import { renderDashboard, renderRetentionSection } from "../modules/views/paperTrading.js";
 
 function routingFixture(overrides = {}) {
   return {
     quant_gate: { decision: "PASS & ALLOW", signal_strength: 0.72 },
     jev_decision: { decision: "LONG <careful>", confidence: 0.81, direction: "long" },
     escalation_required: true,
-    luna_result: { status: "completed", decision: "HOLD" },
+    luna_result: { status: "invoked", decision: "HOLD" },
     risk_decision: { approved: true, code: "RISK_OK", reason: "limit & within policy" },
     paper_execution: { status: "filled", order_count: 2, fill_count: 1 },
     ...overrides,
@@ -121,11 +121,12 @@ test("paper dashboard exposes cycle routing and regime/asset performance", () =>
   assert.match(html, /25\.0%/);
   assert.match(html, /Quant gate:<\/strong> PASS &amp; ALLOW · signal strength 0\.72/);
   assert.match(html, /Jev:<\/strong> LONG &lt;careful&gt; · confidence 81\.0% · direction long/);
-  assert.match(html, /Escalation:<\/strong> Yes · <strong>Luna:<\/strong> completed · HOLD/);
+  assert.match(html, /Escalation:<\/strong> Yes · <strong>Luna:<\/strong> Invoked · HOLD/);
   assert.match(html, /Risk:<\/strong> Approved · code RISK_OK · reason limit &amp; within policy/);
   assert.match(html, /Paper execution:<\/strong> filled · orders 2 · fills 1/);
   assert.match(html, /Performance by regime/);
   assert.match(html, /Performance by asset/);
+  assert.match(html, /<td>BTCUSDT<\/td>\s*<td>1<\/td>\s*<td>0\.50 USDT<\/td>\s*<td>0\.50 USDT<\/td>\s*<td>10\.00%<\/td>/);
   assert.match(html, /unstable &lt;market&gt;/);
   assert.match(html, /<span class="demo-tag">Fixture<\/span>/);
   assert.match(html, /<span class="demo-tag">Real<\/span>/);
@@ -140,7 +141,7 @@ test("missing routing and evaluation metrics render as unavailable, not zero", (
       jev_decision: { decision: null, confidence: null, direction: null },
       escalation_required: null,
       luna_result: null,
-      risk_decision: { approved: null, code: null, reason: null },
+      risk_decision: { approved: null, status: "NOT_EVALUATED", code: "NOT_EVALUATED", reason: null },
       paper_execution: { status: null, order_count: null, fill_count: null },
     },
     byRegime: [{
@@ -165,10 +166,10 @@ test("missing routing and evaluation metrics render as unavailable, not zero", (
   }));
 
   assert.match(html, /paper-metric-value">—<\/span>\s*<span class="paper-metric-label">Escalation rate/);
-  assert.match(html, /Luna:<\/strong> Not invoked/);
+  assert.match(html, /Escalation:<\/strong> Unknown · <strong>Luna:<\/strong> Unknown/);
   assert.match(html, /signal strength —/);
   assert.match(html, /confidence — · direction —/);
-  assert.match(html, /Risk:<\/strong> — · code — · reason —/);
+  assert.match(html, /Risk:<\/strong> Not evaluated · code NOT_EVALUATED · reason —/);
   assert.match(html, /Paper execution:<\/strong> — · orders — · fills —/);
   assert.match(html, /<td>sideways<\/td>\s*<td>—<\/td>\s*<td>—<\/td>\s*<td>—<\/td>\s*<td>—<\/td>\s*<td><span class="demo-tag">—<\/span><\/td>/);
   assert.match(html, /Net PnL is unavailable for the recorded experiment arms/);
@@ -176,8 +177,46 @@ test("missing routing and evaluation metrics render as unavailable, not zero", (
 
 test("cycle routing labels explicit non-escalation and an uninvoked Luna result", () => {
   const html = renderFixture(createDashboard({
-    routing: routingFixture({ escalation_required: false, luna_result: null }),
+    routing: routingFixture({
+      escalation_required: false,
+      luna_result: { status: "not_invoked", decision: null },
+    }),
   }));
 
   assert.match(html, /Escalation:<\/strong> No · <strong>Luna:<\/strong> Not invoked/);
+});
+
+test("cycle routing distinguishes every persisted Luna result status", () => {
+  const results = [
+    ["not_evaluated", "Not evaluated"],
+    ["not_invoked", "Not invoked"],
+    ["invoked", "Invoked · SHORT"],
+    ["failed", "Failed"],
+  ];
+
+  for (const [status, expected] of results) {
+    const html = renderFixture(createDashboard({
+      routing: routingFixture({
+        luna_result: { status, decision: status === "invoked" ? "SHORT" : null },
+      }),
+    }));
+    assert.ok(html.includes(`<strong>Luna:</strong> ${expected}`), `unexpected Luna label for ${status}`);
+  }
+});
+
+test("Export / Data Retention defaults to indefinite and explains the limited pruning scope", () => {
+  const html = renderRetentionSection();
+  const finiteRetentionHtml = renderRetentionSection(90);
+
+  assert.match(html, /Export \/ Data Retention/);
+  assert.match(html, /<select name="market_data_retention_days">/);
+  assert.match(html, /<option value="" selected>Keep indefinitely<\/option>/);
+  for (const days of [30, 90, 365]) {
+    assert.match(html, new RegExp(`<option value="${days}">${days} days<\\/option>`));
+  }
+  assert.match(finiteRetentionHtml, /<option value="90" selected>90 days<\/option>/);
+  assert.match(html, /permits archived raw market bars older than the selected period to be pruned/);
+  assert.match(html, /decision, trade, order, risk, and equity ledger records are preserved/);
+  assert.match(html, /data-action="export"/);
+  assert.doesNotMatch(html, /purge|delete all/i);
 });

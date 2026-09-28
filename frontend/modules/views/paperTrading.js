@@ -18,6 +18,7 @@ const ARMS = [
   ["hybrid", "Hybrid"],
 ];
 const SHADOW_LEVERAGE = [1, 2, 3, 5, 10];
+const MARKET_DATA_RETENTION_DAYS = [30, 90, 365];
 
 function money(value, digits = 2) {
   if (value === null || value === undefined || value === "") return "—";
@@ -59,7 +60,75 @@ function dataOriginLabel(value) {
 }
 
 function yesNo(value) {
-  return typeof value === "boolean" ? (value ? "Yes" : "No") : "—";
+  return typeof value === "boolean" ? (value ? "Yes" : "No") : "Unknown";
+}
+
+function normalizeRetentionDays(value) {
+  if (value === null || value === undefined || value === "") return "";
+  const days = Number(value);
+  return MARKET_DATA_RETENTION_DAYS.includes(days) ? String(days) : "";
+}
+
+function retentionDaysFromValue(value) {
+  const days = normalizeRetentionDays(value);
+  return days === "" ? null : Number(days);
+}
+
+function lunaResultLabel(result) {
+  if (!result || typeof result !== "object") return "Unknown";
+  switch (String(result.status || "").toLowerCase()) {
+    case "not_evaluated":
+      return "Not evaluated";
+    case "not_invoked":
+      return "Not invoked";
+    case "invoked":
+      return `Invoked · ${displayValue(result.decision)}`;
+    case "failed":
+      return `Failed · ${displayValue(result.decision)}`;
+    default:
+      return "Unknown";
+  }
+}
+
+function riskDecisionLabel(risk) {
+  if (
+    String(risk.status || "").toUpperCase() === "NOT_EVALUATED"
+    || risk.approved === null
+    || risk.approved === undefined
+  ) {
+    return "Not evaluated";
+  }
+  if (risk.approved === true) return "Approved";
+  if (risk.approved === false) return "Rejected";
+  return displayValue(risk.decision);
+}
+
+export function renderRetentionSection(retentionDays = null) {
+  const selectedDays = normalizeRetentionDays(retentionDays);
+  return `
+    <section class="paper-subpanel">
+      <div class="section-heading">
+        <h3>Export / Data Retention</h3>
+        <span class="demo-tag">Archived market bars only</span>
+      </div>
+      <div class="paper-form-grid">
+        <label>Archived raw market bar retention
+          <select name="market_data_retention_days">
+            <option value="" ${selectedDays === "" ? "selected" : ""}>Keep indefinitely</option>
+            ${MARKET_DATA_RETENTION_DAYS.map((days) => `
+              <option value="${days}"${selectedDays === String(days) ? " selected" : ""}>${days} days</option>
+            `).join("")}
+          </select>
+        </label>
+      </div>
+      <p class="field-help">Retention prunes archived raw market bars only; decision, trade, order, risk, and equity ledger records are preserved.</p>
+      <p class="field-help"><strong>Pruning warning:</strong> Any non-null period permits archived raw market bars older than the selected period to be pruned.</p>
+      <p class="field-help">Save the selection with EXP-001 using “Save experiment settings” below.</p>
+      <div class="paper-runtime-actions">
+        <button class="btn btn--ghost" type="button" data-action="export">Export bundle</button>
+      </div>
+    </section>
+  `;
 }
 
 function metric(label, value, note = "") {
@@ -326,16 +395,8 @@ function renderCycles(cycles) {
     const risk = routing?.risk_decision || cycle.risk || {};
     const paperExecution = routing?.paper_execution || {};
     const outcome = cycle.primary_decision?.decision || cycle.status;
-    const riskDecision = typeof risk.approved === "boolean"
-      ? (risk.approved ? "Approved" : "Not approved")
-      : displayValue(risk.decision);
-    const lunaLabel = !routing
-      ? "—"
-      : lunaResult === null
-        ? "Not invoked"
-        : lunaResult && typeof lunaResult === "object"
-          ? `${displayValue(lunaResult.status)} · ${displayValue(lunaResult.decision)}`
-          : "—";
+    const riskDecision = riskDecisionLabel(risk);
+    const lunaLabel = lunaResultLabel(lunaResult);
     const snapshot = displayValue(cycle.snapshot_hash);
     return `
       <tr>
@@ -533,6 +594,11 @@ function fillExperimentForm(form, config) {
   ]) {
     setValue(form, key, config[key]);
   }
+  setValue(
+    form,
+    "market_data_retention_days",
+    normalizeRetentionDays(config.market_data_retention_days),
+  );
   setValue(form, "risk_per_trade_percent", config.risk_per_trade * 100);
   setValue(form, "max_daily_loss_percent", config.max_daily_loss * 100);
   setValue(form, "max_drawdown_stop_percent", config.max_drawdown_stop * 100);
@@ -578,6 +644,7 @@ function experimentFromForm(form, original) {
       .map((symbol) => symbol.trim().toUpperCase())
       .filter(Boolean),
     market_data_mode: data.get("market_data_mode"),
+    market_data_retention_days: retentionDaysFromValue(data.get("market_data_retention_days")),
     starting_balance_usdt: Number(data.get("starting_balance_usdt")),
     risk_per_trade: Number(data.get("risk_per_trade_percent")) / 100,
     max_positions: Number(data.get("max_positions")),
@@ -732,7 +799,6 @@ export function render(root) {
           <button class="btn btn--ghost" type="button" data-action="stop">Stop</button>
           <button class="btn btn--ghost" type="button" data-action="run-cycle">Run closed-bar cycle now</button>
           <button class="btn btn--ghost" type="button" data-action="refresh">Refresh</button>
-          <button class="btn btn--ghost" type="button" data-action="export">Export bundle</button>
         </div>
         <p class="field-help">Stop the runtime before editing EXP-001 or provider settings. Pausing disables new cycles but keeps position monitoring active.</p>
       </section>
@@ -854,6 +920,7 @@ export function render(root) {
             <label class="checkbox-row"><input type="checkbox" name="force_escalation" />Force one GPT escalation path for research</label>
             <label class="checkbox-row"><input type="checkbox" name="auto_resume" checked />Resume a running experiment after local server restart</label>
             <p class="field-help">Decision cadence is fixed at 15m with 1h/4h context. Risk sizing, margin, liquidation, costs and fills remain deterministic.</p>
+            ${renderRetentionSection()}
             <div class="composer-actions">
               <button class="btn btn--primary" type="submit">Save experiment settings</button>
               <button class="btn btn--ghost" type="button" data-action="test-market">Test selected market source</button>

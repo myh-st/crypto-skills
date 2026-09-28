@@ -35,6 +35,7 @@ from crypto_eval.paper_contracts import (
     PaperTradingError,
     TradingIntent,
     default_experiment_config,
+    iso_utc,
     validate_experiment_config,
     validate_provider_config,
 )
@@ -48,9 +49,9 @@ from crypto_eval.paper_market import (
 from crypto_eval.paper_server import PaperHTTPServer, PaperRequestHandler
 from crypto_eval.paper_runtime import (
     PaperRuntime,
+    PaperRuntimeReports,
     PaperScheduler,
     PaperStore,
-    PaperScheduler,
     RiskEngine,
     RiskDecision,
     build_fast_intent,
@@ -231,6 +232,18 @@ class PaperFuturesContractsAndProviderTests(unittest.TestCase):
         defaults["max_leverage"] = 11
         with self.assertRaises(PaperTradingError):
             validate_experiment_config(defaults)
+        defaults = default_experiment_config()
+        for retention in (None, 30, 90, 365):
+            self.assertEqual(
+                validate_experiment_config(
+                    {**defaults, "market_data_retention_days": retention}
+                )["market_data_retention_days"],
+                retention,
+            )
+        with self.assertRaisesRegex(PaperTradingError, "market_data_retention_days"):
+            validate_experiment_config(
+                {**defaults, "market_data_retention_days": 60}
+            )
 
     def test_intent_rejects_quantity_leverage_and_unsafe_reduce_shapes(self):
         now = datetime.now(timezone.utc).isoformat()
@@ -1003,6 +1016,67 @@ class PaperFuturesRuntimeIntegrationTests(unittest.TestCase):
     def tearDown(self):
         self.store.close()
 
+    def test_bucket_drawdown_uses_chronological_closed_trade_path(self):
+        trades = [
+            {
+                "position_id": "loss-2",
+                "cycle_id": "cycle-2",
+                "symbol": "BTCUSDT",
+                "market_regime": "bear",
+                "closed_at": "2026-01-03T00:00:00Z",
+                "realized_pnl": -15.0,
+            },
+            {
+                "position_id": "win-3",
+                "cycle_id": "cycle-3",
+                "symbol": "BTCUSDT",
+                "market_regime": "bull",
+                "closed_at": "2026-01-04T00:00:00Z",
+                "realized_pnl": 5.0,
+            },
+            {
+                "position_id": "win-1",
+                "cycle_id": "cycle-1",
+                "symbol": "BTCUSDT",
+                "market_regime": "bull",
+                "closed_at": "2026-01-02T00:00:00Z",
+                "realized_pnl": 10.0,
+            },
+        ]
+        origins = {
+            "cycle-1": "BINANCE_USDM_PUBLIC",
+            "cycle-2": "BINANCE_USDM_PUBLIC",
+            "cycle-3": "FIXTURE",
+        }
+        by_asset = PaperRuntimeReports._bucket_trade_metrics(
+            trades,
+            key_field="symbol",
+            key_name="symbol",
+            cycle_origins=origins,
+            initial_equity=100.0,
+        )
+        by_regime = PaperRuntimeReports._bucket_trade_metrics(
+            trades,
+            key_field="market_regime",
+            key_name="regime",
+            cycle_origins=origins,
+            initial_equity=100.0,
+        )
+        self.assertEqual(by_asset[0]["closed_trade_count"], 3)
+        self.assertAlmostEqual(by_asset[0]["net_pnl_usdt"], 0.0)
+        self.assertAlmostEqual(by_asset[0]["expectancy_usdt"], 0.0)
+        self.assertAlmostEqual(by_asset[0]["max_drawdown"], 15 / 110)
+        self.assertEqual(by_asset[0]["data_origin"], "MIXED")
+        self.assertEqual(sum(row["net_pnl_usdt"] for row in by_regime), 0.0)
+        self.assertEqual(
+            {row["regime"]: row["closed_trade_count"] for row in by_regime},
+            {"bear": 1, "bull": 2},
+        )
+        self.assertAlmostEqual(
+            next(row for row in by_regime if row["regime"] == "bear")["max_drawdown"],
+            0.15,
+        )
+
     def test_market_to_escalation_fill_funding_exit_metrics_and_export(self):
         config = self.store.experiment()["config"]
         config["evaluation_arms"] = ["quant", "jev", "luna", "luna_skill", "quant_jev", "hybrid"]
@@ -1160,7 +1234,10 @@ class PaperFuturesRuntimeIntegrationTests(unittest.TestCase):
             metrics["portfolio"]["realized_pnl_usdt"],
             places=7,
         )
-        self.assertEqual(metrics["by_asset"][0]["max_drawdown"], None)
+        self.assertAlmostEqual(
+            metrics["by_asset"][0]["max_drawdown"],
+            max(0.0, -metrics["portfolio"]["realized_pnl_usdt"] / 100),
+        )
         self.assertEqual(metrics["by_regime"][0]["regime"], "bull")
         self.assertEqual(metrics["by_regime"][0]["closed_trade_count"], 1)
         self.assertEqual(metrics["by_regime"][0]["data_origin"], "FIXTURE")
@@ -1180,7 +1257,11 @@ class PaperFuturesRuntimeIntegrationTests(unittest.TestCase):
             metrics["portfolio"]["realized_pnl_usdt"],
             places=7,
         )
-        self.assertEqual(metrics["by_regime"][0]["max_drawdown"], None)
+        self.assertAlmostEqual(
+            metrics["by_regime"][0]["max_drawdown"],
+            max(0.0, -metrics["portfolio"]["realized_pnl_usdt"] / 100),
+        )
+        self.assertIn("starting balance", metrics["bucket_drawdown_convention"])
         self.assertAlmostEqual(
             metrics["portfolio"]["net_pnl_usdt"],
             metrics["portfolio"]["cash_balance_usdt"] - 100,
@@ -1221,7 +1302,7 @@ class PaperFuturesRuntimeIntegrationTests(unittest.TestCase):
         self.assertIsNotNone(routing["jev_decision"]["confidence"])
         self.assertEqual(routing["jev_decision"]["direction"], "long")
         self.assertTrue(routing["escalation_required"])
-        self.assertEqual(routing["luna_result"]["status"], "COMPLETED")
+        self.assertEqual(routing["luna_result"]["status"], "invoked")
         self.assertEqual(routing["luna_result"]["decision"], "ENTER_LONG")
         self.assertTrue(routing["risk_decision"]["approved"])
         self.assertEqual(routing["risk_decision"]["code"], "APPROVED")
@@ -1489,6 +1570,147 @@ class PaperFuturesRuntimeIntegrationTests(unittest.TestCase):
         self.assertEqual(market_history["warmup_lanes"], 4)
         self.assertEqual(market_history["warmup_requested_bars"], expected_bars)
         self.assertEqual(market_history["market_history_stored_bars"], expected_bars)
+
+    def test_history_retention_default_keeps_data_and_configured_pruning_preserves_ledger(self):
+        config = default_experiment_config()
+        config["symbols"] = ["BTCUSDT"]
+        config["evaluation_arms"] = ["quant"]
+        config["primary_arm"] = "quant"
+        self.store.save_experiment(config)
+        provider = FixtureFuturesMarketDataProvider()
+        old_as_of = self.now - timedelta(days=90)
+        old_cutoff = floor_time(old_as_of, "1m")
+        old_bars = provider.fetch_history(
+            "BTCUSDT", "1m", bars=3, as_of=old_as_of
+        )
+        old_start = parse_timestamp(old_bars[0]["open_time"], "old.start")
+        self.store.save_market_history_lane(
+            experiment_id="EXP-001",
+            provider_id=provider.provider_id,
+            symbol="BTCUSDT",
+            interval="1m",
+            candles=old_bars,
+            requested_bars=3,
+            start_time=iso_utc(old_start),
+            data_cutoff=iso_utc(old_cutoff),
+            data_origin="FIXTURE",
+        )
+        self.assertEqual(
+            len(
+                self.store.load_market_history(
+                    provider_id=provider.provider_id,
+                    symbol="BTCUSDT",
+                    interval="1m",
+                    through=iso_utc(self.now),
+                )
+            ),
+            3,
+        )
+        self.assertIsNone(self.store.experiment()["config"]["market_data_retention_days"])
+
+        runtime = PaperRuntime(
+            self.store,
+            market_provider=provider,
+            clock=self.clock,
+        )
+        runtime.start()
+        runtime.run_cycle("BTCUSDT", as_of=self.now, manual=True)
+        runtime.stop()
+        before = self.store.export_records("EXP-001")
+        history_before = self.store.market_history_status("EXP-001")
+        ledger_before = {
+            table: len(before[table])
+            for table in (
+                "cycles",
+                "positions",
+                "orders",
+                "fills",
+                "risk_events",
+                "equity",
+                "wallets",
+            )
+        }
+        pnl_before = sum(
+            float(position["realized_pnl"] or 0)
+            for position in before["positions"]
+            if position["closed_pnl_recorded"]
+        )
+        ledger_fingerprint = lambda records: {
+            "cycles": [
+                (row["cycle_id"], row["status"], row["snapshot_hash"])
+                for row in records["cycles"]
+            ],
+            "positions": [
+                (
+                    row["position_id"],
+                    row["status"],
+                    row["quantity"],
+                    row["realized_pnl"],
+                    row["closed_pnl_recorded"],
+                )
+                for row in records["positions"]
+            ],
+            "orders": [
+                (row["order_id"], row["status"], row["quantity"], row["filled_quantity"])
+                for row in records["orders"]
+            ],
+            "fills": [
+                (row["fill_id"], row["quantity"], row["price"], row["fee"])
+                for row in records["fills"]
+            ],
+            "risk": [
+                (row["event_id"], row["status"], row["code"])
+                for row in records["risk_events"]
+            ],
+            "equity": [
+                (row["cohort"], row["as_of"], row["cash_balance"], row["equity"])
+                for row in records["equity"]
+            ],
+            "wallets": [
+                (row["cohort"], row["starting_balance"], row["cash_balance"])
+                for row in records["wallets"]
+            ],
+        }
+        ledger_before_fingerprint = ledger_fingerprint(before)
+        changed = self.store.experiment()["config"]
+        changed["market_data_retention_days"] = 30
+        self.store.save_experiment(changed)
+        after = self.store.export_records("EXP-001")
+        history_after = self.store.market_history_status("EXP-001")
+        ledger_after = {
+            table: len(after[table])
+            for table in ledger_before
+        }
+        pnl_after = sum(
+            float(position["realized_pnl"] or 0)
+            for position in after["positions"]
+            if position["closed_pnl_recorded"]
+        )
+        remaining_one_minute = self.store.load_market_history(
+            provider_id=provider.provider_id,
+            symbol="BTCUSDT",
+            interval="1m",
+            through=iso_utc(self.now),
+        )
+        self.assertEqual(ledger_after, ledger_before)
+        self.assertEqual(pnl_after, pnl_before)
+        self.assertEqual(ledger_fingerprint(after), ledger_before_fingerprint)
+        self.assertEqual(
+            len(before["market_history_runs"]),
+            len(after["market_history_runs"]),
+        )
+        self.assertGreater(
+            sum(row["stored_bars"] for row in history_before["lanes"]),
+            sum(row["stored_bars"] for row in history_after["lanes"]),
+        )
+        self.assertTrue(
+            any(
+                row["interval"] == "15m" and row["stored_bars"] > 0
+                for row in history_after["lanes"]
+            )
+        )
+        self.assertNotIn(old_bars[0]["open_time"], {bar["open_time"] for bar in remaining_one_minute})
+        self.assertEqual(len(after["market_history_runs"]), len(before["market_history_runs"]))
 
     def test_archived_warmup_history_is_consumed_by_quant_features_and_hashed(self):
         config = default_experiment_config()
@@ -1937,10 +2159,12 @@ class PaperFuturesRuntimeIntegrationTests(unittest.TestCase):
         self.assertEqual(skipped_metrics["escalation_rate_denominator"], 0)
         self.assertIsNone(skipped_metrics["escalation_rate"])
         skipped_routing = skipped.dashboard()["cycles"][0]["routing"]
-        self.assertEqual(skipped_routing["jev_decision"]["decision"], "FAILED")
+        self.assertEqual(skipped_routing["jev_decision"]["decision"], "UNKNOWN")
         self.assertIsNone(skipped_routing["jev_decision"]["confidence"])
         self.assertIsNone(skipped_routing["jev_decision"]["direction"])
-        self.assertEqual(skipped_routing["luna_result"]["status"], "SKIPPED")
+        self.assertIsNone(skipped_routing["escalation_required"])
+        self.assertEqual(skipped_routing["luna_result"]["status"], "not_evaluated")
+        self.assertIsNone(skipped_routing["risk_decision"]["approved"])
         self.assertEqual(skipped_routing["paper_execution"]["status"], "NOT_SUBMITTED")
         skipped_store.close()
 
@@ -2233,6 +2457,17 @@ class PaperFuturesRuntimeIntegrationTests(unittest.TestCase):
         recovered = self.store.cycle(cycle_id)
         self.assertEqual(recovered["status"], "interrupted")
         self.assertEqual(recovered["retry_policy"], "no_ai_retry_for_consumed_cycle")
+        routing = next(
+            row
+            for row in runtime.dashboard()["cycles"]
+            if row["cycle_id"] == cycle_id
+        )["routing"]
+        self.assertEqual(routing["jev_decision"]["decision"], "UNKNOWN")
+        self.assertIsNone(routing["escalation_required"])
+        self.assertEqual(routing["luna_result"]["status"], "not_evaluated")
+        self.assertIsNone(routing["risk_decision"]["approved"])
+        self.assertEqual(routing["risk_decision"]["code"], "NOT_EVALUATED")
+        self.assertEqual(routing["paper_execution"]["status"], "NOT_EVALUATED")
         self.assertEqual(self.store.pending_orders("EXP-001"), [])
         scheduler.shutdown()
         self.store.set_status("stopped")
