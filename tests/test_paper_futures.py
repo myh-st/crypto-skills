@@ -513,6 +513,143 @@ class PaperFuturesContractsAndProviderTests(unittest.TestCase):
         self.assertEqual(captured[0][1]["api-key"], UNIT_TOKEN)
         self.assertNotIn(UNIT_TOKEN, json.dumps(captured[0][2]))
         self.assertEqual(captured[1][2]["text"]["format"]["type"], "json_schema")
+        self.assertEqual(captured[0][2]["reasoning"]["effort"], "high")
+        self.assertEqual(connection["reasoning_effort_validated"], "high")
+
+    def test_openai_and_generic_responses_send_resolved_bearer_only_in_header(self):
+        no_trade = {
+            "action": "no_trade",
+            "symbol": "BTCUSDT",
+            "side": None,
+            "entry_price": None,
+            "stop_price": None,
+            "target_price": None,
+            "reason": "Mocked connection validation.",
+        }
+        captured = []
+
+        def transport(url, headers, body, timeout):
+            captured.append((url, headers, json.loads(body)))
+            return json.dumps(
+                {
+                    "status": "completed",
+                    "output_text": json.dumps(no_trade),
+                    "usage": {"input_tokens": 1, "output_tokens": 1},
+                }
+            ).encode()
+
+        configurations = [
+            ("openai_responses", "https://api.openai.com/v1"),
+            ("compatible_responses", "https://compatible.example.test/v1"),
+        ]
+        for index, (kind, base_url) in enumerate(configurations):
+            provider = validate_provider_config(
+                {
+                    "provider_id": f"responses-auth-{index}",
+                    "kind": kind,
+                    "display_name": "Mock response adapter",
+                    "base_url": base_url,
+                    "model": "mock-model",
+                    "enabled": True,
+                    "credential_env": "UNIT_TEST_RESPONSES_KEY",
+                }
+            )
+            result = ResponsesAdapter(
+                provider,
+                environ={"UNIT_TEST_RESPONSES_KEY": UNIT_TOKEN},
+                transport=transport,
+            ).test_connection()
+            request_url, headers, body = captured[-1]
+            self.assertEqual(headers["Authorization"], f"Bearer {UNIT_TOKEN}")
+            self.assertNotIn(UNIT_TOKEN, json.dumps(body))
+            self.assertNotIn(UNIT_TOKEN, json.dumps(result))
+            self.assertEqual(result["reasoning_effort_validated"], "high")
+            self.assertTrue(request_url.endswith("/responses"))
+
+    def test_responses_connection_validates_every_configured_reasoning_effort(self):
+        observed = []
+        no_trade = {
+            "action": "no_trade",
+            "symbol": "BTCUSDT",
+            "side": None,
+            "entry_price": None,
+            "stop_price": None,
+            "target_price": None,
+            "reason": "Mocked reasoning capability check.",
+        }
+
+        def transport(url, headers, body, timeout):
+            payload = json.loads(body)
+            observed.append(payload.get("reasoning"))
+            return json.dumps(
+                {"status": "completed", "output_text": json.dumps(no_trade)}
+            ).encode()
+
+        for effort in ("low", "medium", "high", "max"):
+            provider = validate_provider_config(
+                {
+                    "provider_id": f"reasoning-{effort}",
+                    "kind": "openai_responses",
+                    "display_name": "Mock reasoning provider",
+                    "base_url": "https://api.openai.com/v1",
+                    "model": "reasoning-mock",
+                    "reasoning_effort": effort,
+                    "enabled": True,
+                    "credential_env": "UNIT_TEST_REASONING_KEY",
+                }
+            )
+            result = ResponsesAdapter(
+                provider,
+                environ={"UNIT_TEST_REASONING_KEY": UNIT_TOKEN},
+                transport=transport,
+            ).test_connection()
+            self.assertEqual(result["reasoning_effort_validated"], effort)
+        self.assertEqual(
+            observed,
+            [{"effort": effort} for effort in ("low", "medium", "high", "max")],
+        )
+
+    def test_responses_connection_fails_safely_when_effort_is_unsupported_or_rejected(self):
+        base_provider = {
+            "provider_id": "reasoning-rejected",
+            "kind": "openai_responses",
+            "display_name": "Mock reasoning provider",
+            "base_url": "https://api.openai.com/v1",
+            "model": "reasoning-mock",
+            "reasoning_effort": "max",
+            "enabled": True,
+            "credential_env": "UNIT_TEST_REASONING_KEY",
+        }
+        provider = validate_provider_config(base_provider)
+        calls = []
+
+        def rejected(url, headers, body, timeout):
+            calls.append(json.loads(body))
+            raise urllib.error.HTTPError(
+                url,
+                400,
+                "mock rejection",
+                {},
+                io.BytesIO(UNIT_TOKEN.encode()),
+            )
+
+        with self.assertRaisesRegex(AIProviderError, "rejected the configured reasoning effort"):
+            ResponsesAdapter(
+                provider,
+                environ={"UNIT_TEST_REASONING_KEY": UNIT_TOKEN},
+                transport=rejected,
+            ).test_connection()
+        self.assertEqual(calls[0]["reasoning"], {"effort": "max"})
+
+        invalid = {**provider, "reasoning_effort": "unsupported"}
+        no_request = []
+        with self.assertRaisesRegex(AIProviderError, "reasoning effort is unsupported"):
+            ResponsesAdapter(
+                invalid,
+                environ={"UNIT_TEST_REASONING_KEY": UNIT_TOKEN},
+                transport=lambda *args: no_request.append(args) or b"{}",
+            ).test_connection()
+        self.assertEqual(no_request, [])
 
     def test_responses_auth_timeout_and_invalid_structured_body_are_sanitized(self):
         provider = validate_provider_config(
@@ -1372,9 +1509,7 @@ class PaperFuturesRuntimeIntegrationTests(unittest.TestCase):
                 response_body = response.read().decode("utf-8")
 
         self.assertEqual(len(requests), 1)
-        self.assertEqual(
-            requests[0]["authorization"], f"Bearer {ENV_SENTINEL}"
-        )
+        self.assertEqual(requests[0]["authorization"], f"Bearer {ENV_SENTINEL}")
         self.assertIn("/v1/systemone", requests[0]["url"])
         self.assertNotIn(ENV_SENTINEL, response_body)
         self.assertNotIn("credential_env", response_body)

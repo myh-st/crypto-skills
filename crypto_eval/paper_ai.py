@@ -83,7 +83,7 @@ def _credentials(provider: dict[str, Any], environ: dict[str, str] | None = None
 def _typesafe_authorization(provider: dict[str, Any], token: str) -> str:
     if provider.get("auth_scheme", "bearer") == "raw":
         return token
-    return f"Bearer {token}"
+    return "Bearer " + token
 
 
 def _safe_post(
@@ -959,8 +959,11 @@ class ResponsesAdapter:
             },
         }
         reasoning_effort = self.provider.get("reasoning_effort")
-        if reasoning_effort in {"low", "medium", "high", "max"}:
-            prompt["reasoning"] = {"effort": reasoning_effort}
+        if reasoning_effort not in {"low", "medium", "high", "max"}:
+            raise AIProviderError(
+                "configured reasoning effort is unsupported; no external model call was made"
+            )
+        prompt["reasoning"] = {"effort": reasoning_effort}
         api_key = _credentials(self.provider, self.environ)
         headers = {
             "Accept": "application/json",
@@ -1012,6 +1015,11 @@ class ResponsesAdapter:
 
     def test_connection(self) -> dict[str, Any]:
         api_key = _credentials(self.provider, self.environ)
+        reasoning_effort = self.provider.get("reasoning_effort")
+        if reasoning_effort not in {"low", "medium", "high", "max"}:
+            raise AIProviderError(
+                "configured reasoning effort is unsupported; no external provider call was made"
+            )
         headers = {"Accept": "application/json", "Content-Type": "application/json"}
         if self.provider["kind"] == "foundry_responses":
             headers["api-key"] = api_key
@@ -1038,21 +1046,31 @@ class ResponsesAdapter:
                     "schema": INTENT_RESPONSE_SCHEMA,
                 }
             },
+            "reasoning": {"effort": reasoning_effort},
         }
         started = time.perf_counter()
-        response = _safe_post(
-            self._transport,
-            _responses_url(self.provider),
-            headers,
-            payload,
-            float(self.provider.get("timeout_seconds", 30)),
-            "Responses-compatible provider",
-        )
+        try:
+            response = _safe_post(
+                self._transport,
+                _responses_url(self.provider),
+                headers,
+                payload,
+                float(self.provider.get("timeout_seconds", 30)),
+                "Responses-compatible provider",
+            )
+        except AIProviderError as exc:
+            if "HTTP 400" in str(exc) or "HTTP 422" in str(exc):
+                raise AIProviderError(
+                    "Responses-compatible provider rejected the configured reasoning "
+                    f"effort or structured test request ({exc})"
+                ) from None
+            raise
         try:
             structured = json.loads(_response_text(response))
-        except (json.JSONDecodeError, TypeError):
+        except (AIProviderError, json.JSONDecodeError, TypeError):
             raise AIProviderError(
-                "Responses-compatible provider returned malformed validation output"
+                "Responses-compatible provider rejected the configured reasoning "
+                "effort or structured validation output"
             ) from None
         if (
             not isinstance(structured, dict)
@@ -1061,13 +1079,17 @@ class ResponsesAdapter:
             or structured.get("action") != "no_trade"
             or not isinstance(structured.get("reason"), str)
         ):
-            raise AIProviderError("Responses-compatible provider failed structured intent validation")
+            raise AIProviderError(
+                "Responses-compatible provider rejected the configured reasoning "
+                "effort or structured intent validation"
+            )
         return {
             "ok": True,
             "provider_id": self.provider["provider_id"],
             "model": self.provider["model"],
             "latency_ms": (time.perf_counter() - started) * 1000,
             "responses_compatible": True,
+            "reasoning_effort_validated": reasoning_effort,
             "usage": response.get("usage"),
         }
 
