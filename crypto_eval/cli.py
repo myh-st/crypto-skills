@@ -178,6 +178,33 @@ def _parser() -> argparse.ArgumentParser:
         type=Path,
         help="SQLite state path (default: the user's local application-data directory)",
     )
+    paper.add_argument(
+        "--no-live-stream",
+        action="store_true",
+        help="do not connect the backend-owned Gate public futures WebSocket",
+    )
+
+    real = commands.add_parser(
+        "real-integration-check",
+        help="REAL local acceptance: Gate REST/WS, TypeSafe Jev, Azure GPT-6 Luna; never fixtures",
+    )
+    real.add_argument("--symbol", default="BTCUSDT")
+    real.add_argument("--database", type=Path, help="isolated SQLite path for the check")
+    real.add_argument(
+        "--no-fallback-prices",
+        action="store_true",
+        help="use only the configured price book (paid calls fail closed if prices are unknown)",
+    )
+    real.add_argument("--ws-timeout", type=float, default=45.0)
+    real.add_argument("--out", type=Path, help="summary JSON path (default: reports/<check-id>.json)")
+
+    setup = commands.add_parser(
+        "paper-setup-real",
+        help="store .env credentials in the OS credential store and configure real Jev/Foundry providers",
+    )
+    setup.add_argument("--database", type=Path)
+    setup.add_argument("--prices-file", type=Path, help="JSON price-book entries (contract pricing)")
+    setup.add_argument("--overwrite-secrets", action="store_true")
     return parser
 
 
@@ -421,7 +448,32 @@ def _dispatch(args: argparse.Namespace) -> int:
     if args.command == "paper-server":
         from .paper_server import serve
 
-        return serve(host=args.host, port=args.port, database=args.database)
+        return serve(
+            host=args.host,
+            port=args.port,
+            database=args.database,
+            live_stream=not args.no_live_stream,
+        )
+    if args.command == "real-integration-check":
+        from .paper_server import default_database_path
+        from .real_integration import run_real_integration_check
+
+        return run_real_integration_check(
+            symbol=args.symbol.strip().upper(),
+            database=args.database,
+            app_database=default_database_path(),
+            use_fallback_prices=not args.no_fallback_prices,
+            ws_timeout=args.ws_timeout,
+            out=args.out,
+        )
+    if args.command == "paper-setup-real":
+        from .real_integration import setup_real
+
+        return setup_real(
+            prices_file=args.prices_file,
+            database=args.database,
+            overwrite_secrets=args.overwrite_secrets,
+        )
     raise EvaluationError(f"unknown command: {args.command}")
 
 

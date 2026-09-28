@@ -47,8 +47,16 @@ PROVIDER_FIELDS = {
     "reasoning_effort",
     "enabled",
     "credential_env",
+    "credential_secret",
     "pricing",
 }
+MARKET_DATA_MODES = ("fixture", "binance_usdm", "gate_usdt")
+MARKET_DATA_ORIGINS = {
+    "fixture": "FIXTURE",
+    "binance_usdm": "BINANCE_USDM_PUBLIC",
+    "gate_usdt": "GATE_USDT_PUBLIC",
+}
+FEE_SCHEDULE_VERSIONS = ("paper-fees.v1", "gate-usdt-default.v1")
 EXPERIMENT_FIELDS = {
     "experiment_id",
     "execution_mode",
@@ -86,7 +94,12 @@ EXPERIMENT_FIELDS = {
     "escalation_policy",
     "force_escalation",
     "auto_resume",
+    "ai_budget",
+    "cost_fx",
+    "fee_schedule_version",
+    "stale_feed_blocks_entries",
 }
+OPERATIONAL_EXPERIMENT_FIELDS = ("market_data_retention_days", "ai_budget", "cost_fx")
 INTENT_FIELDS = {
     "schema_version",
     "action",
@@ -204,6 +217,10 @@ def default_experiment_config() -> dict[str, Any]:
         },
         "force_escalation": False,
         "auto_resume": True,
+        "ai_budget": None,
+        "cost_fx": None,
+        "fee_schedule_version": "paper-fees.v1",
+        "stale_feed_blocks_entries": True,
     }
 
 
@@ -216,8 +233,16 @@ def validate_experiment_config(value: Any) -> dict[str, Any]:
 
     if config["execution_mode"] != EXECUTION_MODE:
         raise PaperTradingError("execution mode is permanently PAPER")
-    if config["market_data_mode"] not in {"fixture", "binance_usdm"}:
-        raise PaperTradingError("market_data_mode must be fixture or binance_usdm")
+    if config["market_data_mode"] not in MARKET_DATA_MODES:
+        raise PaperTradingError("market_data_mode must be fixture, binance_usdm, or gate_usdt")
+    from .ai_cost import validate_budget_config, validate_fx_policy
+
+    config["ai_budget"] = validate_budget_config(config["ai_budget"])
+    config["cost_fx"] = validate_fx_policy(config["cost_fx"])
+    if config["fee_schedule_version"] not in FEE_SCHEDULE_VERSIONS:
+        raise PaperTradingError("fee_schedule_version is unsupported")
+    if not isinstance(config["stale_feed_blocks_entries"], bool):
+        raise PaperTradingError("stale_feed_blocks_entries must be boolean")
     symbols = config["symbols"]
     if (
         not isinstance(symbols, list)
@@ -394,6 +419,7 @@ def validate_provider_config(value: Any) -> dict[str, Any]:
         "reasoning_effort": value.get("reasoning_effort", "high"),
         "auth_scheme": value.get("auth_scheme", "bearer"),
         "credential_env": value.get("credential_env") or None,
+        "credential_secret": value.get("credential_secret") or None,
         "pricing": value.get("pricing"),
     }
     if not 1 <= _number(result["timeout_seconds"], "timeout_seconds", minimum=1) <= 120:
@@ -408,7 +434,14 @@ def validate_provider_config(value: Any) -> dict[str, Any]:
         not isinstance(env_ref, str) or not re.fullmatch(r"[A-Z_][A-Z0-9_]{0,127}", env_ref)
     ):
         raise PaperTradingError("credential_env must be an environment-variable name")
+    secret_ref = result["credential_secret"]
+    if secret_ref is not None and (
+        not isinstance(secret_ref, str) or not re.fullmatch(r"[a-z0-9][a-z0-9._-]{0,79}", secret_ref)
+    ):
+        raise PaperTradingError("credential_secret must be an OS credential-store item id")
     fixture = kind.startswith("fixture_")
+    if fixture and secret_ref:
+        raise PaperTradingError("fixture providers do not accept external endpoints or credentials")
     if fixture and (result["base_url"] or env_ref):
         raise PaperTradingError("fixture providers do not accept external endpoints or credentials")
     if not fixture and not result["base_url"]:
@@ -460,10 +493,19 @@ def public_provider_config(
     *,
     credential_present: bool | None = None,
     validation: dict[str, Any] | None = None,
+    credential: dict[str, Any] | None = None,
 ) -> dict[str, Any]:
     kind = value["kind"]
     if kind.startswith("fixture_"):
         credential_status = "not_required"
+    elif credential is not None:
+        credential_status = (
+            "stored_in_os_credential_store"
+            if credential.get("stored") and credential.get("source") not in {"environment", "missing"}
+            else "environment_reference_resolved"
+            if credential.get("stored")
+            else "missing"
+        )
     elif credential_present is True:
         credential_status = "credential_reference_configured"
     else:
@@ -485,6 +527,10 @@ def public_provider_config(
         ),
         "last_validated_at": (validation or {}).get("validated_at"),
         "last_validation_latency_ms": (validation or {}).get("latency_ms"),
+        "last_validation_error": (validation or {}).get("error_code"),
+        "last_validation": (validation or {}).get("details"),
+        "credential_secret_configured": bool(value.get("credential_secret")),
+        "credential_backend": (credential or {}).get("secret_backend"),
     }
 
 

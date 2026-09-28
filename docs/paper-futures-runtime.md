@@ -1,9 +1,64 @@
 # Local PAPER Futures Research Runtime
 
-This runtime is a research sandbox, not an exchange connector or investment
-recommendation. It has no order-submission endpoint, exchange account
-credentials, testnet adapter, or live-money execution mode. Its only exchange
-traffic is optional, unauthenticated Binance USD-M market-data GET requests.
+This runtime is a research sandbox, not an investment recommendation. Every trade
+is a PAPER simulation. Exchange traffic is limited to public Gate USDT-perpetual
+and Binance USD-M market data plus optional **signed GET-only** Gate account sync.
+Real Gate order placement, amendment, cancellation, leverage/margin changes,
+transfers and withdrawals are **BLOCKED BY DESIGN**: the authenticated client
+refuses any non-GET method or non-allowlisted endpoint before network transport,
+and `DisabledLiveExecutionAdapter` refuses every mutating operation.
+
+## Real AI + live Gate quick start
+
+```bash
+python3 -m crypto_eval paper-setup-real      # .env keys -> OS credential store; Jev + Foundry providers; Gate mode
+python3 -m crypto_eval paper-server          # loopback UI + backend-owned Gate WebSocket stream
+python3 -m crypto_eval real-integration-check  # REAL acceptance; never fixtures; non-zero exit on failure
+```
+
+- **Credentials**: stored in the macOS Keychain (Linux Secret Service where
+  available, session memory otherwise; no plaintext file). Settings › AI Providers
+  and Settings › Exchange Accounts accept a key once; the server stores it and
+  returns only masked metadata. `.env` remains a bootstrap source.
+- **Azure AI Foundry**: a project endpoint (`…/api/projects/<p>`) maps to the
+  resource `…/openai/v1/responses`. Test Connection makes a real structured
+  request and requires the provider to echo `reasoning.effort` (`max` for
+  GPT-6 Luna); a different echoed effort is rejected, never silently downgraded.
+- **TypeSafe Jev**: real `POST /v1/systemone` exercising Choice, Score, and Noul;
+  the returned concrete model (e.g. `jev-1.13.0`), usage, and latency are recorded.
+- **Gate market data**: REST warm-up/gap-fill (closed candles only) and WebSocket
+  `futures.candlesticks`, `futures.tickers`, `futures.book_ticker` with heartbeat,
+  bounded exponential backoff, resubscribe, stale detection, sequence de-dup, and
+  current-vs-closed candle distinction. A stale required feed blocks AI calls and
+  new PAPER entries. The browser consumes normalized events via SSE
+  (`/api/market/stream`); the chart uses vendored, pinned TradingView Lightweight
+  Charts 5.2.1 and never synthesizes candles.
+- **Execution realism**: market entries start from the live best ask (long) or
+  best bid (short) plus the slippage model; maintenance margin is never below the
+  contract's current maintenance rate.
+
+## AI cost ledger and budget guard
+
+Every Jev/GPT call is a cost event (`ai_usage_events`): provider, deployment,
+returned model, reasoning effort, call type, latency, input/cached/output/
+reasoning tokens, price-book version, estimated/billed cost, cost status
+(`exact`/`estimated`/`unavailable`), request/response IDs, sanitized error.
+Missing usage stays `null`, never zero.
+
+Before each paid call the guard estimates worst-case cost from the configured
+token caps and the current append-only price book, atomically reserves it in
+SQLite (concurrent workers cannot overspend), then reconciles to actual usage and
+releases the remainder. Limits: per-call cost, input/output tokens, per-cycle
+spend and GPT calls, GPT calls/hour and /day, Jev calls/day, daily and experiment
+spend, max paid calls. Warnings at 50/80/95/100%. **Unknown price fails closed**
+for scheduled calls (an operator Test Connection may run unpriced and is recorded
+as `unavailable`). Limit actions: `PAUSE_NEW_ENTRIES` (default), `FALLBACK_QUANT`
+(labeled `AI_BUDGET_FALLBACK`), `JEV_ONLY` (`GPT_BUDGET_BLOCK`), `BLOCK_PAID_AI`.
+Open positions keep deterministic monitoring. Cost controls may be changed while
+running; each change is an audited event.
+
+Trading PnL is USDT and AI cost is USD. Net experiment economics is computed only
+with an explicit USD→USDT cost FX policy; otherwise it is reported unavailable.
 
 ## Start
 
@@ -160,8 +215,10 @@ than as invented values.
 
 ## Provider configuration
 
-The Settings form saves provider metadata and an environment-variable *name*
-only. It never accepts a credential value. The local API, browser store,
+The Paper Trading provider form saves provider metadata and an optional
+environment-variable *name*. Credential values are accepted only by
+Settings › AI Providers / Exchange Accounts, which forward them once to the
+loopback server for the OS credential store (see above). The local API, browser store,
 SQLite, prompts, logs, and export contain no raw credential values; exports
 omit environment-variable names as well. Define the referenced value in the
 server process environment before starting the server. For example, set your

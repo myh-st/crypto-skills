@@ -3,6 +3,8 @@ import { escapeHtml, formatPrice, formatRange, relativeTime, titleCase } from ".
 import { STATE_TONE } from "../contracts.js";
 import { MARKET_SERIES, renderMarketOverviewChart } from "../components/marketOverviewChart.js";
 import { renderSparkline } from "../components/sparkline.js";
+import { loadPortfolioSummary } from "../components/portfolioSummary.js";
+import { paperApi } from "../paperApi.js";
 import { analysisService, decisionService, marketDataService, runService, runtimeService } from "../services.js";
 
 function assetOptions(selected) {
@@ -169,10 +171,12 @@ export function render(root, ctx) {
     <header class="page-header">
       <div>
         <h1>Overview</h1>
-        <p>Research and decision support for your crypto portfolio</p>
+        <p>Portfolio results first, then research and decision support</p>
       </div>
       <time class="page-header-date" datetime="${now.toISOString()}">${headerTime}</time>
     </header>
+
+    <section class="panel panel--portfolio-summary" data-portfolio-summary aria-live="polite"></section>
 
     <section class="panel panel--overview-prompt">
       <h2>What do you want to analyze?</h2>
@@ -279,6 +283,8 @@ export function render(root, ctx) {
 
     marketChartPanel.innerHTML = renderMarketOverviewChart(marketChartState);
   });
+
+  loadPortfolioSummary(root.querySelector("[data-portfolio-summary]"), paperApi);
 
   root.querySelector('[data-role="overview-prompt"]').addEventListener("submit", (event) => {
     event.preventDefault();
