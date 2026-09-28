@@ -2,9 +2,9 @@
 
 ภาษา: English · [ไทย](README.th.md)
 
-Crypto-native Codex skills for evidence-based market analysis, execution planning, and risk-aware investment decisions.
+Crypto-native Codex skills for evidence-based market analysis, execution planning, and risk-aware investment decisions, plus a local-only PAPER futures research lab.
 
-The repository currently ships one production skill: `crypto-market-trading-analysis`. It adapts the staged analyst → bull/bear research → trader → risk committee → portfolio decision workflow to crypto markets, where spot flow, leverage, funding, liquidations, tokenomics, and the BTC regime materially change trade quality.
+The repository ships one production skill, `crypto-market-trading-analysis`, and a separate local PAPER futures runtime. The runtime combines public Binance USD-M market data or deterministic fixtures, deterministic features and risk controls, typed Jev decisions, conditional Responses-compatible GPT escalation, isolated-margin paper fills, persistent evaluation arms, and secret-free exports. It has no real-money order endpoint.
 
 ## Design goals
 
@@ -49,6 +49,33 @@ Market / spot / derivatives / options / on-chain / tokenomics / macro
 
 This is a logical decomposition inside one capable model, not a requirement to run separate agents.
 
+### Local PAPER futures research
+
+```text
+Public futures bars or offline fixture
+              │
+              ▼
+Deterministic features + quant signal gate
+              │
+              ▼
+Jev atomic decisions ── deterministic escalation ──► Responses-compatible GPT + skill
+              └──────────────────────┬────────────────────┘
+                                     ▼
+                         Validated TradingIntent
+                                     ▼
+                 Deterministic sizing, fees, funding,
+                    isolated margin and liquidation
+                                     ▼
+               SQLite PAPER fills / portfolio / evaluation
+```
+
+The runtime binds to loopback by default. Browser settings contain provider
+metadata and environment-variable references only; raw credentials are never
+returned by APIs or placed in SQLite, prompts, logs, or exports. Fixture mode
+uses local mocked providers and never sends external model requests. See
+[`docs/paper-futures-runtime.md`](docs/paper-futures-runtime.md) for setup,
+runtime controls, API boundaries, and validation.
+
 ### Interactive diagram
 
 [Open the interactive architecture diagram](docs/architecture.html)
@@ -63,24 +90,27 @@ crypto-skills/
 ├── README.th.md                        # ภาษาไทย
 ├── docs/
 │   ├── architecture.md                 # workflow and implementation boundaries
-│   └── evaluation.md                   # harness CLI, metrics, data limits, and experiments
+│   ├── evaluation.md                   # harness CLI, metrics, data limits, and experiments
+│   └── paper-futures-runtime.md        # PAPER research runtime and safe local setup
 ├── schemas/
 │   ├── analysis-output.schema.json     # final decision contract
 │   ├── decision-state.schema.json      # canonical final decision states
 │   ├── decision-record.schema.json     # journal / outcome contract
 │   ├── evidence-ledger.schema.json     # fact ledger contract
-│   └── eval-*.schema.json              # evaluation spec / case / prediction / outcome contracts
+│   ├── eval-*.schema.json              # evaluation spec / case / prediction / outcome contracts
+│   └── paper-*.schema.json             # strict PAPER intent/provider/experiment contracts
 ├── examples/
 │   ├── analysis-output.yaml
 │   ├── decision-record.yaml
 │   └── evidence-ledger.yaml
 ├── scripts/
 │   └── validate_repo.py                # dependency-free structural checks
-├── crypto_eval/                        # point-in-time evaluation harness + fixture CLI
+├── crypto_eval/                        # point-in-time harness + PAPER futures runtime/server
 ├── eval/
 │   └── specs/crypto-market-v1.json     # versioned multi-asset walk-forward target
 ├── tests/
-│   └── test_contracts.py               # contract and evaluation regression tests
+│   ├── test_contracts.py               # contract and evaluation regression tests
+│   └── test_paper_futures.py            # mocked-provider PAPER vertical slice tests
 ├── .github/workflows/
 │   └── validate.yml                     # PR/push contract gate
 └── skills/
@@ -277,13 +307,41 @@ random comparators. Missing data stays unavailable. The drawdown result is an
 equal-weight decision-sequence proxy—not portfolio PnL; sizing, cash, fills,
 fees, slippage, and funding are not modeled.
 
-Model and read-only data-provider interfaces are pluggable, but no live market
-adapter, credentials, paid API, or model invocation is included. Historical
+The separate `crypto_eval` evaluation harness has pluggable model and read-only
+provider interfaces, but no live market adapter, credentials, paid API, or
+model invocation. Historical
 model predictions are meaningful only when they were frozen before the outcome
 window was known; otherwise use forward paper evaluation. A skill-vs-control
 claim requires archived, same-model, same-configuration predictions on the
 same chronological out-of-sample cases and sufficient samples. The harness can
 compare such paired runs, but it cannot manufacture them.
+
+### PAPER futures lab
+
+Start the local research application with:
+
+```bash
+python3 -m crypto_eval paper-server
+```
+
+Open `http://127.0.0.1:8765/` and use **Paper Trading**. EXP-001 starts with
+$100 USDT, 15m decisions, 1h/4h context, 3x primary leverage, 1% risk per
+trade, 3 primary positions, and 1x/2x/3x/5x/10x shadow cohorts. The first-run
+mode is deterministic fixtures; switching to Binance USD-M uses public
+unauthenticated market-data endpoints only. Provider inference is opt-in and
+requires a server-side environment-variable reference. Neither fixtures nor
+public market-data mode enable real-money execution.
+
+The server runs the scheduler and model-free position monitor independently
+of the browser tab. SQLite state, cycles, provider metadata, simulated fills,
+funding, fees, and risk events persist across local restarts. Provider secret
+values are not accepted by the browser API. The smoke suite uses only fixtures
+and mocks:
+
+```bash
+python3 -m unittest discover -s tests -v
+node --test frontend/tests/*.test.mjs
+```
 
 ## Contributing
 

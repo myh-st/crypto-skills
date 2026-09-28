@@ -1,8 +1,8 @@
 // Persistent sidebar/top navigation shared by every view. Highlights the
-// active destination so the current location in the eight-destination
-// navigation is always visible, on desktop and mobile.
+// active destination across the research and PAPER workflows.
 
 export const NAV_ITEMS = [
+  { route: "paper-trading", label: "Paper Trading", icon: "▰" },
   { route: "overview", label: "Overview", icon: "◧" },
   { route: "new-analysis", label: "New Analysis", icon: "＋" },
   { route: "runs", label: "Runs", icon: "▤" },
@@ -38,7 +38,7 @@ export function renderNav(activeRoute) {
     </div>
     <nav class="sidebar-nav" aria-label="Primary destinations">${links}</nav>
     <div class="sidebar-footer">
-      <span class="demo-tag demo-tag--sidebar">Fixture mode</span>
+      <span class="demo-tag demo-tag--sidebar">${activeRoute === "paper-trading" ? "PAPER only" : "Fixture mode"}</span>
     </div>
   `;
 }

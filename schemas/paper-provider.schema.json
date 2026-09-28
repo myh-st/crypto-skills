@@ -1,0 +1,107 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "paper-provider.schema.json",
+  "title": "PAPER Model Provider Configuration",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "provider_id",
+    "kind",
+    "display_name",
+    "model",
+    "enabled"
+  ],
+  "properties": {
+    "provider_id": {
+      "type": "string",
+      "pattern": "^[A-Za-z0-9._-]{1,80}$"
+    },
+    "kind": {
+      "enum": [
+        "fixture_jev",
+        "fixture_gpt",
+        "typesafe_jev",
+        "openai_responses",
+        "foundry_responses",
+        "compatible_responses"
+      ]
+    },
+    "display_name": {
+      "type": "string",
+      "minLength": 1,
+      "maxLength": 80
+    },
+    "base_url": {
+      "type": "string",
+      "maxLength": 500
+    },
+    "model": {
+      "type": "string",
+      "minLength": 1,
+      "maxLength": 160
+    },
+    "auth_scheme": {
+      "enum": ["bearer", "raw"]
+    },
+    "timeout_seconds": {
+      "type": "number",
+      "minimum": 1,
+      "maximum": 120
+    },
+    "reasoning_effort": {
+      "enum": ["low", "medium", "high", "max"]
+    },
+    "enabled": {
+      "type": "boolean"
+    },
+    "credential_status": {
+      "enum": [
+        "not_required",
+        "credential_reference_configured",
+        "not_configured"
+      ]
+    },
+    "credential_env": {
+      "type": ["string", "null"],
+      "pattern": "^[A-Z_][A-Z0-9_]{0,127}$"
+    },
+    "pricing": {
+      "type": ["object", "null"],
+      "additionalProperties": false,
+      "required": ["version", "input_per_million", "output_per_million"],
+      "properties": {
+        "version": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 80
+        },
+        "input_per_million": {
+          "type": "number",
+          "minimum": 0
+        },
+        "output_per_million": {
+          "type": "number",
+          "minimum": 0
+        }
+      }
+    },
+    "last_validation_status": {
+      "enum": ["not_tested", "passed", "failed"]
+    },
+    "last_validated_at": {
+      "type": ["string", "null"],
+      "format": "date-time"
+    },
+    "last_validation_latency_ms": {
+      "type": ["number", "null"],
+      "minimum": 0
+    }
+  },
+  "not": {
+    "anyOf": [
+      {"required": ["api_key"]},
+      {"required": ["secret"]},
+      {"required": ["token"]}
+    ]
+  }
+}

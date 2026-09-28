@@ -1,10 +1,11 @@
-# Crypto Research Console (demo frontend)
+# Crypto Research Console and PAPER Futures Lab
 
-A dependency-free, static frontend that demonstrates the research-first
-workflow described in the `crypto-market-trading-analysis` skill: from an
-analysis request, to a structured research report, to evidence inspection,
-to a tracked decision record. **It is a UI prototype with demo data only —
-no live research, market data, provider, or trading integration exists.**
+A dependency-free frontend with two separate experiences: the original
+fixture-only research console and a local PAPER futures research runtime. The
+research console remains synthetic. The PAPER page uses server-backed
+portfolio state, either deterministic fixtures or read-only public Binance
+USD-M data, typed provider adapters, deterministic risk controls, and paper
+fills only.
 
 ## Running it locally
 
@@ -18,6 +19,27 @@ python3 -m http.server 8000
 ```
 
 Then open **http://localhost:8000/frontend/** in a browser.
+
+## Running the paper futures runtime
+
+From the repository root, run:
+
+```bash
+python3 -m crypto_eval paper-server
+```
+
+Then open **http://127.0.0.1:8765/** and choose **Paper Trading**. The server
+binds to loopback only and stores its SQLite database under the user's local
+application-data directory. The first run uses deterministic fixture candles
+and local mocked Jev/GPT adapters; no external model request is made. Select
+**Binance USD-M public data** to use unauthenticated market-data endpoints.
+
+External Jev and Responses-compatible providers accept an environment-variable
+name, not an API key in the browser. Define the variable in the shell before
+starting the server. Provider **Test connection** and real provider inference
+are explicit external requests and may incur vendor usage; they are not needed
+for fixture-based UI or integration tests. Credentials are never returned by
+the API or included in exports.
 
 The frontend must be served over HTTP (not opened as a `file://` URL) because
 it uses native ES modules and fetches `schemas/decision-state.schema.json`
@@ -47,6 +69,10 @@ the same enum so the UI still works.
 - **Settings** — local-only presentation preferences (default horizon/risk
   lens, density, advanced-panel default) stored in `localStorage`, plus a
   "Reset demo data" action.
+- **Paper Trading** — loopback runtime controls, EXP-001 settings, provider
+  references, portfolio/equity, aligned arm and leverage evaluation, risk
+  events, activity, and a secret-free experiment bundle. This page reads and
+  writes the local server API; it does not use the browser demo store.
 
 ### The core interaction to try
 
@@ -67,7 +93,7 @@ time-range buttons, labeled candlesticks and volume, and price overlays for
 the current price, primary/secondary entry zones, invalidation, and targets.
 All chart values and OHLC/volume paths are synthetic fixtures.
 
-## Demo limitations (read before relying on anything shown)
+## Fixture-console limitations (read before relying on anything shown)
 
 - **All market values, price paths, evidence, and agent notes are
   synthetically generated** by a seeded pseudo-random generator
@@ -76,14 +102,14 @@ All chart values and OHLC/volume paths are synthetic fixtures.
 - The visible **FIXTURE** notice distinguishes this local fixture mode from
   live data. Venue, model, as-of, and provider selections are recorded as
   request metadata only; they do not trigger external calls.
-- **No live research is performed.** The console does not invoke a model,
-  reasoning pipeline, or the `crypto-market-trading-analysis` skill itself; it
-  only fabricates plausible-looking output in that skill's shape.
+- **The original research views are fixture-only.** They do not invoke a model,
+  reasoning pipeline, or the `crypto-market-trading-analysis` skill itself;
+  they only fabricate plausible-looking output in that skill's shape.
 - **No investment recommendation is being made.** Every report and decision
   record is explicitly labeled as demo output.
-- **No order placement, portfolio accounting, or PnL simulation exists.**
-  "Save decision" only writes a structured, demo `decision-record`-shaped
-  object to `localStorage`; it never places a trade or computes real returns.
+- The original research console has no portfolio accounting. "Save decision"
+  writes only a structured demo record to `localStorage`. The distinct Paper
+  Trading page has a persistent virtual wallet and simulated fills.
 - **State is browser-local and ephemeral.** Runs, decisions, and settings
   persist in `localStorage` for convenience across reloads, but are scoped to
   one browser and can be cleared any time via **Settings → Reset demo data**
@@ -115,12 +141,12 @@ frontend intentionally has no dependencies (including a schema validator).
 
 ## Service boundary
 
-Views call the fixture-only services in `modules/services.js` for analysis,
-market snapshots, runs, decisions, and evaluation summaries. Replace those
-implementations with API-backed services when an application runtime becomes
-available; the current build makes no external API calls and marks all
-generated content as fixture data. It only fetches the local decision-state
-schema from the same origin.
+Research views call the fixture-only services in `modules/services.js`.
+`modules/paperApi.js` is a separate same-origin client for the local PAPER
+server. The server is the only place where provider credentials are resolved;
+the browser sends and stores environment-variable references only. Market
+data can be fixture-only or read-only public futures data. No endpoint for
+real-money execution exists.
 
 ## Verifying changes
 
@@ -129,21 +155,28 @@ schema from the same origin.
 find frontend -name "*.js" -exec node --check {} \;
 
 # Pure-logic, chart, and service-boundary tests (Node's built-in test runner)
-node --test frontend/tests/generator.test.mjs frontend/tests/charts.test.mjs frontend/tests/services.test.mjs
+node --test frontend/tests/*.test.mjs
 
 # Structural smoke tests fitting the repository's existing Python tooling
 python3 -m unittest discover -s tests -v
 ```
 
+The CI-safe runtime tests use offline market fixtures and mocked Jev/GPT
+adapters. They do not contact model vendors or exchange order endpoints.
+
 Automated checks above cover structure and generator logic only. **Manual
 browser verification is still required** for interaction and layout:
 
-1. Serve the app (`python3 -m http.server 8000` from the repo root) and open
+1. Serve the fixture console (`python3 -m http.server 8000` from the repo root) and open
    `http://localhost:8000/frontend/`.
 2. At a desktop width (≈1280px+), confirm the persistent dark sidebar shows
-   all eight destinations and highlights the active one while navigating.
+   all nine destinations and highlights the active one while navigating.
 3. Run the core interaction above (submit → report → evidence drawer →
    save decision) and confirm the Decisions/Overview/Evaluations views update.
 4. Resize to a mobile width (≈375px) and confirm the sidebar collapses behind
    the top-right menu toggle, the layout reflows to a single column, and the
    same core interaction still works.
+5. For the paper workflow, start `python3 -m crypto_eval paper-server`, open
+   `http://127.0.0.1:8765/`, test both offline fixture providers, start EXP-001,
+   run a closed-bar cycle, inspect the risk/portfolio panels, and download the
+   export. Select a public market source only when a network smoke is intended.

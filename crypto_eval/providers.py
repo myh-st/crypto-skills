@@ -1,7 +1,9 @@
-"""Read-only market-data provider extension points.
+"""Read-only archived-data provider interface for the evaluation harness.
 
 Providers normalize archived or prospective observations into candidate
-bundles. This package intentionally ships no credentialed or live API client.
+bundles. This evaluation adapter intentionally ships no credentialed market
+API client; the separate ``paper_market`` module contains the opt-in public
+USD-M futures feed used only by the local PAPER runtime.
 """
 
 from __future__ import annotations

@@ -26,5 +26,11 @@ jobs:
       - name: Run regression tests
         run: python -m unittest discover -s tests -v
 
+      - name: Run frontend tests
+        run: node --test frontend/tests/*.test.mjs
+
+      - name: Check frontend syntax
+        run: find frontend -name '*.js' -exec node --check {} \;
+
       - name: Run deterministic evaluation fixture
         run: python -m crypto_eval demo --out-dir reports/crypto-eval-ci

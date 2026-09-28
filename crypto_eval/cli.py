@@ -25,7 +25,7 @@ FIXTURE_DIR = Path(__file__).resolve().parent / "fixtures"
 def _parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(
         prog="crypto-eval",
-        description="Point-in-time crypto decision evaluation; no order execution or live APIs.",
+        description="Point-in-time crypto evaluation and local PAPER research; no real-money order submission.",
     )
     commands = parser.add_subparsers(dest="command", required=True)
 
@@ -93,6 +93,18 @@ def _parser() -> argparse.ArgumentParser:
     )
     demo.add_argument("--out-dir", type=Path, required=True)
     demo.add_argument("--fold", choices=("train", "validation", "test", "all"), default="test")
+
+    paper = commands.add_parser(
+        "paper-server",
+        help="run the loopback-only PAPER futures research console",
+    )
+    paper.add_argument("--host", choices=("127.0.0.1", "::1"), default="127.0.0.1")
+    paper.add_argument("--port", type=int, default=8765)
+    paper.add_argument(
+        "--database",
+        type=Path,
+        help="SQLite state path (default: the user's local application-data directory)",
+    )
     return parser
 
 
@@ -258,6 +270,10 @@ def _dispatch(args: argparse.Namespace) -> int:
 
     if args.command == "demo":
         return _run_demo(args)
+    if args.command == "paper-server":
+        from .paper_server import serve
+
+        return serve(host=args.host, port=args.port, database=args.database)
     raise EvaluationError(f"unknown command: {args.command}")
 
 
