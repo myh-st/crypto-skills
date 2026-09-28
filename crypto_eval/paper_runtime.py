@@ -6,6 +6,7 @@ import csv
 import io
 import json
 import math
+import re
 import sqlite3
 import threading
 import time
@@ -16,7 +17,16 @@ from datetime import datetime, timedelta, timezone
 from pathlib import Path
 from typing import Any, Callable, Iterator
 
+from .ai_cost import (
+    COST_SCHEMA,
+    CostLedger,
+    economic_summary,
+    estimate_cost,
+    normalize_usage,
+    provider_ledger_summary,
+)
 from .contracts import canonical_json, digest
+from .gate_market import GATE_PROVIDER_ID, GateUsdtFuturesMarketDataProvider
 from .paper_ai import (
     AIProviderError,
     FixtureGPTProvider,
@@ -32,6 +42,8 @@ from .paper_contracts import (
     DEFAULT_SHADOW_LEVERAGE,
     EXPERIMENT_ARMS,
     INTENT_SCHEMA_VERSION,
+    MARKET_DATA_ORIGINS,
+    OPERATIONAL_EXPERIMENT_FIELDS,
     PaperTradingError,
     TradingIntent,
     default_experiment_config,
@@ -50,6 +62,53 @@ from .paper_market import (
     WARMUP_PROFILES,
     floor_time,
 )
+from .gate_account import ReadOnlyGateClient, sync_read_only_account
+from .secret_store import CredentialResolver, store_secret
+
+
+MARKET_PROVIDER_IDS = {
+    "fixture": FixtureFuturesMarketDataProvider.provider_id,
+    "binance_usdm": BinanceUsdMFuturesMarketDataProvider.provider_id,
+    "gate_usdt": GATE_PROVIDER_ID,
+}
+DATA_ORIGINS = set(MARKET_DATA_ORIGINS.values())
+EXTRA_SCHEMA = """
+CREATE TABLE IF NOT EXISTS exchange_accounts(
+    account_id TEXT PRIMARY KEY,
+    exchange TEXT NOT NULL,
+    display_name TEXT NOT NULL,
+    environment TEXT NOT NULL,
+    settle_currency TEXT NOT NULL,
+    expected_ip TEXT,
+    enabled INTEGER NOT NULL,
+    sync_enabled INTEGER NOT NULL,
+    key_secret_id TEXT NOT NULL,
+    secret_secret_id TEXT NOT NULL,
+    created_at TEXT NOT NULL,
+    updated_at TEXT NOT NULL
+);
+CREATE TABLE IF NOT EXISTS exchange_account_syncs(
+    sync_id INTEGER PRIMARY KEY AUTOINCREMENT,
+    account_id TEXT NOT NULL,
+    source TEXT NOT NULL,
+    status TEXT NOT NULL,
+    payload_json TEXT NOT NULL,
+    synced_at TEXT NOT NULL
+);
+CREATE TABLE IF NOT EXISTS market_stream_health(
+    health_id INTEGER PRIMARY KEY AUTOINCREMENT,
+    provider TEXT NOT NULL,
+    event TEXT NOT NULL,
+    state TEXT NOT NULL,
+    payload_json TEXT NOT NULL,
+    observed_at TEXT NOT NULL
+);
+CREATE TABLE IF NOT EXISTS integration_checks(
+    check_id TEXT PRIMARY KEY,
+    payload_json TEXT NOT NULL,
+    created_at TEXT NOT NULL
+);
+"""
 
 
 def _json(value: Any) -> str:
@@ -507,6 +566,12 @@ class PaperStore:
         self._create_schema()
         self._migrate_schema()
         self._seed()
+        self.cost_ledger = CostLedger(self.transaction, self._query)
+        self.resolver: CredentialResolver | None = None
+
+    def _query(self, sql: str, params: tuple = ()) -> list[sqlite3.Row]:
+        with self._lock:
+            return self._db.execute(sql, params).fetchall()
 
     @contextmanager
     def transaction(self) -> Iterator[sqlite3.Connection]:
@@ -739,6 +804,8 @@ class PaperStore:
                 ON market_history_runs(experiment_id, created_at DESC);
             """
         )
+        self._db.executescript(COST_SCHEMA)
+        self._db.executescript(EXTRA_SCHEMA)
 
     def _migrate_schema(self) -> None:
         with self._lock:
@@ -771,6 +838,7 @@ class PaperStore:
                 ("last_validated_at", "TEXT"),
                 ("last_validation_latency_ms", "REAL"),
                 ("last_validation_error_code", "TEXT"),
+                ("last_validation_json", "TEXT"),
             ):
                 if name not in provider_columns:
                     self._db.execute(
@@ -935,11 +1003,7 @@ class PaperStore:
 
     @staticmethod
     def _market_provider_id(mode: str) -> str:
-        return (
-            FixtureFuturesMarketDataProvider.provider_id
-            if mode == "fixture"
-            else BinanceUsdMFuturesMarketDataProvider.provider_id
-        )
+        return MARKET_PROVIDER_IDS[mode]
 
     @staticmethod
     def _prune_market_history_locked(
@@ -966,10 +1030,7 @@ class PaperStore:
         provider_id: str,
         older_than: datetime,
     ) -> int:
-        if provider_id not in {
-            FixtureFuturesMarketDataProvider.provider_id,
-            BinanceUsdMFuturesMarketDataProvider.provider_id,
-        }:
+        if provider_id not in set(MARKET_PROVIDER_IDS.values()):
             raise PaperTradingError("market-history provider is unsupported")
         with self.transaction() as db:
             return self._prune_market_history_locked(db, provider_id, older_than)
@@ -989,16 +1050,29 @@ class PaperStore:
             current_strategy = {
                 key: value
                 for key, value in current["config"].items()
-                if key != "market_data_retention_days"
+                if key not in OPERATIONAL_EXPERIMENT_FIELDS
             }
             next_strategy = {
                 key: value
                 for key, value in config.items()
-                if key != "market_data_retention_days"
+                if key not in OPERATIONAL_EXPERIMENT_FIELDS
             }
             if cycles and next_strategy != current_strategy:
                 raise PaperTradingError("an experiment with recorded cycles is frozen; create a new experiment")
             now = iso_utc(datetime.now(timezone.utc))
+            for field in ("ai_budget", "cost_fx"):
+                if current["config"].get(field) != config.get(field):
+                    # Cost controls are operational policy; every change is auditable.
+                    db.execute(
+                        "INSERT INTO events(experiment_id, event_type, payload_json, created_at) "
+                        "VALUES(?, ?, ?, ?)",
+                        (
+                            config["experiment_id"],
+                            f"{field}_changed",
+                            _json({"previous": current["config"].get(field), "next": config.get(field)}),
+                            now,
+                        ),
+                    )
             db.execute(
                 "UPDATE experiments SET config_json=?, updated_at=? WHERE experiment_id=?",
                 (_json(config), now, config["experiment_id"]),
@@ -1029,6 +1103,43 @@ class PaperStore:
                     self._market_provider_id(config["market_data_mode"]),
                     datetime.now(timezone.utc) - timedelta(days=retention_days),
                 )
+        return self.experiment()
+
+    def update_cost_controls(
+        self,
+        *,
+        ai_budget: Any | None = None,
+        cost_fx: Any | None = None,
+    ) -> dict[str, Any]:
+        """Tighten/loosen operational cost controls, even while running; every change is audited."""
+
+        from .ai_cost import validate_budget_config, validate_fx_policy
+
+        current = self.experiment()
+        config = dict(current["config"])
+        if ai_budget is not None:
+            config["ai_budget"] = validate_budget_config(ai_budget)
+        if cost_fx is not None:
+            config["cost_fx"] = validate_fx_policy(cost_fx)
+        config = validate_experiment_config(config)
+        now = iso_utc(datetime.now(timezone.utc))
+        with self.transaction() as db:
+            for field in ("ai_budget", "cost_fx"):
+                if current["config"].get(field) != config.get(field):
+                    db.execute(
+                        "INSERT INTO events(experiment_id, event_type, payload_json, created_at) "
+                        "VALUES(?, ?, ?, ?)",
+                        (
+                            config["experiment_id"],
+                            f"{field}_changed",
+                            _json({"previous": current["config"].get(field), "next": config.get(field)}),
+                            now,
+                        ),
+                    )
+            db.execute(
+                "UPDATE experiments SET config_json=?, updated_at=? WHERE experiment_id=?",
+                (_json(config), now, config["experiment_id"]),
+            )
         return self.experiment()
 
     def set_status(self, status: str) -> dict[str, Any]:
@@ -1066,11 +1177,19 @@ class PaperStore:
                     )
         return self.experiment()
 
+    def credential_status(self, provider: dict[str, Any]) -> dict[str, Any] | None:
+        if self.resolver is None or provider["kind"].startswith("fixture_"):
+            return None
+        return self.resolver.status(
+            secret_id=provider.get("credential_secret"), env_name=provider.get("credential_env")
+        )
+
     def list_providers(self) -> list[dict[str, Any]]:
         with self._lock:
             rows = self._db.execute(
                 "SELECT config_json, last_validation_status, last_validated_at, "
-                "last_validation_latency_ms FROM providers ORDER BY provider_id"
+                "last_validation_latency_ms, last_validation_error_code, last_validation_json "
+                "FROM providers ORDER BY provider_id"
             ).fetchall()
         result = []
         for row in rows:
@@ -1078,12 +1197,15 @@ class PaperStore:
             result.append(
                 public_provider_config(
                     provider,
-                    credential_present=bool(provider.get("credential_env")),
+                    credential_present=bool(provider.get("credential_env") or provider.get("credential_secret")),
                     validation={
                         "status": row["last_validation_status"],
                         "validated_at": row["last_validated_at"],
                         "latency_ms": row["last_validation_latency_ms"],
+                        "error_code": row["last_validation_error_code"],
+                        "details": _loads(row["last_validation_json"], None),
                     },
+                    credential=self.credential_status(provider),
                 )
             )
         return result
@@ -1111,10 +1233,12 @@ class PaperStore:
     def save_provider(self, value: dict[str, Any]) -> dict[str, Any]:
         provider_value = dict(value)
         provider_id = provider_value.get("provider_id")
-        if isinstance(provider_id, str) and "credential_env" not in provider_value:
+        if isinstance(provider_id, str):
             existing_config = self.provider(provider_id)
             if existing_config is not None and not existing_config["kind"].startswith("fixture_"):
-                provider_value["credential_env"] = existing_config.get("credential_env")
+                for field in ("credential_env", "credential_secret"):
+                    if field not in provider_value:
+                        provider_value[field] = existing_config.get(field)
         provider = validate_provider_config(provider_value)
         current = self.experiment()
         if current["status"] != "stopped":
@@ -1131,7 +1255,15 @@ class PaperStore:
                 "FROM providers WHERE provider_id=?",
                 (provider["provider_id"],),
             ).fetchone()
-            if cycles and (existing is None or _loads(existing["config_json"]) != provider):
+            def material(value: dict[str, Any]) -> dict[str, Any]:
+                # Credential references may be rotated without changing research treatment.
+                return {
+                    key: item
+                    for key, item in value.items()
+                    if key not in {"credential_env", "credential_secret"}
+                }
+
+            if cycles and (existing is None or material(_loads(existing["config_json"])) != material(provider)):
                 raise PaperTradingError("provider settings are frozen after the first cycle")
             unchanged = existing is not None and _loads(existing["config_json"]) == provider
             validation = (
@@ -1172,8 +1304,9 @@ class PaperStore:
             )
         return public_provider_config(
             provider,
-            credential_present=bool(provider.get("credential_env")),
+            credential_present=bool(provider.get("credential_env") or provider.get("credential_secret")),
             validation=validation,
+            credential=self.credential_status(provider),
         )
 
     def record_provider_validation(
@@ -1183,6 +1316,7 @@ class PaperStore:
         status: str,
         latency_ms: float | None,
         error_code: str | None = None,
+        details: dict[str, Any] | None = None,
     ) -> None:
         if status not in {"passed", "failed"}:
             raise PaperTradingError("provider validation status is invalid")
@@ -1196,13 +1330,14 @@ class PaperStore:
         with self.transaction() as db:
             cursor = db.execute(
                 "UPDATE providers SET last_validation_status=?, last_validated_at=?, "
-                "last_validation_latency_ms=?, last_validation_error_code=?, updated_at=? "
-                "WHERE provider_id=?",
+                "last_validation_latency_ms=?, last_validation_error_code=?, last_validation_json=?, "
+                "updated_at=? WHERE provider_id=?",
                 (
                     status,
                     iso_utc(datetime.now(timezone.utc)),
                     None if latency_ms is None else float(latency_ms),
                     error_code if status == "failed" else None,
+                    None if details is None else _json(details),
                     iso_utc(datetime.now(timezone.utc)),
                     provider_id,
                 ),
@@ -2074,6 +2209,183 @@ class PaperStore:
                 ),
             )
 
+    # ---- exchange accounts (metadata only; secrets live in the OS store) ----
+    def save_exchange_account(self, value: dict[str, Any]) -> dict[str, Any]:
+        if not isinstance(value, dict):
+            raise PaperTradingError("exchange account must be an object")
+        allowed = {
+            "account_id",
+            "exchange",
+            "display_name",
+            "environment",
+            "settle_currency",
+            "expected_ip",
+            "enabled",
+            "sync_enabled",
+        }
+        extra = set(value) - allowed
+        if extra:
+            if extra & {"api_key", "api_secret", "secret", "key", "password", "token"}:
+                raise PaperTradingError("send exchange credentials to the secret endpoint, not account metadata")
+            raise PaperTradingError("exchange account contains unsupported fields")
+        account_id = value.get("account_id", "gate-main")
+        if not isinstance(account_id, str) or not re.fullmatch(r"[a-z0-9][a-z0-9-]{0,39}", account_id):
+            raise PaperTradingError("account_id must be lowercase letters, digits or '-'")
+        if value.get("exchange", "gate") != "gate":
+            raise PaperTradingError("only Gate.io exchange accounts are supported")
+        display_name = value.get("display_name", "Gate.io")
+        if not isinstance(display_name, str) or not display_name.strip() or len(display_name) > 80:
+            raise PaperTradingError("display_name must contain 1 to 80 characters")
+        environment = value.get("environment", "live")
+        if environment not in {"live", "testnet"}:
+            raise PaperTradingError("environment must be live or testnet")
+        settle = value.get("settle_currency", "USDT")
+        if settle != "USDT":
+            raise PaperTradingError("settle currency must be USDT")
+        expected_ip = value.get("expected_ip") or None
+        if expected_ip is not None and (
+            not isinstance(expected_ip, str) or not re.fullmatch(r"[0-9a-fA-F.:/, ]{3,200}", expected_ip)
+        ):
+            raise PaperTradingError("expected_ip must list IP addresses")
+        for field in ("enabled", "sync_enabled"):
+            if not isinstance(value.get(field, True), bool):
+                raise PaperTradingError(f"{field} must be boolean")
+        now = iso_utc(datetime.now(timezone.utc))
+        with self.transaction() as db:
+            db.execute(
+                "INSERT INTO exchange_accounts(account_id, exchange, display_name, environment, settle_currency, "
+                "expected_ip, enabled, sync_enabled, key_secret_id, secret_secret_id, created_at, updated_at) "
+                "VALUES(?, 'gate', ?, ?, 'USDT', ?, ?, ?, ?, ?, ?, ?) ON CONFLICT(account_id) DO UPDATE SET "
+                "display_name=excluded.display_name, environment=excluded.environment, "
+                "expected_ip=excluded.expected_ip, enabled=excluded.enabled, "
+                "sync_enabled=excluded.sync_enabled, updated_at=excluded.updated_at",
+                (
+                    account_id,
+                    display_name.strip(),
+                    environment,
+                    expected_ip,
+                    1 if value.get("enabled", True) else 0,
+                    1 if value.get("sync_enabled", True) else 0,
+                    f"gate.{account_id}.api-key",
+                    f"gate.{account_id}.api-secret",
+                    now,
+                    now,
+                ),
+            )
+        return self.exchange_account(account_id)
+
+    def exchange_account(self, account_id: str) -> dict[str, Any]:
+        rows = self._query("SELECT * FROM exchange_accounts WHERE account_id=?", (account_id,))
+        if not rows:
+            raise PaperTradingError("exchange account was not found")
+        return self._public_account(dict(rows[0]))
+
+    def exchange_account_internal(self, account_id: str) -> dict[str, Any]:
+        rows = self._query("SELECT * FROM exchange_accounts WHERE account_id=?", (account_id,))
+        if not rows:
+            raise PaperTradingError("exchange account was not found")
+        return dict(rows[0])
+
+    def _public_account(self, row: dict[str, Any]) -> dict[str, Any]:
+        credential = {"api_key": False, "api_secret": False, "backend": None}
+        if self.resolver is not None:
+            key = self.resolver.status(secret_id=row["key_secret_id"], env_name=None)
+            secret = self.resolver.status(secret_id=row["secret_secret_id"], env_name=None)
+            credential = {"api_key": key["stored"], "api_secret": secret["stored"], "backend": key["secret_backend"]}
+        latest = self.latest_account_sync(row["account_id"])
+        return {
+            "account_id": row["account_id"],
+            "exchange": "gate",
+            "display_name": row["display_name"],
+            "environment": row["environment"],
+            "settle_currency": row["settle_currency"],
+            "expected_ip": row["expected_ip"],
+            "enabled": bool(row["enabled"]),
+            "sync_enabled": bool(row["sync_enabled"]),
+            "credentials": credential,
+            "write_execution": False,
+            "last_sync": latest,
+        }
+
+    def list_exchange_accounts(self) -> list[dict[str, Any]]:
+        return [
+            self._public_account(dict(row))
+            for row in self._query("SELECT * FROM exchange_accounts ORDER BY account_id")
+        ]
+
+    def record_account_sync(self, account_id: str, payload: dict[str, Any]) -> None:
+        with self.transaction() as db:
+            db.execute(
+                "INSERT INTO exchange_account_syncs(account_id, source, status, payload_json, synced_at) "
+                "VALUES(?, ?, ?, ?, ?)",
+                (
+                    account_id,
+                    payload.get("source", "unknown"),
+                    payload.get("status", "unknown"),
+                    _json(payload),
+                    payload.get("synced_at") or iso_utc(datetime.now(timezone.utc)),
+                ),
+            )
+
+    def latest_account_sync(self, account_id: str) -> dict[str, Any] | None:
+        rows = self._query(
+            "SELECT payload_json FROM exchange_account_syncs WHERE account_id=? ORDER BY sync_id DESC LIMIT 1",
+            (account_id,),
+        )
+        return _loads(rows[0]["payload_json"], None) if rows else None
+
+    def account_syncs(self) -> list[dict[str, Any]]:
+        return [
+            {"account_id": row["account_id"], **_loads(row["payload_json"], {})}
+            for row in self._query(
+                "SELECT account_id, payload_json FROM exchange_account_syncs ORDER BY sync_id"
+            )
+        ]
+
+    # ---- market stream health / integration evidence ----
+    def record_stream_health(self, row: dict[str, Any]) -> None:
+        with self.transaction() as db:
+            db.execute(
+                "INSERT INTO market_stream_health(provider, event, state, payload_json, observed_at) "
+                "VALUES(?, ?, ?, ?, ?)",
+                (
+                    row.get("provider", "gate_usdt_futures"),
+                    str(row.get("event", "health")),
+                    str(row.get("state", "UNKNOWN")),
+                    _json(row),
+                    row.get("observed_at") or iso_utc(datetime.now(timezone.utc)),
+                ),
+            )
+            db.execute(
+                "DELETE FROM market_stream_health WHERE health_id <= "
+                "(SELECT MAX(health_id) - 20000 FROM market_stream_health)"
+            )
+
+    def stream_health(self, *, limit: int = 5000) -> list[dict[str, Any]]:
+        rows = self._query(
+            "SELECT health_id, provider, event, state, payload_json, observed_at FROM market_stream_health "
+            "ORDER BY health_id DESC LIMIT ?",
+            (limit,),
+        )
+        return [
+            {**{k: row[k] for k in ("health_id", "provider", "event", "state", "observed_at")},
+             "payload": _loads(row["payload_json"], {})}
+            for row in reversed(rows)
+        ]
+
+    def record_integration_check(self, check_id: str, payload: dict[str, Any]) -> None:
+        with self.transaction() as db:
+            db.execute(
+                "INSERT OR REPLACE INTO integration_checks(check_id, payload_json, created_at) VALUES(?, ?, ?)",
+                (check_id, _json(payload), iso_utc(datetime.now(timezone.utc))),
+            )
+
+    def latest_integration_check(self) -> dict[str, Any] | None:
+        rows = self._query(
+            "SELECT payload_json FROM integration_checks ORDER BY created_at DESC LIMIT 1"
+        )
+        return _loads(rows[0]["payload_json"], None) if rows else None
+
     def export_records(self, experiment_id: str) -> dict[str, Any]:
         with self._lock:
             cycles = self._db.execute(
@@ -2183,7 +2495,7 @@ class PaperStore:
             or len(candles) != requested_bars
         ):
             raise PaperTradingError("warm-up candle count does not match the requested profile")
-        if data_origin not in {"FIXTURE", "BINANCE_USDM_PUBLIC"}:
+        if data_origin not in DATA_ORIGINS:
             raise PaperTradingError("warm-up data origin is unsupported")
         cutoff = parse_utc(data_cutoff, "warmup.data_cutoff")
         expected_open = parse_utc(start_time, "warmup.start_time")
@@ -2849,6 +3161,10 @@ class PaperStore:
         }
 
 
+class _BudgetBlocked(Exception):
+    """Internal control flow: the budget guard refused a paid call before any request."""
+
+
 def _jev_direction(vector: dict[str, Any] | None) -> str:
     if not vector:
         return "none"
@@ -2889,6 +3205,8 @@ class PaperRuntime:
         jev_provider: Any | None = None,
         gpt_provider: Any | None = None,
         clock: Callable[[], datetime] | None = None,
+        resolver: CredentialResolver | None = None,
+        live_stream: Any | None = None,
     ) -> None:
         self.store = store
         self._market_provider_override = market_provider
@@ -2897,13 +3215,205 @@ class PaperRuntime:
         self._clock = clock or (lambda: datetime.now(timezone.utc))
         self.risk_engine = RiskEngine()
         self._cycle_lock = threading.RLock()
+        if resolver is None:
+            from .secret_store import MemorySecretStore
+
+            # Safe default: session memory + environment references. The server passes the OS store.
+            resolver = CredentialResolver(MemorySecretStore())
+        self.resolver = resolver
+        self.store.resolver = resolver
+        self.live_stream = live_stream
+        self._gate_provider: GateUsdtFuturesMarketDataProvider | None = None
+        self.store.cost_ledger._clock = self._clock
 
     def _market(self, config: dict[str, Any]) -> FuturesMarketDataProvider:
         if self._market_provider_override is not None:
             return self._market_provider_override
         if config["market_data_mode"] == "binance_usdm":
             return BinanceUsdMFuturesMarketDataProvider()
+        if config["market_data_mode"] == "gate_usdt":
+            if self._gate_provider is None:
+                self._gate_provider = GateUsdtFuturesMarketDataProvider(live_state=self.live_stream)
+            self._gate_provider.live_state = self.live_stream
+            return self._gate_provider
         return FixtureFuturesMarketDataProvider()
+
+    def feed_status(self, config: dict[str, Any], symbol: str) -> dict[str, Any]:
+        """Freshness of the backend-owned live feed; stale required feeds block new entries."""
+
+        required = config["market_data_mode"] == "gate_usdt" and self.live_stream is not None
+        if not required:
+            return {"required": False, "fresh": True, "state": "NOT_STREAMED", "age_seconds": None}
+        state = self.live_stream.symbol_state(symbol)
+        return {
+            "required": True,
+            "fresh": bool(state.get("fresh")),
+            "state": state.get("stream_state"),
+            "age_seconds": state.get("age_seconds"),
+        }
+
+    @staticmethod
+    def _is_real_adapter(adapter: Any) -> bool:
+        return isinstance(adapter, (JevAdapter, ResponsesAdapter))
+
+    def _paid_call(
+        self,
+        *,
+        experiment_id: str,
+        cycle_id: str | None,
+        symbol: str | None,
+        arm: str | None,
+        provider_config: dict[str, Any],
+        adapter: Any,
+        call_type: str,
+        payload_bytes: int,
+        budget: dict[str, Any],
+        invoke: Callable[[], Any],
+    ) -> tuple[Any, dict[str, Any] | None]:
+        """Budget-guarded provider call with a persisted cost-ledger event.
+
+        Returns (result, blocked_decision). ``blocked_decision`` is set when the budget guard
+        refused the call before any request was made. Provider errors propagate after the
+        failure is recorded and the reservation reconciled.
+        """
+
+        ledger = self.store.cost_ledger
+        started = self._clock()
+        real = self._is_real_adapter(adapter)
+        base_event = {
+            "experiment_id": experiment_id,
+            "cycle_id": cycle_id,
+            "symbol": symbol,
+            "arm": arm,
+            "provider_id": provider_config["provider_id"],
+            "provider_kind": provider_config["kind"],
+            "model": provider_config.get("model", "unavailable"),
+            "reasoning_effort": (
+                provider_config.get("reasoning_effort")
+                if not provider_config["kind"].endswith("jev")
+                else None
+            ),
+            "call_type": call_type,
+            "started_at": iso_utc(started),
+            "real_external_call": real,
+        }
+        if not real:
+            result = invoke()
+            usage = normalize_usage((result or {}).get("usage") if isinstance(result, dict) else None)
+            ledger.record_usage(
+                {
+                    **base_event,
+                    "returned_model": (result or {}).get("model") if isinstance(result, dict) else None,
+                    "completed_at": iso_utc(self._clock()),
+                    "latency_ms": (result or {}).get("latency_ms") if isinstance(result, dict) else None,
+                    "status": "ok",
+                    **usage,
+                    "estimated_cost_usd": 0.0,
+                    "cost_status": "exact",
+                    "real_external_call": False,
+                }
+            )
+            return result, None
+        decision = ledger.reserve(
+            experiment_id=experiment_id,
+            cycle_id=cycle_id,
+            provider=provider_config,
+            call_type=call_type,
+            budget=budget,
+            payload_bytes=payload_bytes,
+        )
+        if not decision.allowed:
+            ledger.record_usage(
+                {
+                    **base_event,
+                    "completed_at": iso_utc(self._clock()),
+                    "status": "budget_blocked",
+                    "estimated_cost_usd": 0.0,
+                    "cost_status": "exact",
+                    "price_book_version": decision.get("price_book_version"),
+                    "error_code": decision.get("code"),
+                    "real_external_call": False,
+                }
+            )
+            return None, dict(decision)
+        price = decision.get("price")
+        try:
+            result = invoke()
+        except (AIProviderError, PaperTradingError) as exc:
+            meta = getattr(adapter, "last_call", {}) or {}
+            timed_out = meta.get("error_kind") == "timeout"
+            ledger.settle(
+                decision["reservation_id"],
+                experiment_id=experiment_id,
+                charged_usd=None,
+                keep_reserved_when_unknown=bool(timed_out and meta.get("request_sent")),
+                budget=budget,
+            )
+            code = (
+                f"http_{meta['http_status']}"
+                if meta.get("http_status")
+                else meta.get("error_kind") or ("validation_failed" if meta.get("request_sent") else "not_sent")
+            )
+            usage = normalize_usage(meta.get("raw_usage"))
+            cost, cost_status = estimate_cost(price, usage)
+            ledger.record_usage(
+                {
+                    **base_event,
+                    "completed_at": iso_utc(self._clock()),
+                    "latency_ms": meta.get("latency_ms"),
+                    "status": "failed",
+                    **usage,
+                    "price_id": decision.get("price_id"),
+                    "price_book_version": decision.get("price_book_version"),
+                    "estimated_cost_usd": cost,
+                    "cost_status": cost_status,
+                    "reservation_id": decision["reservation_id"],
+                    "provider_request_id": meta.get("provider_request_id"),
+                    "provider_response_id": meta.get("provider_response_id"),
+                    "returned_model": meta.get("returned_model"),
+                    "error_code": code,
+                    "real_external_call": bool(meta.get("request_sent")),
+                }
+            )
+            raise
+        meta = getattr(adapter, "last_call", {}) or {}
+        usage = normalize_usage(meta.get("raw_usage"))
+        cost, cost_status = estimate_cost(price, usage)
+        settlement = ledger.settle(
+            decision["reservation_id"],
+            experiment_id=experiment_id,
+            charged_usd=cost,
+            keep_reserved_when_unknown=True,
+            budget=budget,
+        )
+        returned_model = meta.get("returned_model")
+        if returned_model is None and isinstance(result, dict):
+            returned_model = result.get("model")
+        ledger.record_usage(
+            {
+                **base_event,
+                "returned_model": returned_model,
+                "completed_at": iso_utc(self._clock()),
+                "latency_ms": meta.get("latency_ms"),
+                "status": "ok",
+                **usage,
+                "price_id": decision.get("price_id"),
+                "price_book_version": decision.get("price_book_version"),
+                "estimated_cost_usd": cost,
+                "cost_status": cost_status,
+                "reservation_id": decision["reservation_id"],
+                "provider_request_id": meta.get("provider_request_id"),
+                "provider_response_id": meta.get("provider_response_id"),
+                "decision": (
+                    ("NO_TRADE" if result.get("intent") is None else "INTENT")
+                    if isinstance(result, dict) and "intent" in result
+                    else None
+                ),
+            }
+        )
+        if isinstance(result, dict):
+            result["budget_settlement"] = settlement
+        return result, None
 
     def _jev(self, config: dict[str, Any]) -> tuple[Any, dict[str, Any]]:
         if self._jev_provider_override is not None:
@@ -2919,7 +3429,7 @@ class PaperRuntime:
         if provider_config["kind"] == "fixture_jev":
             return FixtureJevProvider(), provider_config
         if provider_config["kind"] == "typesafe_jev":
-            return JevAdapter(provider_config), provider_config
+            return JevAdapter(provider_config, resolver=self.resolver), provider_config
         raise AIProviderError("configured provider is not a Jev adapter")
 
     def _gpt(self, config: dict[str, Any]) -> tuple[Any, dict[str, Any]]:
@@ -2940,7 +3450,14 @@ class PaperRuntime:
             "foundry_responses",
             "compatible_responses",
         }:
-            return ResponsesAdapter(provider_config), provider_config
+            return (
+                ResponsesAdapter(
+                    provider_config,
+                    resolver=self.resolver,
+                    max_output_tokens=config["ai_budget"]["gpt_max_output_tokens"],
+                ),
+                provider_config,
+            )
         raise AIProviderError("configured provider is not a Responses adapter")
 
     @staticmethod
@@ -3243,6 +3760,23 @@ class PaperRuntime:
                     else "no eligible deterministic 15m setup"
                 ),
             }
+            experiment_id = experiment["experiment_id"]
+            budget = config["ai_budget"]
+            limit_action = budget["limit_action"]
+            feed = self.feed_status(config, normalized_symbol)
+            feed_blocks_entries = bool(
+                feed["required"] and not feed["fresh"] and config["stale_feed_blocks_entries"]
+            )
+            if feed_blocks_entries:
+                self.store.record_runtime_event(
+                    experiment_id,
+                    cycle_id,
+                    "market_feed_stale",
+                    {"symbol": normalized_symbol, **feed, "action": "new entries and AI calls blocked"},
+                )
+            budget_blocks: list[dict[str, Any]] = []
+            paid_ai_blocked = False
+            gpt_blocked = False
             jev_arms_selected = any(
                 arm in {"jev", "quant_jev", "hybrid"} for arm in config["evaluation_arms"]
             )
@@ -3251,18 +3785,52 @@ class PaperRuntime:
                 features["gate_eligible"]
                 or portfolio["reassess_open_position"]
                 or config["force_escalation"]
-            )
+            ) and not feed_blocks_entries
             jev_vector = None
             ai_calls: list[dict[str, Any]] = []
             arm_results: dict[str, dict[str, Any]] = {}
             escalation_events: list[dict[str, Any]] = []
             gpt_cache: dict[tuple[str, bool], tuple[dict[str, Any] | None, str]] = {}
             jev_error = False
+            jev_budget_blocked = False
             jev_provider_config: dict[str, Any] | None = None
+
+            def note_budget_block(decision: dict[str, Any], *, gpt: bool) -> None:
+                nonlocal paid_ai_blocked, gpt_blocked
+                budget_blocks.append(
+                    {key: decision.get(key) for key in ("code", "scope", "reason", "call_type", "provider_id")}
+                )
+                if limit_action == "JEV_ONLY" and gpt:
+                    gpt_blocked = True
+                else:
+                    paid_ai_blocked = True
+                    gpt_blocked = True
+
             if jev_needed:
                 try:
                     provider, jev_provider_config = self._jev(config)
-                    jev_vector = provider.evaluate(snapshot, features, portfolio)
+                    payload_builder = getattr(provider, "evaluation_payload", None)
+                    payload_bytes = (
+                        len(_json(payload_builder(snapshot, features, portfolio)))
+                        if callable(payload_builder)
+                        else 0
+                    )
+                    jev_vector, blocked = self._paid_call(
+                        experiment_id=experiment_id,
+                        cycle_id=cycle_id,
+                        symbol=normalized_symbol,
+                        arm="shared:jev",
+                        provider_config=jev_provider_config,
+                        adapter=provider,
+                        call_type="jev_decision",
+                        payload_bytes=payload_bytes,
+                        budget=budget,
+                        invoke=lambda: provider.evaluate(snapshot, features, portfolio),
+                    )
+                    if blocked is not None:
+                        jev_budget_blocked = True
+                        note_budget_block(blocked, gpt=False)
+                        raise _BudgetBlocked()
                     if (
                         jev_vector.get("snapshot_hash")
                         != jev_state(snapshot, features, portfolio)["snapshot_hash"]
@@ -3270,6 +3838,8 @@ class PaperRuntime:
                     ):
                         raise AIProviderError("Jev response did not match the frozen snapshot")
                     ai_calls.append(self._call_record(jev_provider_config, "jev", jev_vector))
+                except _BudgetBlocked:
+                    jev_vector = None
                 except (AIProviderError, PaperTradingError):
                     jev_error = True
                     fallback_config = self.store.provider(config["jev_provider_id"]) or {
@@ -3285,16 +3855,56 @@ class PaperRuntime:
                 cache_key = (arm, include_skill)
                 if cache_key in gpt_cache:
                     return gpt_cache[cache_key]
+                if feed_blocks_entries:
+                    value = (None, "STALE_MARKET_FEED: live feed is stale; no GPT call was made")
+                    gpt_cache[cache_key] = value
+                    return value
+                if paid_ai_blocked or gpt_blocked:
+                    value = (None, f"GPT_BUDGET_BLOCK: {limit_action}; no GPT call was made")
+                    gpt_cache[cache_key] = value
+                    return value
                 try:
                     provider, provider_config = self._gpt(config)
-                    result = provider.generate_intent(
-                        snapshot,
-                        features,
-                        portfolio,
-                        jev_vector=vector,
-                        source_arm=arm,
-                        include_skill=include_skill,
+                    payload_builder = getattr(provider, "intent_payload", None)
+                    payload_bytes = (
+                        len(
+                            _json(
+                                payload_builder(
+                                    snapshot,
+                                    features,
+                                    portfolio,
+                                    jev_vector=vector,
+                                    include_skill=include_skill,
+                                )[0]
+                            )
+                        )
+                        if callable(payload_builder)
+                        else 0
                     )
+                    result, blocked = self._paid_call(
+                        experiment_id=experiment_id,
+                        cycle_id=cycle_id,
+                        symbol=normalized_symbol,
+                        arm=arm,
+                        provider_config=provider_config,
+                        adapter=provider,
+                        call_type="gpt_escalation" if arm == "hybrid" else "gpt_arm",
+                        payload_bytes=payload_bytes,
+                        budget=budget,
+                        invoke=lambda: provider.generate_intent(
+                            snapshot,
+                            features,
+                            portfolio,
+                            jev_vector=vector,
+                            source_arm=arm,
+                            include_skill=include_skill,
+                        ),
+                    )
+                    if blocked is not None:
+                        note_budget_block(blocked, gpt=True)
+                        value = (None, f"GPT_BUDGET_BLOCK: {blocked.get('code')}; no GPT call was made")
+                        gpt_cache[cache_key] = value
+                        return value
                     intent = result.get("intent")
                     if intent is not None:
                         intent = TradingIntent.from_dict(intent).to_dict()
@@ -3347,6 +3957,10 @@ class PaperRuntime:
                         reason = (
                             "Jev is disabled for this experiment"
                             if config["jev_enabled"] is False
+                            else "AI_BUDGET_BLOCK: Jev call refused by the budget guard"
+                            if jev_budget_blocked
+                            else "STALE_MARKET_FEED: no Jev call"
+                            if feed_blocks_entries
                             else "signal gate skipped the Jev call"
                         )
                     intent = (
@@ -3396,6 +4010,10 @@ class PaperRuntime:
                         reason = (
                             "Jev is disabled for this experiment"
                             if config["jev_enabled"] is False
+                            else "AI_BUDGET_BLOCK: Jev call refused by the budget guard"
+                            if jev_budget_blocked
+                            else "STALE_MARKET_FEED: no Jev call"
+                            if feed_blocks_entries
                             else "signal gate skipped the Jev call"
                         )
                     if jev_error:
@@ -3428,6 +4046,42 @@ class PaperRuntime:
                     continue
 
                 if arm == "hybrid":
+                    if jev_budget_blocked or feed_blocks_entries:
+                        fallback = (
+                            limit_action == "FALLBACK_QUANT"
+                            and jev_budget_blocked
+                            and not feed_blocks_entries
+                            and features["gate_eligible"]
+                            and quant_direction in {"long", "short"}
+                        )
+                        code = "STALE_MARKET_FEED" if feed_blocks_entries else "AI_BUDGET_BLOCK"
+                        intent = (
+                            build_fast_intent(
+                                snapshot,
+                                features,
+                                side=quant_direction,
+                                source_arm=arm,
+                                reason="AI_BUDGET_FALLBACK: deterministic Quant decision; no paid AI call",
+                            )
+                            if fallback
+                            else None
+                        )
+                        arm_results[arm] = self._build_arm_result(
+                            arm,
+                            intent,
+                            "AI_BUDGET_FALLBACK: deterministic Quant arm"
+                            if fallback
+                            else f"{code}: {limit_action if code == 'AI_BUDGET_BLOCK' else 'feed stale'}; no AI decision",
+                            snapshot.snapshot_hash,
+                            risk_eligible=intent is not None,
+                            escalation={
+                                "policy_version": config["escalation_policy"]["version"],
+                                "escalate": False,
+                                "reasons": ["ai_budget_fallback_quant" if fallback else code.lower()],
+                            },
+                            ai_path="ai_budget_fallback" if fallback else code.lower(),
+                        )
+                        continue
                     if jev_error or jev_disabled:
                         fallback_allowed = (
                             config["gpt_escalation_enabled"]
@@ -3524,7 +4178,22 @@ class PaperRuntime:
                     elif route["escalate"]:
                         if config["gpt_escalation_enabled"] or config["force_escalation"]:
                             intent, reason = call_gpt(arm, True, jev_vector)
-                            if intent is None:
+                            if (
+                                intent is None
+                                and reason.startswith("GPT_BUDGET_BLOCK")
+                                and limit_action == "FALLBACK_QUANT"
+                                and features["gate_eligible"]
+                                and quant_direction in {"long", "short"}
+                            ):
+                                intent = build_fast_intent(
+                                    snapshot,
+                                    features,
+                                    side=quant_direction,
+                                    source_arm=arm,
+                                    reason="AI_BUDGET_FALLBACK: deterministic Quant decision after GPT budget block",
+                                )
+                                reason = "AI_BUDGET_FALLBACK: " + reason
+                            elif intent is None:
                                 reason = "escalation failed closed: " + reason
                         else:
                             intent = None
@@ -3622,6 +4291,49 @@ class PaperRuntime:
                 if primary.get("intent") is not None
                 else None
             )
+            context = snapshot.market_context or {}
+            risk_config = dict(config)
+            if isinstance(context.get("maintenance_rate"), (int, float)):
+                # Conservative: never below the venue's current maintenance rate.
+                risk_config["maintenance_margin_rate"] = max(
+                    float(config["maintenance_margin_rate"]), float(context["maintenance_rate"])
+                )
+            book_usable = (
+                isinstance(context.get("best_bid"), (int, float))
+                and isinstance(context.get("best_ask"), (int, float))
+                and not feed_blocks_entries
+            )
+
+            def entry_reference(side: str) -> tuple[float, str]:
+                if book_usable:
+                    return (
+                        float(context["best_ask"]) if side == "long" else float(context["best_bid"]),
+                        f"{context.get('source', 'exchange')}_best_{'ask' if side == 'long' else 'bid'}",
+                    )
+                return float(features["market_mark_price"]), "last_closed_1m_close"
+
+            pause_entries_reason = None
+            if feed_blocks_entries:
+                pause_entries_reason = ("STALE_MARKET_FEED", "required live market feed is stale")
+            elif budget_blocks and limit_action == "PAUSE_NEW_ENTRIES":
+                pause_entries_reason = (
+                    "AI_BUDGET_PAUSE_NEW_ENTRIES",
+                    "AI budget limit reached; new PAPER entries paused, open positions still monitored",
+                )
+            if budget_blocks:
+                self.store.cost_ledger.record_event(
+                    experiment_id,
+                    cycle_id=cycle_id,
+                    provider_id=None,
+                    call_type=None,
+                    event_type="policy_applied",
+                    code=limit_action,
+                    scope="cycle",
+                    limit_action=limit_action,
+                    details={"blocks": budget_blocks, "symbol": normalized_symbol},
+                )
+            if pause_entries_reason is not None:
+                selected_intent = None
 
             def configured_execution_intent(intent: TradingIntent) -> TradingIntent:
                 if intent.action != "open" or intent.order_type == config["entry_order_type"]:
@@ -3640,8 +4352,8 @@ class PaperRuntime:
             if selected_intent is None:
                 risk_summary = {
                     "allowed": False,
-                    "code": "NO_INTENT",
-                    "reason": primary["reason"],
+                    "code": pause_entries_reason[0] if pause_entries_reason else "NO_INTENT",
+                    "reason": pause_entries_reason[1] if pause_entries_reason else primary["reason"],
                     "quantity": 0.0,
                     "leverage": 0,
                     "notional": 0.0,
@@ -3653,7 +4365,7 @@ class PaperRuntime:
             else:
                 primary_risk = self.risk_engine.evaluate(
                     selected_intent,
-                    config,
+                    risk_config,
                     equity=float(wallet["equity"]),
                     margin_used=float(wallet["margin_used"]),
                     open_positions=open_positions,
@@ -3669,12 +4381,14 @@ class PaperRuntime:
                     consecutive_losses=consecutive,
                 )
                 risk_summary = primary_risk.to_dict()
+                reference_price, price_source = entry_reference(selected_intent.side)
                 executions.append(
                     {
                         "cohort": "primary",
                         "risk": primary_risk.to_dict(),
                         "intent": selected_intent.to_dict(),
-                        "reference_price": float(features["market_mark_price"]),
+                        "reference_price": reference_price,
+                        "reference_price_source": price_source,
                         "slippage_bps": config["slippage_bps"],
                         "fee_rate": config["taker_fee_rate"],
                         "as_of": snapshot.as_of,
@@ -3686,7 +4400,7 @@ class PaperRuntime:
 
             def add_arm_execution(arm_name: str, result: dict[str, Any]) -> None:
                 raw_intent = result.get("intent")
-                if raw_intent is None:
+                if raw_intent is None or pause_entries_reason is not None:
                     return
                 intent = configured_execution_intent(TradingIntent.from_dict(raw_intent))
                 cohort = f"arm-{arm_name}"
@@ -3703,7 +4417,7 @@ class PaperRuntime:
                 )
                 decision = self.risk_engine.evaluate(
                     intent,
-                    config,
+                    risk_config,
                     equity=float(cohort_wallet["equity"]),
                     margin_used=float(cohort_wallet["margin_used"]),
                     open_positions=[
@@ -3719,12 +4433,14 @@ class PaperRuntime:
                     drawdown=arm_drawdown,
                     consecutive_losses=arm_streak,
                 )
+                reference_price, price_source = entry_reference(intent.side)
                 executions.append(
                     {
                         "cohort": cohort,
                         "risk": decision.to_dict(),
                         "intent": intent.to_dict(),
-                        "reference_price": float(features["market_mark_price"]),
+                        "reference_price": reference_price,
+                        "reference_price_source": price_source,
                         "slippage_bps": config["slippage_bps"],
                         "fee_rate": config["taker_fee_rate"],
                         "as_of": snapshot.as_of,
@@ -3748,7 +4464,7 @@ class PaperRuntime:
                         for position in self.store.open_positions(experiment["experiment_id"])
                         if position["cohort"] == cohort
                     ]
-                    shadow_config = dict(config)
+                    shadow_config = dict(risk_config)
                     shadow_config["primary_leverage"] = leverage
                     shadow_daily_loss, shadow_drawdown, shadow_streak = self._risk_statistics(
                         experiment["experiment_id"], cohort
@@ -3772,12 +4488,14 @@ class PaperRuntime:
                         consecutive_losses=shadow_streak,
                         leverage=leverage,
                     )
+                    reference_price, price_source = entry_reference(selected_intent.side)
                     executions.append(
                         {
                             "cohort": cohort,
                             "risk": shadow_risk.to_dict(),
                             "intent": selected_intent.to_dict(),
-                            "reference_price": float(features["market_mark_price"]),
+                            "reference_price": reference_price,
+                            "reference_price_source": price_source,
                             "slippage_bps": config["slippage_bps"],
                             "fee_rate": config["taker_fee_rate"],
                             "as_of": snapshot.as_of,
@@ -3814,6 +4532,18 @@ class PaperRuntime:
                 "cycle_latency_ms": end_to_end_ms,
                 "manual_cycle": bool(manual),
                 "live_execution_enabled": False,
+                "market_provider_id": market_provider.provider_id,
+                "market_feed": feed,
+                "execution_price_basis": (
+                    "exchange_best_bid_ask_plus_slippage_model" if book_usable else "last_closed_1m_close_plus_slippage_model"
+                ),
+                "fee_schedule_version": config["fee_schedule_version"],
+                "ai_budget": {
+                    "limit_action": limit_action,
+                    "policy_version": budget["policy_version"],
+                    "blocks": budget_blocks,
+                    "entries_paused": pause_entries_reason[0] if pause_entries_reason else None,
+                },
             }
             result = self.store.complete_cycle(
                 cycle_id,
@@ -3916,9 +4646,7 @@ class PaperRuntime:
                     taker_fee_rate=config["taker_fee_rate"],
                     slippage_bps=config["slippage_bps"],
                     maker_fee_rate=config["maker_fee_rate"],
-                    data_origin="FIXTURE"
-                    if config["market_data_mode"] == "fixture"
-                    else "BINANCE_USDM_PUBLIC",
+                    data_origin=MARKET_DATA_ORIGINS[config["market_data_mode"]],
                 )
                 events.extend(result)
         return events
@@ -3990,39 +4718,97 @@ class PaperRuntime:
             raise PaperTradingError("provider configuration was not found")
         if not provider.get("enabled"):
             raise PaperTradingError("provider is disabled")
+        experiment = self.store.experiment()
+        config = experiment["config"]
+        budget = config["ai_budget"]
+        adapter: Any
+        if provider["kind"] in {"fixture_jev", "typesafe_jev"} and self._jev_provider_override is not None:
+            adapter = self._jev_provider_override
+        elif provider["kind"] not in {"fixture_jev", "typesafe_jev"} and self._gpt_provider_override is not None:
+            adapter = self._gpt_provider_override
+        elif provider["kind"] == "fixture_jev":
+            adapter = FixtureJevProvider()
+        elif provider["kind"] == "fixture_gpt":
+            adapter = FixtureGPTProvider()
+        elif provider["kind"] == "typesafe_jev":
+            adapter = JevAdapter(provider, resolver=self.resolver)
+        elif provider["kind"] in {"openai_responses", "foundry_responses", "compatible_responses"}:
+            adapter = ResponsesAdapter(
+                provider,
+                resolver=self.resolver,
+                max_output_tokens=budget["gpt_max_output_tokens"],
+            )
+        else:
+            raise PaperTradingError("provider kind is unsupported")
+        payload_builder = getattr(adapter, "connection_payload", None)
+        payload_bytes = len(_json(payload_builder())) if callable(payload_builder) else 2048
         try:
-            if provider["kind"] == "fixture_jev":
-                result = FixtureJevProvider().test_connection()
-            elif provider["kind"] == "fixture_gpt":
-                result = FixtureGPTProvider().test_connection()
-            elif provider["kind"] == "typesafe_jev":
-                result = JevAdapter(provider).test_connection()
-            elif provider["kind"] in {
-                "openai_responses",
-                "foundry_responses",
-                "compatible_responses",
-            }:
-                result = ResponsesAdapter(provider).test_connection()
-            else:
-                raise PaperTradingError("provider kind is unsupported")
-        except PaperTradingError:
+            result, blocked = self._paid_call(
+                experiment_id=experiment["experiment_id"],
+                cycle_id=None,
+                symbol=None,
+                arm=None,
+                provider_config=provider,
+                adapter=adapter,
+                call_type="test_connection",
+                payload_bytes=payload_bytes,
+                budget=budget,
+                invoke=adapter.test_connection,
+            )
+            if blocked is not None:
+                raise PaperTradingError(
+                    f"AI budget guard blocked the connection test ({blocked.get('code')}); no request was made"
+                )
+        except PaperTradingError as exc:
+            meta = getattr(adapter, "last_call", {}) or {}
             self.store.record_provider_validation(
                 provider_id,
                 status="failed",
-                latency_ms=None,
+                latency_ms=meta.get("latency_ms"),
                 error_code="provider_validation_failed",
+                details={
+                    "error": str(exc)[:300],
+                    "provider_request_id": meta.get("provider_request_id"),
+                    "http_status": meta.get("http_status"),
+                    "real_external_call": bool(meta.get("request_sent")),
+                },
             )
             raise
+        details = {
+            key: result.get(key)
+            for key in (
+                "model",
+                "requested_model",
+                "returned_model",
+                "provider_kind",
+                "responses_endpoint_path",
+                "structured_output_validated",
+                "reasoning_effort_validated",
+                "reasoning_effort_echoed",
+                "reasoning_effort_accepted",
+                "validated_question_types",
+                "typed_outputs",
+                "usage",
+                "provider_request_id",
+                "provider_response_id",
+                "real_external_call",
+                "fixture",
+            )
+            if key in result
+        }
+        details["latency_ms"] = float(result["latency_ms"])
+        details["validated_at"] = iso_utc(self._clock())
         self.store.record_provider_validation(
             provider_id,
             status="passed",
             latency_ms=float(result["latency_ms"]),
+            details=details,
         )
         return result
 
     def start(self) -> dict[str, Any]:
         config = self.store.experiment()["config"]
-        if config["market_data_mode"] == "binance_usdm":
+        if config["market_data_mode"] in {"binance_usdm", "gate_usdt"}:
             market = self._market(config)
             validator = getattr(market, "validate_symbols", None)
             if not callable(validator):
@@ -4088,6 +4874,86 @@ class PaperRuntime:
     def pause(self) -> dict[str, Any]:
         return self.store.set_status("paused")
 
+    # ---- credentials (write-only; values never returned) ----------------
+    def save_provider_secret(self, provider_id: str, value: Any) -> dict[str, Any]:
+        provider = self.store.provider(provider_id)
+        if provider is None:
+            raise PaperTradingError("provider configuration was not found")
+        if provider["kind"].startswith("fixture_"):
+            raise PaperTradingError("fixture providers do not use credentials")
+        secret_id = provider.get("credential_secret") or f"provider.{provider_id.lower()}"
+        stored = store_secret(self.resolver.store, secret_id, value)
+        if provider.get("credential_secret") != secret_id:
+            self.store.save_provider({**provider, "credential_secret": secret_id})
+        return {"provider_id": provider_id, **stored}
+
+    def delete_provider_secret(self, provider_id: str) -> dict[str, Any]:
+        provider = self.store.provider(provider_id)
+        if provider is None or not provider.get("credential_secret"):
+            raise PaperTradingError("provider has no stored credential")
+        removed = self.resolver.store.delete(provider["credential_secret"])
+        return {"provider_id": provider_id, "deleted": bool(removed)}
+
+    def save_account_secrets(self, account_id: str, api_key: Any, api_secret: Any) -> dict[str, Any]:
+        account = self.store.exchange_account_internal(account_id)
+        key = store_secret(self.resolver.store, account["key_secret_id"], api_key)
+        secret = store_secret(self.resolver.store, account["secret_secret_id"], api_secret)
+        return {
+            "account_id": account_id,
+            "api_key": {k: key[k] for k in ("stored", "backend", "masked", "stored_at")},
+            "api_secret": {k: secret[k] for k in ("stored", "backend", "masked", "stored_at")},
+        }
+
+    def gate_client(self, account_id: str, *, transport: Any | None = None) -> ReadOnlyGateClient:
+        account = self.store.exchange_account_internal(account_id)
+        api_key, _ = self.resolver.resolve(secret_id=account["key_secret_id"], env_name=None)
+        api_secret, _ = self.resolver.resolve(secret_id=account["secret_secret_id"], env_name=None)
+        if not api_key or not api_secret:
+            raise PaperTradingError("Gate API key/secret are not stored for this account")
+        return ReadOnlyGateClient(
+            api_key=api_key,
+            api_secret=api_secret,
+            environment=account["environment"],
+            transport=transport,
+        )
+
+    def sync_gate_account(self, account_id: str, *, transport: Any | None = None) -> dict[str, Any]:
+        """Signed GET-only sync into the separate REAL ACCOUNT mirror (never the PAPER wallet)."""
+
+        account = self.store.exchange_account_internal(account_id)
+        if not account["enabled"]:
+            raise PaperTradingError("exchange account is disabled")
+        client = self.gate_client(account_id, transport=transport)
+        result = sync_read_only_account(client)
+        result["account_id"] = account_id
+        result["display_name"] = account["display_name"]
+        result["status"] = "passed" if result["capability"]["authenticated"] else "failed"
+        result["paper_wallet_merged"] = False
+        self.store.record_account_sync(account_id, result)
+        return result
+
+    def copy_gate_equity_to_new_experiment(self, account_id: str) -> dict[str, Any]:
+        """Explicit one-time helper: copy a numeric equity value into an experiment with no cycles."""
+
+        experiment = self.store.experiment()
+        cycles = self.store.list_cycles(experiment["experiment_id"], limit=1)
+        if cycles:
+            raise PaperTradingError("starting balance can only be copied into a new experiment without cycles")
+        sync = self.store.latest_account_sync(account_id)
+        equity = ((sync or {}).get("balance") or {}).get("equity")
+        if not isinstance(equity, (int, float)) or equity < 1:
+            raise PaperTradingError("sync the Gate account first; no usable equity value is available")
+        config = dict(experiment["config"])
+        config["starting_balance_usdt"] = round(float(equity), 8)
+        self.store.save_experiment(config)
+        self.store.record_runtime_event(
+            experiment["experiment_id"],
+            None,
+            "starting_balance_copied_from_gate",
+            {"account_id": account_id, "value_only": True, "starting_balance_usdt": config["starting_balance_usdt"]},
+        )
+        return self.store.experiment()
+
     def resume(self) -> dict[str, Any]:
         return self.start()
 
@@ -4108,9 +4974,13 @@ class PaperRuntime:
                 "excluded_symbols": support["excluded"],
                 "data_cutoff": sample.data_cutoff,
             }
-        if mode != "binance_usdm":
+        if mode not in {"binance_usdm", "gate_usdt"}:
             raise PaperTradingError("market-data mode is unsupported")
-        provider = BinanceUsdMFuturesMarketDataProvider()
+        provider = (
+            BinanceUsdMFuturesMarketDataProvider()
+            if mode == "binance_usdm"
+            else self._market({"market_data_mode": "gate_usdt"})
+        )
         support = provider.validate_symbols(symbols)
         if not support["supported"]:
             raise PaperTradingError("no configured symbol is supported by the public futures venue")
@@ -4186,11 +5056,7 @@ class PaperRuntime:
                             requested_bars=bars,
                             start_time=iso_utc(start),
                             data_cutoff=iso_utc(cutoff),
-                            data_origin=(
-                                "FIXTURE"
-                                if config["market_data_mode"] == "fixture"
-                                else "BINANCE_USDM_PUBLIC"
-                            ),
+                            data_origin=MARKET_DATA_ORIGINS[config["market_data_mode"]],
                         )
                     )
                 except PaperTradingError:
@@ -4218,11 +5084,7 @@ class PaperRuntime:
             "profile_version": "paper-warmup.exp001.v1",
             "experiment_id": experiment["experiment_id"],
             "provider_id": provider.provider_id,
-            "data_origin": (
-                "FIXTURE"
-                if config["market_data_mode"] == "fixture"
-                else "BINANCE_USDM_PUBLIC"
-            ),
+            "data_origin": MARKET_DATA_ORIGINS[config["market_data_mode"]],
             "as_of": iso_utc(current_time),
             "supported_symbols": support["supported"],
             "excluded_symbols": support["excluded"],
@@ -4260,6 +5122,12 @@ class PaperRuntime:
 
     def evaluation(self) -> dict[str, Any]:
         return PaperRuntimeReports(self).evaluation()
+
+    def cost_overview(self) -> dict[str, Any]:
+        return PaperRuntimeReports(self).cost_overview()
+
+    def economics(self) -> dict[str, Any]:
+        return PaperRuntimeReports(self).economics()
 
     def export_bundle(self) -> tuple[bytes, str]:
         return PaperRuntimeReports(self).export_bundle()
@@ -4378,6 +5246,7 @@ class PaperRuntimeReports:
     """Read-only metrics, dashboard, and export projections over persisted runtime state."""
 
     def __init__(self, runtime: PaperRuntime) -> None:
+        self.runtime = runtime
         self.store = runtime.store
         self._clock = runtime._clock
 
@@ -5094,7 +5963,73 @@ class PaperRuntimeReports:
             "cycles": cycles,
             "risk_events": self.store.risk_events(experiment_id, limit=50),
             "activity": activity,
+            "ai_cost": self.cost_overview(),
+            "economics": self.economics(),
+            "market_stream": self.market_stream_status(),
+            "exchange_accounts": self.store.list_exchange_accounts(),
+            "real_integration": self.store.latest_integration_check(),
+            "live_execution": {
+                "gate_write_execution": False,
+                "status": "BLOCKED_BY_DESIGN",
+                "adapter": "DisabledLiveExecutionAdapter",
+            },
         }
+
+    def market_stream_status(self) -> dict[str, Any] | None:
+        stream = getattr(self.runtime, "live_stream", None)
+        if stream is None:
+            return None
+        stream.refresh_state()
+        return stream.status()
+
+    def cost_overview(self) -> dict[str, Any]:
+        experiment = self.store.experiment()
+        experiment_id = experiment["experiment_id"]
+        config = experiment["config"]
+        ledger = self.store.cost_ledger
+        usage = ledger.usage_events(experiment_id)
+        budget_events = ledger.budget_events(experiment_id)
+        book = ledger.price_book()
+        providers = self.store.providers_internal()
+        coverage = []
+        for provider in providers:
+            if provider["kind"].startswith("fixture_"):
+                continue
+            price = ledger.current_price(provider["kind"], provider["model"])
+            coverage.append(
+                {
+                    "provider_id": provider["provider_id"],
+                    "provider_kind": provider["kind"],
+                    "model": provider["model"],
+                    "price_known": price is not None,
+                    "price_book_version": price["version"] if price else None,
+                    "status": "PRICED" if price else "UNKNOWN_PRICE_FAIL_CLOSED",
+                }
+            )
+        return {
+            "budget_status": ledger.budget_status(experiment_id, config["ai_budget"]),
+            "cost_fx": config["cost_fx"],
+            "price_book": book,
+            "price_book_current_versions": sorted({row["version"] for row in book}),
+            "price_coverage": coverage,
+            "providers": provider_ledger_summary(usage, budget_events),
+            "recent_budget_events": [
+                {**row, "details": _loads(row["details_json"], {})} for row in budget_events[:40]
+            ],
+            "recent_usage": usage[-40:],
+        }
+
+    def economics(self) -> dict[str, Any]:
+        experiment = self.store.experiment()
+        experiment_id = experiment["experiment_id"]
+        records = self.store.export_records(experiment_id)
+        return economic_summary(
+            positions=records["positions"],
+            usage_events=self.store.cost_ledger.usage_events(experiment_id),
+            cycles=records["cycles"],
+            fx=experiment["config"]["cost_fx"],
+            starting_balance_usdt=float(experiment["config"]["starting_balance_usdt"]),
+        )
 
     def evaluation(self) -> dict[str, Any]:
         metrics = self.metrics()
@@ -5540,6 +6475,222 @@ class PaperRuntimeReports:
             ],
         )
         files["warmup-bars.jsonl"] = jsonl(records["market_history_bars"])
+        ledger = self.store.cost_ledger
+        usage_events = ledger.usage_events(experiment_id)
+        budget_events = ledger.budget_events(experiment_id)
+        cost = self.cost_overview()
+        economics = self.economics()
+        ledger_fields = [
+            "usage_event_id",
+            "experiment_id",
+            "cycle_id",
+            "symbol",
+            "arm",
+            "provider_id",
+            "provider_kind",
+            "model",
+            "returned_model",
+            "reasoning_effort",
+            "call_type",
+            "started_at",
+            "completed_at",
+            "latency_ms",
+            "status",
+            "input_tokens",
+            "cached_input_tokens",
+            "output_tokens",
+            "reasoning_tokens",
+            "price_id",
+            "price_book_version",
+            "estimated_cost_usd",
+            "billed_cost_usd",
+            "cost_status",
+            "reservation_id",
+            "provider_request_id",
+            "provider_response_id",
+            "error_code",
+            "real_external_call",
+            "decision",
+        ]
+        files["ai-cost-ledger.csv"] = self._csv_bytes(usage_events, ledger_fields)
+        files["ai-budget-events.csv"] = self._csv_bytes(
+            [
+                {**row, "details": _loads(row["details_json"], {})}
+                for row in reversed(budget_events)
+            ],
+            [
+                "event_id",
+                "cycle_id",
+                "provider_id",
+                "call_type",
+                "event_type",
+                "scope",
+                "code",
+                "limit_action",
+                "policy_version",
+                "details",
+                "created_at",
+            ],
+        )
+        files["ai-budget-reservations.csv"] = self._csv_bytes(
+            ledger.reservations(experiment_id),
+            [
+                "reservation_id",
+                "cycle_id",
+                "provider_id",
+                "provider_kind",
+                "call_type",
+                "reserved_usd",
+                "charged_usd",
+                "status",
+                "price_id",
+                "created_at",
+                "settled_at",
+            ],
+        )
+        files["provider-price-book.json"] = json.dumps(
+            {
+                "schema_version": "ai-price-book.v1",
+                "entries": cost["price_book"],
+                "coverage": cost["price_coverage"],
+                "note": "Append-only versions; unknown price is reported as unavailable, never zero.",
+            },
+            indent=2,
+            sort_keys=True,
+        ).encode("utf-8")
+        files["economic-pnl.csv"] = self._csv_bytes(
+            [
+                {
+                    "trading_currency": economics["trading_currency"],
+                    "ai_cost_currency": economics["ai_cost_currency"],
+                    **economics["trading"],
+                    **{
+                        key: value
+                        for key, value in economics["ai_cost"].items()
+                        if not isinstance(value, dict)
+                    },
+                    "fx_mode": economics["fx"]["mode"],
+                    "usdt_per_usd": economics["fx"].get("usdt_per_usd"),
+                    "fx_source": economics["fx"].get("source"),
+                    "ai_cost_usdt": economics["ai_cost_usdt"],
+                    "net_economic_pnl_usdt": economics["net_economic_pnl_usdt"],
+                    "net_economic_unavailable_reason": economics["net_economic_unavailable_reason"],
+                    **{
+                        key: value
+                        for key, value in economics["kpis"].items()
+                        if not isinstance(value, dict)
+                    },
+                }
+            ],
+            [
+                "trading_currency",
+                "ai_cost_currency",
+                "gross_trading_pnl_usdt",
+                "fees_usdt",
+                "funding_usdt",
+                "slippage_usdt",
+                "realized_net_pnl_usdt",
+                "unrealized_pnl_usdt",
+                "net_trading_pnl_usdt",
+                "closed_trades",
+                "winning_trades",
+                "jev_cost_usd",
+                "gpt_cost_usd",
+                "total_ai_cost_usd",
+                "paid_calls",
+                "calls_with_unavailable_cost",
+                "complete",
+                "gpt_escalation_cost_usd",
+                "cost_on_no_trade_usd",
+                "fx_mode",
+                "usdt_per_usd",
+                "fx_source",
+                "ai_cost_usdt",
+                "net_economic_pnl_usdt",
+                "net_economic_unavailable_reason",
+                "ai_cost_per_analysis_usd",
+                "ai_cost_per_eligible_case_usd",
+                "ai_cost_per_trade_usd",
+                "ai_cost_per_winning_trade_usd",
+                "ai_cost_pct_of_gross_profit",
+                "ai_cost_pct_of_net_trading_pnl",
+                "net_economic_expectancy_per_trade_usdt",
+                "net_economic_return_on_capital",
+            ],
+        )
+        files["economics.json"] = json.dumps(economics, indent=2, sort_keys=True).encode("utf-8")
+        files["market-stream-health.csv"] = self._csv_bytes(
+            [
+                {
+                    **{k: row[k] for k in ("health_id", "provider", "event", "state", "observed_at")},
+                    "counters": row["payload"].get("counters"),
+                    "symbols": row["payload"].get("symbols"),
+                    "detail": {
+                        key: value
+                        for key, value in row["payload"].items()
+                        if key not in {"counters", "symbols", "observed_at", "state", "event"}
+                    },
+                }
+                for row in self.store.stream_health()
+            ],
+            ["health_id", "provider", "event", "state", "observed_at", "counters", "symbols", "detail"],
+        )
+        provider_validation = [
+            {
+                "provider_id": provider["provider_id"],
+                "kind": provider["kind"],
+                "model": provider["model"],
+                "reasoning_effort": provider["reasoning_effort"],
+                "last_validation_status": provider["last_validation_status"],
+                "last_validated_at": provider["last_validated_at"],
+                "last_validation_latency_ms": provider["last_validation_latency_ms"],
+                "last_validation": provider.get("last_validation"),
+            }
+            for provider in public_providers
+        ]
+        files["provider-validation.json"] = json.dumps(
+            provider_validation, indent=2, sort_keys=True
+        ).encode("utf-8")
+        integration = self.store.latest_integration_check()
+        files["real-integration-summary.json"] = json.dumps(
+            integration
+            or {"status": "NOT_RUN", "note": "python3 -m crypto_eval real-integration-check has not been run"},
+            indent=2,
+            sort_keys=True,
+        ).encode("utf-8")
+        account_syncs = self.store.account_syncs()
+        if account_syncs:
+            files["gate-account-sync-summary.json"] = json.dumps(
+                account_syncs[-20:], indent=2, sort_keys=True
+            ).encode("utf-8")
+        manifest["ai_cost"] = {
+            "providers": [
+                {
+                    key: row[key]
+                    for key in (
+                        "provider_id",
+                        "provider_kind",
+                        "model",
+                        "returned_models",
+                        "reasoning_effort",
+                        "calls",
+                        "estimated_cost_usd",
+                        "price_book_versions",
+                    )
+                }
+                for row in cost["providers"]
+            ],
+            "budget": experiment["config"]["ai_budget"],
+            "budget_limit_action": experiment["config"]["ai_budget"]["limit_action"],
+            "price_book_versions": cost["price_book_current_versions"],
+            "cost_fx_policy": experiment["config"]["cost_fx"],
+        }
+        manifest["market_provider"] = {
+            "mode": experiment["config"]["market_data_mode"],
+            "origin": MARKET_DATA_ORIGINS[experiment["config"]["market_data_mode"]],
+        }
+        manifest["real_integration_status"] = (integration or {}).get("status", "NOT_RUN")
+        manifest["gate_live_write_execution"] = "BLOCKED_BY_DESIGN"
         report = [
             "# EXP-001 PAPER futures research export",
             "",
