@@ -2,7 +2,7 @@
   "goal": "real-ai-live-paper-trading",
   "branch": "feature/real-ai-live-paper-trading",
   "base_commit": "63bfdaacbc6c8cab9e0a2b652b8616ceda9377fb",
-  "state": "planned_ready_for_development",
+  "state": "implemented_local_real_integration_passed",
   "canonical_files": [
     ".goals/real-ai-live-paper-trading/goal.md",
     "docs/real-ai-live-paper-trading-plan.md",
@@ -39,5 +39,10 @@
     "gate_readonly_sync_allowed": true,
     "gate_live_write_enabled": false,
     "live_write_blocked_by_design": true
+  },
+  "local_acceptance": {
+    "command": "python3 -m crypto_eval real-integration-check",
+    "last_result": "PASS (17 required checks); Gate read-only sync NOT_VERIFIED (no Gate API key); Gate live write BLOCKED_BY_DESIGN",
+    "pricing_note": "integration check used an explicit labeled fallback price book, not Azure/TypeSafe contract pricing"
   }
 }
