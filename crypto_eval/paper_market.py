@@ -154,6 +154,7 @@ class MarketSnapshot:
     open_interest_change_1h: float | None
     open_interest_observed_at: str | None
     spread_bps: float | None
+    market_context: dict[str, Any] | None = None
 
     def validate(self) -> "MarketSnapshot":
         if not isinstance(self.symbol, str) or not self.symbol.isalnum() or self.symbol != self.symbol.upper():
@@ -162,7 +163,7 @@ class MarketSnapshot:
         cutoff = parse_utc(self.data_cutoff, "snapshot.data_cutoff")
         if cutoff > as_of:
             raise MarketDataError("snapshot data_cutoff cannot be later than as_of")
-        if self.data_origin not in {"FIXTURE", "BINANCE_USDM_PUBLIC"}:
+        if self.data_origin not in {"FIXTURE", "BINANCE_USDM_PUBLIC", "GATE_USDT_PUBLIC"}:
             raise MarketDataError("snapshot data origin is unsupported")
         for lane, interval, minimum in (
             (self.candles_15m, "15m", 30),
@@ -198,7 +199,11 @@ class MarketSnapshot:
         return self
 
     def to_dict(self) -> dict[str, Any]:
-        return asdict(self)
+        value = asdict(self)
+        if value.get("market_context") is None:
+            # Keeps hashes of snapshots without live context identical to earlier versions.
+            value.pop("market_context", None)
+        return value
 
     @property
     def snapshot_hash(self) -> str:
