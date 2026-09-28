@@ -7,9 +7,12 @@ deterministic implementation contracts are internally consistent. Passing it
 does **not** show that the `crypto-market-trading-analysis` skill makes accurate
 forecasts, improves decisions, or earns returns.
 
-The harness measures frozen decision outputs against later, separate market
-outcomes. It does not submit orders, manage accounts, simulate a funded
-portfolio, or invoke a model by itself.
+The evaluation commands documented here measure frozen decision outputs
+against later, separate market outcomes. They do not submit orders, manage
+accounts, simulate a funded portfolio, or invoke a model by themselves. The
+repository also includes a separate local PAPER futures runtime for virtual
+wallets and fills; it is documented in
+[`paper-futures-runtime.md`](paper-futures-runtime.md).
 
 ## Quick start
 

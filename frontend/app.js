@@ -13,6 +13,7 @@ import * as watchlist from "./modules/views/watchlist.js";
 import * as evaluations from "./modules/views/evaluations.js";
 import * as dataSources from "./modules/views/dataSources.js";
 import * as settings from "./modules/views/settings.js";
+import * as paperTrading from "./modules/views/paperTrading.js";
 
 const store = createStore(buildSeedData());
 
@@ -25,6 +26,7 @@ const routeRenderers = {
   evaluations: evaluations.render,
   "data-sources": dataSources.render,
   settings: settings.render,
+  "paper-trading": paperTrading.render,
 };
 
 const routeTables = Object.fromEntries(NAV_ITEMS.map(({ route }) => [route, true]));

@@ -1,0 +1,205 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "paper-dashboard.schema.json",
+  "title": "PAPER Futures Dashboard",
+  "type": "object",
+  "required": ["cycles", "metrics"],
+  "properties": {
+    "cycles": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "required": ["cycle_id", "routing"],
+        "properties": {
+          "cycle_id": {"type": "string"},
+          "routing": {"$ref": "#/$defs/routing"}
+        }
+      }
+    },
+    "metrics": {
+      "type": "object",
+      "required": [
+        "escalation_rate",
+        "escalation_rate_numerator",
+        "escalation_rate_denominator",
+        "escalation_rate_definition",
+        "by_regime",
+        "by_asset"
+      ],
+      "properties": {
+        "escalation_rate": {
+          "type": ["number", "null"],
+          "minimum": 0,
+          "maximum": 1
+        },
+        "escalation_rate_numerator": {
+          "type": "integer",
+          "minimum": 0
+        },
+        "escalation_rate_denominator": {
+          "type": "integer",
+          "minimum": 0
+        },
+        "escalation_rate_definition": {
+          "type": "string",
+          "minLength": 1
+        },
+        "by_regime": {
+          "type": "array",
+          "items": {"$ref": "#/$defs/regimeEvaluation"}
+        },
+        "by_asset": {
+          "type": "array",
+          "items": {"$ref": "#/$defs/assetEvaluation"}
+        }
+      }
+    }
+  },
+  "$defs": {
+    "routing": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "quant_gate",
+        "jev_decision",
+        "escalation_required",
+        "luna_result",
+        "risk_decision",
+        "paper_execution"
+      ],
+      "properties": {
+        "quant_gate": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["decision", "signal_strength"],
+          "properties": {
+            "decision": {"type": "string"},
+            "signal_strength": {
+              "type": ["number", "null"],
+              "minimum": 0,
+              "maximum": 1
+            }
+          }
+        },
+        "jev_decision": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["decision", "confidence", "direction"],
+          "properties": {
+            "decision": {"type": "string"},
+            "confidence": {
+              "type": ["number", "null"],
+              "minimum": 0,
+              "maximum": 1
+            },
+            "direction": {
+              "type": ["string", "null"],
+              "enum": ["long", "short", null]
+            }
+          }
+        },
+        "escalation_required": {"type": ["boolean", "null"]},
+        "luna_result": {
+          "oneOf": [
+            {"type": "null"},
+            {
+              "type": "object",
+              "additionalProperties": false,
+              "required": ["status", "decision"],
+              "properties": {
+                "status": {
+                  "enum": [
+                    "not_evaluated",
+                    "not_invoked",
+                    "invoked",
+                    "failed"
+                  ]
+                },
+                "decision": {
+                  "type": ["string", "null"]
+                }
+              }
+            }
+          ]
+        },
+        "risk_decision": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["approved", "code", "reason"],
+          "properties": {
+            "approved": {"type": ["boolean", "null"]},
+            "code": {"type": "string"},
+            "reason": {"type": "string"}
+          }
+        },
+        "paper_execution": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["status", "order_count", "fill_count"],
+          "properties": {
+            "status": {"type": "string"},
+            "order_count": {"type": "integer", "minimum": 0},
+            "fill_count": {"type": "integer", "minimum": 0}
+          }
+        }
+      }
+    },
+    "evaluationBase": {
+      "type": "object",
+      "required": [
+        "closed_trade_count",
+        "net_pnl_usdt",
+        "expectancy_usdt",
+        "max_drawdown",
+        "data_origin"
+      ],
+      "properties": {
+        "closed_trade_count": {
+          "type": "integer",
+          "minimum": 0
+        },
+        "net_pnl_usdt": {
+          "type": "number"
+        },
+        "expectancy_usdt": {
+          "type": ["number", "null"]
+        },
+        "max_drawdown": {
+          "type": ["number", "null"],
+          "minimum": 0
+        },
+        "data_origin": {
+          "type": "string",
+          "minLength": 1
+        }
+      }
+    },
+    "regimeEvaluation": {
+      "allOf": [
+        {"$ref": "#/$defs/evaluationBase"},
+        {
+          "type": "object",
+          "required": ["regime"],
+          "properties": {
+            "regime": {"type": "string", "minLength": 1}
+          }
+        }
+      ]
+    },
+    "assetEvaluation": {
+      "allOf": [
+        {"$ref": "#/$defs/evaluationBase"},
+        {
+          "type": "object",
+          "required": ["symbol"],
+          "properties": {
+            "symbol": {
+              "type": "string",
+              "pattern": "^[A-Z0-9]{5,20}$"
+            }
+          }
+        }
+      ]
+    }
+  }
+}

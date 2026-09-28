@@ -1,0 +1,77 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "paper-trading-intent.schema.json",
+  "title": "PAPER TradingIntent",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "schema_version",
+    "action",
+    "symbol",
+    "side",
+    "order_type",
+    "entry_price",
+    "stop_price",
+    "target_price",
+    "reduce_only",
+    "reduce_fraction",
+    "position_id",
+    "reason",
+    "source_arm",
+    "as_of"
+  ],
+  "properties": {
+    "schema_version": {
+      "const": "paper-trading-intent.v1"
+    },
+    "action": {
+      "enum": ["open", "close", "reduce"]
+    },
+    "symbol": {
+      "type": "string",
+      "pattern": "^[A-Z0-9]{5,20}$"
+    },
+    "side": {
+      "enum": ["long", "short"]
+    },
+    "order_type": {
+      "enum": ["market", "limit"]
+    },
+    "entry_price": {
+      "type": ["number", "null"],
+      "exclusiveMinimum": 0
+    },
+    "stop_price": {
+      "type": ["number", "null"],
+      "exclusiveMinimum": 0
+    },
+    "target_price": {
+      "type": ["number", "null"],
+      "exclusiveMinimum": 0
+    },
+    "reduce_only": {
+      "type": "boolean"
+    },
+    "reduce_fraction": {
+      "type": ["number", "null"],
+      "exclusiveMinimum": 0,
+      "maximum": 1
+    },
+    "position_id": {
+      "type": ["string", "null"],
+      "maxLength": 120
+    },
+    "reason": {
+      "type": "string",
+      "minLength": 1,
+      "maxLength": 500
+    },
+    "source_arm": {
+      "enum": ["quant", "jev", "luna", "luna_skill", "quant_jev", "hybrid"]
+    },
+    "as_of": {
+      "type": "string",
+      "format": "date-time"
+    }
+  }
+}

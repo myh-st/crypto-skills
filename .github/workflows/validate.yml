@@ -32,9 +32,9 @@ jobs:
         run: python -m unittest discover -s tests -v
 
       - name: Check frontend JavaScript syntax
-        run: find frontend -name "*.js" -exec node --check {} \;
+        run: find frontend -name '*.js' -exec node --check {} \;
 
-      - name: Run offline frontend tests
+      - name: Run frontend tests
         run: node --test frontend/tests/*.test.mjs
 
       - name: Run deterministic evaluation fixture

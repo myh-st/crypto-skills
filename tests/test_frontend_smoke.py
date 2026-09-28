@@ -16,6 +16,7 @@ ROOT = Path(__file__).resolve().parents[1]
 FRONTEND_DIR = ROOT / "frontend"
 
 EXPECTED_DESTINATIONS = [
+    "Paper Trading",
     "Overview",
     "New Analysis",
     "Runs",
@@ -27,6 +28,7 @@ EXPECTED_DESTINATIONS = [
 ]
 
 EXPECTED_ROUTES = [
+    "paper-trading",
     "overview",
     "new-analysis",
     "runs",
@@ -60,6 +62,8 @@ class FrontendSmokeTests(unittest.TestCase):
             "modules/components/priceChart.js",
             "modules/components/sparkline.js",
             "modules/components/evidenceDrawer.js",
+            "modules/paperApi.js",
+            "modules/views/paperTrading.js",
         ]:
             self.assertTrue(
                 (FRONTEND_DIR / relative).is_file(),
@@ -82,11 +86,11 @@ class FrontendSmokeTests(unittest.TestCase):
 
     def test_index_declares_demo_disclaimer(self) -> None:
         html = read(FRONTEND_DIR / "index.html")
-        self.assertIn("FIXTURE", html)
-        self.assertIn("Synthetic market data", html)
-        self.assertIn("No live providers or trading", html)
+        self.assertIn("PAPER / FIXTURE", html)
+        self.assertIn("read-only public futures data", html)
+        self.assertIn("No real-money execution", html)
 
-    def test_nav_declares_eight_destinations(self) -> None:
+    def test_nav_declares_research_and_paper_destinations(self) -> None:
         nav_source = read(FRONTEND_DIR / "modules/components/nav.js")
         for label in EXPECTED_DESTINATIONS:
             self.assertIn(label, nav_source, f"navigation is missing destination: {label}")
@@ -94,7 +98,7 @@ class FrontendSmokeTests(unittest.TestCase):
             self.assertIn(f'"{route}"', nav_source, f"navigation is missing route: {route}")
         self.assertIn("nav-link--active", nav_source)
 
-    def test_app_registers_all_eight_routes(self) -> None:
+    def test_app_registers_all_routes(self) -> None:
         app_source = read(FRONTEND_DIR / "app.js")
         for route in EXPECTED_ROUTES:
             # Object keys that are valid identifiers (e.g. "runs") are written
@@ -220,7 +224,7 @@ class FrontendSmokeTests(unittest.TestCase):
     def test_frontend_readme_documents_run_command_and_limitations(self) -> None:
         readme = read(FRONTEND_DIR / "README.md")
         self.assertIn("python3 -m http.server", readme)
-        self.assertIn("Demo", readme)
+        self.assertIn("demo", readme.lower())
         self.assertIn("limitation", readme.lower())
 
 

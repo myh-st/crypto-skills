@@ -1,0 +1,191 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "paper-market-history.schema.json",
+  "title": "PAPER Futures Warm-up Result",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "profile",
+    "profile_version",
+    "experiment_id",
+    "provider_id",
+    "data_origin",
+    "as_of",
+    "supported_symbols",
+    "excluded_symbols",
+    "requested_lane_count",
+    "completed_lane_count",
+    "retrieved_bars",
+    "inserted_bars",
+    "status",
+    "failures",
+    "history"
+  ],
+  "properties": {
+    "profile": {
+      "const": "EXP-001"
+    },
+    "profile_version": {
+      "const": "paper-warmup.exp001.v1"
+    },
+    "experiment_id": {
+      "const": "EXP-001"
+    },
+    "provider_id": {
+      "type": "string",
+      "minLength": 1,
+      "maxLength": 80
+    },
+    "data_origin": {
+      "enum": ["FIXTURE", "BINANCE_USDM_PUBLIC"]
+    },
+    "as_of": {
+      "type": "string",
+      "format": "date-time"
+    },
+    "supported_symbols": {
+      "type": "array",
+      "items": {
+        "type": "string",
+        "pattern": "^[A-Z0-9]{5,20}$"
+      },
+      "uniqueItems": true
+    },
+    "excluded_symbols": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": ["symbol", "reason"],
+        "properties": {
+          "symbol": {
+            "type": "string",
+            "pattern": "^[A-Z0-9]{5,20}$"
+          },
+          "reason": {
+            "type": "string",
+            "minLength": 1
+          }
+        }
+      }
+    },
+    "requested_lane_count": {
+      "type": "integer",
+      "minimum": 0
+    },
+    "completed_lane_count": {
+      "type": "integer",
+      "minimum": 0
+    },
+    "retrieved_bars": {
+      "type": "integer",
+      "minimum": 0
+    },
+    "inserted_bars": {
+      "type": "integer",
+      "minimum": 0
+    },
+    "status": {
+      "enum": ["complete", "partial", "failed"]
+    },
+    "failures": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": ["symbol", "interval", "requested_bars", "error_code"],
+        "properties": {
+          "symbol": {
+            "type": "string",
+            "pattern": "^[A-Z0-9]{5,20}$"
+          },
+          "interval": {
+            "enum": ["1m", "15m", "1h", "4h"]
+          },
+          "requested_bars": {
+            "type": "integer",
+            "minimum": 1
+          },
+          "error_code": {
+            "type": "string",
+            "const": "history_warmup_failed"
+          }
+        }
+      }
+    },
+    "history": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["runs", "lanes"],
+      "properties": {
+        "runs": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "required": [
+              "provider_id",
+              "symbol",
+              "interval",
+              "requested_bars",
+              "retrieved_bars",
+              "inserted_bars",
+              "start_time",
+              "data_cutoff",
+              "data_origin",
+              "content_sha256",
+              "status",
+              "created_at"
+            ],
+            "properties": {
+              "provider_id": {"type": "string"},
+              "symbol": {"type": "string"},
+              "interval": {"enum": ["1m", "15m", "1h", "4h"]},
+              "requested_bars": {"type": "integer", "minimum": 1},
+              "retrieved_bars": {"type": "integer", "minimum": 1},
+              "inserted_bars": {"type": "integer", "minimum": 0},
+              "start_time": {"type": "string", "format": "date-time"},
+              "data_cutoff": {"type": "string", "format": "date-time"},
+              "data_origin": {"enum": ["FIXTURE", "BINANCE_USDM_PUBLIC"]},
+              "content_sha256": {
+                "type": "string",
+                "pattern": "^[a-f0-9]{64}$"
+              },
+              "status": {"const": "complete"},
+              "created_at": {"type": "string", "format": "date-time"}
+            }
+          }
+        },
+        "lanes": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "required": [
+              "provider_id",
+              "symbol",
+              "interval",
+              "stored_bars",
+              "first_open_time",
+              "last_close_time",
+              "data_origin"
+            ],
+            "properties": {
+              "provider_id": {"type": "string"},
+              "symbol": {"type": "string"},
+              "interval": {"enum": ["1m", "15m", "1h", "4h"]},
+              "stored_bars": {"type": "integer", "minimum": 0},
+              "first_open_time": {
+                "type": ["string", "null"],
+                "format": "date-time"
+              },
+              "last_close_time": {
+                "type": ["string", "null"],
+                "format": "date-time"
+              },
+              "data_origin": {"type": "string"}
+            }
+          }
+        }
+      }
+    }
+  }
+}

@@ -1,0 +1,69 @@
+{
+  "goal": "ai-paper-futures-trading",
+  "architecture_version": "v2-jev-hybrid",
+  "branch": "feature/ai-paper-futures-trading",
+  "base_commit": "887ced89866fb53748519170d19b3080cadab230",
+  "state": "completed",
+  "iteration": 4,
+  "builder_model": "GPT-6-Luna",
+  "inspector_model": "GPT-6-Luna",
+  "initial_sha": "048b3f42c42f7c1be902e72473f32aaead1ecb31",
+  "started_at": "2026-09-28T08:36:51+07:00",
+  "history": [
+    {
+      "iteration": 1,
+      "verdict": "FAIL",
+      "summary": "Default TypeSafe/OpenAI-compatible authentication sends a literal mask instead of the configured key; Responses Test Connection omits the configured reasoning mode."
+    },
+    {
+      "iteration": 2,
+      "verdict": "FAIL",
+      "summary": "Mocked provider authentication and reasoning validation now pass; runtime decision details and evaluation performance by regime/asset are still missing from the dashboards."
+    },
+    {
+      "iteration": 3,
+      "verdict": "FAIL",
+      "summary": "Provider auth/reasoning and completed-cycle routing are verified, but interrupted cycles misstate unknown routing, regime/asset drawdown remains unavailable, and Export/Data Retention settings are incomplete."
+    },
+    {
+      "iteration": 4,
+      "verdict": "PASS",
+      "summary": "Unknown routing and Luna lifecycle states are explicit, chronological asset/regime drawdown reconciles using the documented bucket denominator, and configurable raw-bar retention defaults to indefinite while preserving the ledger; prior safety and accounting checks pass."
+    }
+  ],
+  "implementation_started": true,
+  "live_trading_allowed": false,
+  "execution_mode": "PAPER",
+  "primary_timeframe": "15m",
+  "starting_balance_usdt": 100,
+  "primary_leverage": 3,
+  "shadow_leverage": [
+    1,
+    2,
+    3,
+    5,
+    10
+  ],
+  "decision_stack": [
+    "quant",
+    "jev",
+    "conditional_gpt6_luna_skill",
+    "deterministic_risk",
+    "paper_execution"
+  ],
+  "provider_settings_required": [
+    "typesafe_jev",
+    "openai",
+    "microsoft_foundry_or_azure",
+    "generic_responses_compatible"
+  ],
+  "canonical_docs": [
+    ".goals/ai-paper-futures-trading/goal.md",
+    "docs/paper-futures-hybrid-v2.md",
+    "docs/vscode-gpt6-luna-jev-hybrid-prompt.md"
+  ],
+  "supersedes_conflicts_in": [
+    "docs/paper-futures-development-plan.md",
+    "docs/vscode-gpt6-luna-paper-futures-prompt.md"
+  ]
+}

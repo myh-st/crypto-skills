@@ -1,0 +1,262 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "paper-futures-experiment.schema.json",
+  "title": "PAPER Futures Experiment",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "experiment_id",
+    "execution_mode",
+    "market_data_mode",
+    "symbols",
+    "decision_timeframe",
+    "context_timeframes",
+    "starting_balance_usdt",
+    "risk_per_trade",
+    "max_positions",
+    "primary_leverage",
+    "entry_order_type",
+    "minimum_notional_usdt",
+    "max_leverage",
+    "shadow_leverage",
+    "max_daily_loss",
+    "max_drawdown_stop",
+    "max_consecutive_losses",
+    "taker_fee_rate",
+    "maker_fee_rate",
+    "slippage_bps",
+    "maintenance_margin_rate",
+    "market_data_retention_days",
+    "schedule_delay_seconds",
+    "monitor_interval_seconds",
+    "signal_gate_enabled",
+    "minimum_signal_strength",
+    "primary_arm",
+    "evaluation_arms",
+    "jev_enabled",
+    "jev_provider_id",
+    "gpt_escalation_enabled",
+    "gpt_provider_id",
+    "fallback_policy",
+    "escalation_policy",
+    "force_escalation",
+    "auto_resume"
+  ],
+  "properties": {
+    "experiment_id": {
+      "const": "EXP-001"
+    },
+    "execution_mode": {
+      "const": "PAPER"
+    },
+    "market_data_mode": {
+      "enum": ["fixture", "binance_usdm"]
+    },
+    "symbols": {
+      "type": "array",
+      "minItems": 1,
+      "maxItems": 20,
+      "uniqueItems": true,
+      "items": {
+        "type": "string",
+        "pattern": "^[A-Z0-9]{5,20}$"
+      }
+    },
+    "decision_timeframe": {
+      "const": "15m"
+    },
+    "context_timeframes": {
+      "const": ["1h", "4h"]
+    },
+    "starting_balance_usdt": {
+      "type": "number",
+      "minimum": 1
+    },
+    "risk_per_trade": {
+      "type": "number",
+      "exclusiveMinimum": 0,
+      "maximum": 0.02
+    },
+    "max_positions": {
+      "type": "integer",
+      "minimum": 1,
+      "maximum": 20
+    },
+    "primary_leverage": {
+      "type": "integer",
+      "minimum": 1,
+      "maximum": 10
+    },
+    "entry_order_type": {
+      "enum": ["market", "limit"]
+    },
+    "minimum_notional_usdt": {
+      "type": "number",
+      "minimum": 0.1,
+      "maximum": 100000
+    },
+    "max_leverage": {
+      "type": "integer",
+      "minimum": 1,
+      "maximum": 10
+    },
+    "shadow_leverage": {
+      "type": "array",
+      "uniqueItems": true,
+      "items": {
+        "type": "integer",
+        "minimum": 1,
+        "maximum": 10
+      }
+    },
+    "max_daily_loss": {
+      "type": "number",
+      "exclusiveMinimum": 0,
+      "maximum": 0.5
+    },
+    "max_drawdown_stop": {
+      "type": "number",
+      "exclusiveMinimum": 0,
+      "maximum": 0.5
+    },
+    "max_consecutive_losses": {
+      "type": "integer",
+      "minimum": 1
+    },
+    "taker_fee_rate": {
+      "type": "number",
+      "minimum": 0,
+      "maximum": 0.02
+    },
+    "maker_fee_rate": {
+      "type": "number",
+      "minimum": 0,
+      "maximum": 0.02
+    },
+    "slippage_bps": {
+      "type": "number",
+      "minimum": 0,
+      "maximum": 500
+    },
+    "maintenance_margin_rate": {
+      "type": "number",
+      "minimum": 0,
+      "maximum": 0.02
+    },
+    "market_data_retention_days": {
+      "enum": [null, 30, 90, 365]
+    },
+    "schedule_delay_seconds": {
+      "type": "integer",
+      "minimum": 0,
+      "maximum": 900
+    },
+    "monitor_interval_seconds": {
+      "type": "integer",
+      "minimum": 5,
+      "maximum": 3600
+    },
+    "signal_gate_enabled": {
+      "type": "boolean"
+    },
+    "minimum_signal_strength": {
+      "type": "number",
+      "minimum": 0,
+      "maximum": 1
+    },
+    "primary_arm": {
+      "enum": ["quant", "jev", "luna", "luna_skill", "quant_jev", "hybrid"]
+    },
+    "evaluation_arms": {
+      "type": "array",
+      "minItems": 1,
+      "uniqueItems": true,
+      "items": {
+        "enum": ["quant", "jev", "luna", "luna_skill", "quant_jev", "hybrid"]
+      }
+    },
+    "jev_enabled": {
+      "type": "boolean"
+    },
+    "jev_provider_id": {
+      "type": "string",
+      "pattern": "^[A-Za-z0-9._-]{1,80}$"
+    },
+    "gpt_escalation_enabled": {
+      "type": "boolean"
+    },
+    "gpt_provider_id": {
+      "type": "string",
+      "pattern": "^[A-Za-z0-9._-]{1,80}$"
+    },
+    "fallback_policy": {
+      "enum": ["DEFER", "GPT_FALLBACK", "SKIP"]
+    },
+    "escalation_policy": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "version",
+        "minimum_confidence",
+        "conflict_threshold",
+        "setup_borderline_min",
+        "setup_borderline_max",
+        "funding_concern_threshold",
+        "oi_conflict_score_threshold",
+        "liquidity_score_threshold",
+        "leverage_stress_score_threshold"
+      ],
+      "properties": {
+        "version": {
+          "const": "jev-escalation.v1"
+        },
+        "minimum_confidence": {
+          "type": "number",
+          "minimum": 0,
+          "maximum": 1
+        },
+        "conflict_threshold": {
+          "type": "number",
+          "minimum": 0,
+          "maximum": 1
+        },
+        "setup_borderline_min": {
+          "type": "number",
+          "minimum": 0,
+          "maximum": 4
+        },
+        "setup_borderline_max": {
+          "type": "number",
+          "minimum": 0,
+          "maximum": 4
+        },
+        "funding_concern_threshold": {
+          "type": "number",
+          "minimum": 0,
+          "maximum": 1
+        },
+        "oi_conflict_score_threshold": {
+          "type": "number",
+          "minimum": 0,
+          "maximum": 4
+        },
+        "liquidity_score_threshold": {
+          "type": "number",
+          "minimum": 0,
+          "maximum": 4
+        },
+        "leverage_stress_score_threshold": {
+          "type": "number",
+          "minimum": 0,
+          "maximum": 4
+        }
+      }
+    },
+    "force_escalation": {
+      "type": "boolean"
+    },
+    "auto_resume": {
+      "type": "boolean"
+    }
+  }
+}
