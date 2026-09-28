@@ -57,7 +57,8 @@ class AIProviderError(PaperTradingError):
     """Provider failure with no response bodies, credentials, or prompt content."""
 
 
-PostTransport = Callable[[str, dict[str, str], bytes, float], bytes]
+PostTransport = Callable[[str, dict[str, str], bytes, float], Any]
+SAFE_RESPONSE_HEADERS = ("x-request-id", "apim-request-id", "x-ms-region", "request-id")
 
 
 class _NoRedirectHandler(urllib.request.HTTPRedirectHandler):
@@ -65,14 +66,31 @@ class _NoRedirectHandler(urllib.request.HTTPRedirectHandler):
         return None
 
 
-def _post_json(url: str, headers: dict[str, str], body: bytes, timeout: float) -> bytes:
+def _post_json(url: str, headers: dict[str, str], body: bytes, timeout: float) -> tuple[bytes, dict[str, str]]:
     request = urllib.request.Request(url, data=body, headers=headers, method="POST")
     opener = urllib.request.build_opener(_NoRedirectHandler)
     with opener.open(request, timeout=timeout) as response:
-        return response.read(MAX_AI_RESPONSE_BYTES + 1)
+        safe_headers = {
+            key.lower(): value[:120]
+            for key, value in response.headers.items()
+            if key.lower() in SAFE_RESPONSE_HEADERS
+        }
+        return response.read(MAX_AI_RESPONSE_BYTES + 1), safe_headers
 
 
-def _credentials(provider: dict[str, Any], environ: dict[str, str] | None = None) -> str:
+def _credentials(
+    provider: dict[str, Any],
+    environ: dict[str, str] | None = None,
+    resolver: Any | None = None,
+) -> str:
+    """Resolve from the OS credential store first, then the configured env reference."""
+
+    secret_id = provider.get("credential_secret")
+    if resolver is not None:
+        value, _source = resolver.resolve(secret_id=secret_id, env_name=provider.get("credential_env"))
+        if value:
+            return value
+        raise AIProviderError("provider credential is not stored; no external model call was made")
     name = provider.get("credential_env")
     values = os.environ if environ is None else environ
     if not isinstance(name, str) or not name or not isinstance(values.get(name), str) or not values[name].strip():
@@ -86,6 +104,10 @@ def _typesafe_authorization(provider: dict[str, Any], token: str) -> str:
     return "Bearer " + token
 
 
+def encoded_payload(payload: dict[str, Any]) -> bytes:
+    return json.dumps(payload, sort_keys=True, separators=(",", ":"), allow_nan=False).encode("utf-8")
+
+
 def _safe_post(
     transport: PostTransport,
     url: str,
@@ -93,9 +115,17 @@ def _safe_post(
     payload: dict[str, Any],
     timeout: float,
     provider_name: str,
+    meta: dict[str, Any] | None = None,
 ) -> dict[str, Any]:
+    """POST JSON and return the parsed object; ``meta`` receives safe transport facts only."""
+
+    if meta is not None:
+        meta.setdefault("request_sent", False)
     try:
-        body = json.dumps(payload, sort_keys=True, separators=(",", ":"), allow_nan=False).encode("utf-8")
+        body = encoded_payload(payload)
+        if meta is not None:
+            meta["request_sent"] = True
+            meta["request_bytes"] = len(body)
         response = transport(
             url,
             headers,
@@ -103,15 +133,39 @@ def _safe_post(
             timeout,
         )
     except urllib.error.HTTPError as exc:
+        if meta is not None:
+            meta["error_kind"] = "http"
+            meta["http_status"] = exc.code
+            try:
+                request_id = exc.headers.get("x-request-id") if exc.headers else None
+            except Exception:
+                request_id = None
+            if isinstance(request_id, str):
+                meta["provider_request_id"] = request_id[:120]
         raise AIProviderError(f"{provider_name} returned HTTP {exc.code}") from None
     except (TimeoutError, socket.timeout):
+        if meta is not None:
+            meta["error_kind"] = "timeout"
         raise AIProviderError(f"{provider_name} request timed out") from None
     except (urllib.error.URLError, OSError):
+        if meta is not None:
+            meta["error_kind"] = "network"
         raise AIProviderError(f"{provider_name} request failed") from None
     except AIProviderError:
         raise
     except Exception:
+        if meta is not None:
+            meta["error_kind"] = "transport"
         raise AIProviderError(f"{provider_name} request failed") from None
+    if isinstance(response, tuple) and len(response) == 2:
+        response, response_headers = response
+        if meta is not None and isinstance(response_headers, dict):
+            request_id = response_headers.get("x-request-id") or response_headers.get("apim-request-id")
+            if isinstance(request_id, str):
+                meta["provider_request_id"] = request_id[:120]
+            region = response_headers.get("x-ms-region")
+            if isinstance(region, str):
+                meta["provider_region"] = region[:60]
     if not isinstance(response, (bytes, bytearray)) or len(response) > MAX_AI_RESPONSE_BYTES:
         raise AIProviderError(f"{provider_name} returned an invalid response")
     try:
@@ -224,6 +278,7 @@ def jev_state(
         "open_interest_change_1h": snapshot.open_interest_change_1h,
         "open_interest_observed_at": snapshot.open_interest_observed_at,
         "spread_bps": snapshot.spread_bps,
+        **_safe_market_context(snapshot.market_context),
     }
     portfolio_state = {
         "has_position": bool(portfolio.get("has_position")),
@@ -392,13 +447,24 @@ class JevAdapter:
         environ: dict[str, str] | None = None,
         transport: PostTransport | None = None,
         clock: Callable[[], datetime] | None = None,
+        resolver: Any | None = None,
     ) -> None:
         self.provider = provider
         self.environ = environ
+        self.resolver = resolver
         self._transport = transport or _post_json
         self._clock = clock or (lambda: datetime.now(timezone.utc))
+        self.last_call: dict[str, Any] = {}
 
-    def evaluate(
+    def _headers(self) -> dict[str, str]:
+        token = _credentials(self.provider, self.environ, self.resolver)
+        return {
+            "Accept": "application/json",
+            "Content-Type": "application/json",
+            "Authorization": _typesafe_authorization(self.provider, token),
+        }
+
+    def evaluation_payload(
         self,
         snapshot: MarketSnapshot,
         features: dict[str, Any],
@@ -408,14 +474,18 @@ class JevAdapter:
             include_open_interest=snapshot.open_interest_change_1h is not None,
             include_spread=snapshot.spread_bps is not None,
         )
-        state = jev_state(snapshot, features, portfolio)
-        payload = {"state": state, "model": self.provider["model"], "questions": questions}
-        token = _credentials(self.provider, self.environ)
-        headers = {
-            "Accept": "application/json",
-            "Content-Type": "application/json",
-            "Authorization": _typesafe_authorization(self.provider, token),
-        }
+        return {"state": jev_state(snapshot, features, portfolio), "model": self.provider["model"], "questions": questions}
+
+    def evaluate(
+        self,
+        snapshot: MarketSnapshot,
+        features: dict[str, Any],
+        portfolio: dict[str, Any],
+    ) -> dict[str, Any]:
+        payload = self.evaluation_payload(snapshot, features, portfolio)
+        headers = self._headers()
+        meta: dict[str, Any] = {}
+        self.last_call = meta
         started = time.perf_counter()
         response = _safe_post(
             self._transport,
@@ -424,15 +494,20 @@ class JevAdapter:
             payload,
             float(self.provider.get("timeout_seconds", 20)),
             "TypeSafe Jev",
+            meta,
         )
         latency = (time.perf_counter() - started) * 1000
-        return parse_jev_response(
+        meta["latency_ms"] = latency
+        meta["raw_usage"] = response.get("usage")
+        vector = parse_jev_response(
             response,
-            questions,
-            snapshot_hash=state["snapshot_hash"],
+            payload["questions"],
+            snapshot_hash=payload["state"]["snapshot_hash"],
             latency_ms=latency,
             observed_at=self._clock(),
         )
+        vector["provider_request_id"] = meta.get("provider_request_id")
+        return vector
 
     def test_connection(self) -> dict[str, Any]:
         questions = {
@@ -456,34 +531,53 @@ class JevAdapter:
             "model": self.provider["model"],
             "questions": questions,
         }
-        token = _credentials(self.provider, self.environ)
+        headers = self._headers()
+        meta: dict[str, Any] = {}
+        self.last_call = meta
         started = time.perf_counter()
         response = _safe_post(
             self._transport,
             _type_safe_url(self.provider.get("base_url", TYPE_SAFE_DEFAULT_URL)),
-            {
-                "Accept": "application/json",
-                "Content-Type": "application/json",
-                "Authorization": _typesafe_authorization(self.provider, token),
-            },
+            headers,
             payload,
             float(self.provider.get("timeout_seconds", 20)),
             "TypeSafe Jev",
+            meta,
         )
+        latency = (time.perf_counter() - started) * 1000
+        meta["latency_ms"] = latency
+        meta["raw_usage"] = response.get("usage")
         vector = parse_jev_response(
             response,
             questions,
             snapshot_hash=digest(payload["state"]),
-            latency_ms=(time.perf_counter() - started) * 1000,
+            latency_ms=latency,
             observed_at=self._clock(),
         )
+        answers = vector["answers"]
         return {
             "ok": True,
             "provider_id": self.provider["provider_id"],
+            "requested_model": self.provider["model"],
             "model": vector["model"],
             "latency_ms": vector["latency_ms"],
             "validated_question_types": ["noul", "choice", "score"],
+            "typed_outputs": {
+                "choice": {
+                    "value": answers["connection_choice"]["value"],
+                    "confidence": answers["connection_choice"].get("confidence"),
+                    "probabilities": answers["connection_choice"].get("probabilities"),
+                },
+                "score": {
+                    "value": answers["connection_score"]["value"],
+                    "confidence": answers["connection_score"].get("confidence"),
+                    "probabilities": answers["connection_score"].get("probabilities"),
+                },
+                "noul": {"value": answers["connection_noul"]["value"]},
+            },
             "usage": vector["usage"],
+            "provider_request_id": meta.get("provider_request_id"),
+            "real_external_call": True,
         }
 
 
@@ -687,7 +781,27 @@ def _safe_snapshot(snapshot: MarketSnapshot) -> dict[str, Any]:
         "open_interest_change_1h": value["open_interest_change_1h"],
         "open_interest_observed_at": value["open_interest_observed_at"],
         "spread_bps": value["spread_bps"],
+        **_safe_market_context(value.get("market_context")),
     }
+
+
+def _safe_market_context(context: Any) -> dict[str, Any]:
+    """Point-in-time exchange context observed at as_of (never later bars or outcomes)."""
+
+    if not isinstance(context, dict):
+        return {}
+    keys = (
+        "last_price",
+        "mark_price",
+        "index_price",
+        "best_bid",
+        "best_ask",
+        "spread_bps",
+        "funding_rate_current",
+        "change_24h_pct",
+        "volume_24h_quote",
+    )
+    return {"market_context": {key: context.get(key) for key in keys}}
 
 
 def load_skill_bundle(root: Path | None = None) -> str:
@@ -795,12 +909,15 @@ def _responses_url(provider: dict[str, Any]) -> str:
     base = provider["base_url"].strip()
     parsed = urllib.parse.urlsplit(base)
     path = parsed.path.rstrip("/")
+    if provider["kind"] == "foundry_responses" and "/api/projects/" in f"{path}/":
+        # A Foundry *project* endpoint; the v1 Responses API lives on the resource root.
+        return urllib.parse.urlunsplit((parsed.scheme, parsed.netloc, "/openai/v1/responses", "", ""))
     if path.endswith("/responses"):
         return base
     if path.endswith("/v1"):
         path += "/responses"
     elif provider["kind"] == "foundry_responses" and path.endswith("/openai"):
-        path += "/responses"
+        path += "/v1/responses"
     elif path:
         path += "/responses"
     else:
@@ -808,7 +925,32 @@ def _responses_url(provider: dict[str, Any]) -> str:
     return urllib.parse.urlunsplit((parsed.scheme, parsed.netloc, path, parsed.query, ""))
 
 
+def responses_metadata(response: dict[str, Any], requested_effort: str) -> dict[str, Any]:
+    """Safe, normalized facts about a Responses reply (no prompt or output text)."""
+
+    reasoning = response.get("reasoning") if isinstance(response.get("reasoning"), dict) else {}
+    echoed = reasoning.get("effort") if isinstance(reasoning.get("effort"), str) else None
+    if echoed is not None and echoed != requested_effort:
+        raise AIProviderError(
+            f"provider applied reasoning effort {echoed!r} instead of the requested {requested_effort!r}; "
+            "silent downgrades are rejected"
+        )
+    response_id = response.get("id")
+    model = response.get("model")
+    return {
+        "provider_response_id": response_id[:120] if isinstance(response_id, str) else None,
+        "returned_model": model[:160] if isinstance(model, str) else None,
+        "reasoning_effort_requested": requested_effort,
+        "reasoning_effort_echoed": echoed,
+        "status": response.get("status"),
+    }
+
+
 def _response_text(response: dict[str, Any]) -> str:
+    if response.get("status") == "incomplete":
+        raise AIProviderError(
+            "Responses-compatible provider returned an incomplete response (output-token cap reached)"
+        )
     if response.get("status") not in {None, "completed"} or response.get("error"):
         raise AIProviderError("Responses-compatible provider did not complete the request")
     direct = response.get("output_text")
@@ -890,6 +1032,9 @@ def parse_gpt_intent(
     }
 
 
+REASONING_EFFORTS = {"low", "medium", "high", "max"}
+
+
 class ResponsesAdapter:
     """OpenAI Responses, Microsoft Foundry/Azure, or validated-compatible adapter."""
 
@@ -900,22 +1045,43 @@ class ResponsesAdapter:
         environ: dict[str, str] | None = None,
         transport: PostTransport | None = None,
         skill_context: str | None = None,
+        resolver: Any | None = None,
+        max_output_tokens: int | None = None,
     ) -> None:
         self.provider = provider
         self.environ = environ
+        self.resolver = resolver
+        self.max_output_tokens = max_output_tokens
         self._transport = transport or _post_json
         self.skill_context = skill_context
+        self.last_call: dict[str, Any] = {}
 
-    def generate_intent(
+    def _headers(self) -> dict[str, str]:
+        api_key = _credentials(self.provider, self.environ, self.resolver)
+        headers = {"Accept": "application/json", "Content-Type": "application/json"}
+        if self.provider["kind"] == "foundry_responses":
+            headers["api-key"] = api_key
+        else:
+            headers["Authorization"] = f"Bearer {api_key}"
+        return headers
+
+    def _effort(self, action: str) -> str:
+        reasoning_effort = self.provider.get("reasoning_effort")
+        if reasoning_effort not in REASONING_EFFORTS:
+            raise AIProviderError(
+                f"configured reasoning effort is unsupported; no external {action} was made"
+            )
+        return reasoning_effort
+
+    def intent_payload(
         self,
         snapshot: MarketSnapshot,
         features: dict[str, Any],
         portfolio: dict[str, Any],
         *,
         jev_vector: dict[str, Any] | None,
-        source_arm: str,
         include_skill: bool,
-    ) -> dict[str, Any]:
+    ) -> tuple[dict[str, Any], str, dict[str, Any]]:
         user_input = build_gpt_input(
             snapshot,
             features,
@@ -957,22 +1123,28 @@ class ResponsesAdapter:
                     "schema": INTENT_RESPONSE_SCHEMA,
                 }
             },
+            "reasoning": {"effort": self._effort("model call")},
         }
-        reasoning_effort = self.provider.get("reasoning_effort")
-        if reasoning_effort not in {"low", "medium", "high", "max"}:
-            raise AIProviderError(
-                "configured reasoning effort is unsupported; no external model call was made"
-            )
-        prompt["reasoning"] = {"effort": reasoning_effort}
-        api_key = _credentials(self.provider, self.environ)
-        headers = {
-            "Accept": "application/json",
-            "Content-Type": "application/json",
-        }
-        if self.provider["kind"] == "foundry_responses":
-            headers["api-key"] = api_key
-        else:
-            headers["Authorization"] = f"Bearer {api_key}"
+        if self.max_output_tokens is not None:
+            prompt["max_output_tokens"] = int(self.max_output_tokens)
+        return prompt, system_instructions, user_input
+
+    def generate_intent(
+        self,
+        snapshot: MarketSnapshot,
+        features: dict[str, Any],
+        portfolio: dict[str, Any],
+        *,
+        jev_vector: dict[str, Any] | None,
+        source_arm: str,
+        include_skill: bool,
+    ) -> dict[str, Any]:
+        prompt, system_instructions, user_input = self.intent_payload(
+            snapshot, features, portfolio, jev_vector=jev_vector, include_skill=include_skill
+        )
+        headers = self._headers()
+        meta: dict[str, Any] = {}
+        self.last_call = meta
         started = time.perf_counter()
         response = _safe_post(
             self._transport,
@@ -981,8 +1153,12 @@ class ResponsesAdapter:
             prompt,
             float(self.provider.get("timeout_seconds", 30)),
             "Responses-compatible provider",
+            meta,
         )
         latency = (time.perf_counter() - started) * 1000
+        meta["latency_ms"] = latency
+        meta["raw_usage"] = response.get("usage")
+        meta.update(responses_metadata(response, prompt["reasoning"]["effort"]))
         intent = parse_gpt_intent(
             response,
             snapshot.symbol,
@@ -990,7 +1166,7 @@ class ResponsesAdapter:
             source_arm=source_arm,
         )
         usage = response.get("usage")
-        normalized_usage = {"input_tokens": None, "output_tokens": None}
+        normalized_usage: dict[str, Any] = {"input_tokens": None, "output_tokens": None}
         if isinstance(usage, dict):
             input_tokens = usage.get("input_tokens", usage.get("prompt_tokens"))
             output_tokens = usage.get("output_tokens", usage.get("completion_tokens"))
@@ -998,39 +1174,38 @@ class ResponsesAdapter:
             reasoning_tokens = usage.get("reasoning_tokens")
             if reasoning_tokens is None and isinstance(output_details, dict):
                 reasoning_tokens = output_details.get("reasoning_tokens")
+            input_details = usage.get("input_tokens_details")
+            cached = input_details.get("cached_tokens") if isinstance(input_details, dict) else None
             if isinstance(input_tokens, int) and input_tokens >= 0:
                 normalized_usage["input_tokens"] = input_tokens
             if isinstance(output_tokens, int) and output_tokens >= 0:
                 normalized_usage["output_tokens"] = output_tokens
             if isinstance(reasoning_tokens, int) and reasoning_tokens >= 0:
                 normalized_usage["reasoning_tokens"] = reasoning_tokens
+            if isinstance(cached, int) and cached >= 0:
+                normalized_usage["cached_input_tokens"] = cached
         return {
             "intent": intent,
             "model": self.provider["model"],
+            "returned_model": meta.get("returned_model"),
+            "reasoning_effort": prompt["reasoning"]["effort"],
+            "reasoning_effort_echoed": meta.get("reasoning_effort_echoed"),
             "usage": normalized_usage,
             "latency_ms": latency,
             "prompt_hash": digest({"instructions": system_instructions, "input": user_input}),
             "source_arm": source_arm,
+            "provider_request_id": meta.get("provider_request_id"),
+            "provider_response_id": meta.get("provider_response_id"),
+            "real_external_call": True,
         }
 
-    def test_connection(self) -> dict[str, Any]:
-        api_key = _credentials(self.provider, self.environ)
-        reasoning_effort = self.provider.get("reasoning_effort")
-        if reasoning_effort not in {"low", "medium", "high", "max"}:
-            raise AIProviderError(
-                "configured reasoning effort is unsupported; no external provider call was made"
-            )
-        headers = {"Accept": "application/json", "Content-Type": "application/json"}
-        if self.provider["kind"] == "foundry_responses":
-            headers["api-key"] = api_key
-        else:
-            headers["Authorization"] = f"Bearer {api_key}"
+    def connection_payload(self) -> dict[str, Any]:
         payload = {
             "model": self.provider["model"],
             "instructions": "Return no_trade with a concise test reason. This is a connection test.",
             "input": json.dumps(
                 {
-                    "snapshot": {"symbol": "BTCUSDT", "data_origin": "FIXTURE", "closed_candles": []},
+                    "snapshot": {"symbol": "BTCUSDT", "data_origin": "CONNECTION_TEST", "closed_candles": []},
                     "features": {},
                     "jev_decision_vector": None,
                     "portfolio": {"has_position": False},
@@ -1046,17 +1221,29 @@ class ResponsesAdapter:
                     "schema": INTENT_RESPONSE_SCHEMA,
                 }
             },
-            "reasoning": {"effort": reasoning_effort},
+            "reasoning": {"effort": self._effort("provider call")},
         }
+        if self.max_output_tokens is not None:
+            payload["max_output_tokens"] = int(self.max_output_tokens)
+        return payload
+
+    def test_connection(self) -> dict[str, Any]:
+        payload = self.connection_payload()
+        reasoning_effort = payload["reasoning"]["effort"]
+        headers = self._headers()
+        meta: dict[str, Any] = {}
+        self.last_call = meta
+        endpoint = _responses_url(self.provider)
         started = time.perf_counter()
         try:
             response = _safe_post(
                 self._transport,
-                _responses_url(self.provider),
+                endpoint,
                 headers,
                 payload,
                 float(self.provider.get("timeout_seconds", 30)),
                 "Responses-compatible provider",
+                meta,
             )
         except AIProviderError as exc:
             if "HTTP 400" in str(exc) or "HTTP 422" in str(exc):
@@ -1065,6 +1252,11 @@ class ResponsesAdapter:
                     f"effort or structured test request ({exc})"
                 ) from None
             raise
+        latency = (time.perf_counter() - started) * 1000
+        meta["latency_ms"] = latency
+        meta["raw_usage"] = response.get("usage")
+        facts = responses_metadata(response, reasoning_effort)
+        meta.update(facts)
         try:
             structured = json.loads(_response_text(response))
         except (AIProviderError, json.JSONDecodeError, TypeError):
@@ -1083,14 +1275,25 @@ class ResponsesAdapter:
                 "Responses-compatible provider rejected the configured reasoning "
                 "effort or structured intent validation"
             )
+        parsed = urllib.parse.urlsplit(endpoint)
         return {
             "ok": True,
             "provider_id": self.provider["provider_id"],
+            "provider_kind": self.provider["kind"],
             "model": self.provider["model"],
-            "latency_ms": (time.perf_counter() - started) * 1000,
+            "returned_model": facts["returned_model"],
+            "latency_ms": latency,
             "responses_compatible": True,
+            "responses_endpoint_path": parsed.path,
+            "structured_output_validated": True,
+            "normalized_action": structured["action"],
             "reasoning_effort_validated": reasoning_effort,
+            "reasoning_effort_echoed": facts["reasoning_effort_echoed"],
+            "reasoning_effort_accepted": facts["reasoning_effort_echoed"] in {None, reasoning_effort},
             "usage": response.get("usage"),
+            "provider_request_id": meta.get("provider_request_id"),
+            "provider_response_id": facts["provider_response_id"],
+            "real_external_call": True,
         }
 
 
