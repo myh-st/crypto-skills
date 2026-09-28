@@ -1,6 +1,7 @@
 import { HORIZONS, RISK_STYLES } from "../contracts.js";
 import { titleCase } from "../format.js";
 import { buildSeedData } from "../demoData.js";
+import { mountRuntimeSettings, renderRuntimeSettingsShell } from "./runtimeSettings.js";
 
 function options(list, selected) {
   return list
@@ -16,8 +17,9 @@ export function render(root, ctx) {
     <section class="panel">
       <h1>Settings</h1>
       <p class="panel-subtitle">
-        Preferences below only affect this browser session and are stored locally. They do
-        not configure any real provider, account, or trading credential.
+        Browser preferences below only affect this browser session and are stored locally.
+        Runtime settings (AI providers, exchange accounts, cost &amp; budgets) are held by the
+        local PAPER server; credentials go to the OS credential store, never to browser storage.
       </p>
       <form class="settings-form" data-role="settings-form">
         <label>
@@ -42,6 +44,8 @@ export function render(root, ctx) {
       </form>
     </section>
 
+    <div data-runtime-settings>${renderRuntimeSettingsShell()}</div>
+
     <section class="panel">
       <h2>Demo data</h2>
       <p class="panel-subtitle">Reset all runs and decisions back to the original seeded demo content.</p>
@@ -60,6 +64,8 @@ export function render(root, ctx) {
     });
     document.body.classList.toggle("density-compact", store.getState().settings.compactDensity);
   });
+
+  mountRuntimeSettings(root.querySelector("[data-runtime-settings]"));
 
   root.querySelector('[data-role="reset-demo"]').addEventListener("click", () => {
     const seed = buildSeedData();

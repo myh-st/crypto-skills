@@ -1,5 +1,7 @@
 import { escapeHtml, formatPrice, formatTimestamp, titleCase } from "../format.js";
 import { paperApi } from "../paperApi.js";
+import { mountLiveChart, overlayLines } from "../components/liveChart.js";
+import { renderAccountMirror } from "./runtimeSettings.js";
 
 const PROVIDER_KINDS = [
   ["fixture_jev", "Jev fixture"],
@@ -205,6 +207,9 @@ function renderProviderCards(providers) {
         <span>Validation: ${escapeHtml(titleCase(provider.last_validation_status))}</span>
         <span>Last test: ${escapeHtml(formatTimestamp(provider.last_validated_at))}</span>
         <span>Test latency: ${provider.last_validation_latency_ms === null ? "—" : `${Number(provider.last_validation_latency_ms).toFixed(1)} ms`}</span>
+        ${provider.kind.startsWith("fixture_") ? "" : `<span>Reasoning: ${escapeHtml(provider.kind === "typesafe_jev" ? "n/a" : provider.reasoning_effort)}${provider.last_validation?.reasoning_effort_echoed ? ` (echoed ${escapeHtml(provider.last_validation.reasoning_effort_echoed)})` : ""}</span>
+        <span>Returned model: ${escapeHtml(provider.last_validation?.returned_model || provider.last_validation?.model || "—")}</span>
+        <span><a href="#/settings">Manage key in Settings</a></span>`}
       </div>
       <div class="paper-provider-actions">
         <button class="btn btn--ghost btn--small" type="button"
@@ -458,6 +463,115 @@ function renderMetrics(dashboard) {
   `;
 }
 
+function usdCost(value, digits = 4) {
+  if (value === null || value === undefined || !Number.isFinite(Number(value))) return "—";
+  return `$${Number(value).toFixed(digits)}`;
+}
+
+function providerHealth(providers, providerId) {
+  const provider = (providers || []).find((item) => item.provider_id === providerId);
+  if (!provider) return { label: "missing", tone: "bad" };
+  if (provider.kind.startsWith("fixture_")) return { label: "FIXTURE", tone: "idle" };
+  if (provider.last_validation_status === "passed") return { label: "connected", tone: "ok" };
+  if (provider.last_validation_status === "failed") return { label: "failed", tone: "bad" };
+  return { label: "not tested", tone: "idle" };
+}
+
+export function renderHealthStrip(dashboard) {
+  const config = dashboard.experiment.config;
+  const stream = dashboard.market_stream;
+  const streamState = config.market_data_mode === "gate_usdt"
+    ? (stream ? stream.state : "OFFLINE")
+    : config.market_data_mode === "fixture" ? "FIXTURE" : "REST ONLY";
+  const streamTone = { LIVE: "ok", STALE: "warn", RECONNECTING: "warn", CONNECTING: "warn", OFFLINE: "bad" }[streamState] || "idle";
+  const jev = providerHealth(dashboard.providers, config.jev_provider_id);
+  const gpt = providerHealth(dashboard.providers, config.gpt_provider_id);
+  const budget = dashboard.ai_cost?.budget_status;
+  const remaining = budget?.remaining_today_usd;
+  const budgetTone = budget?.exhausted ? "bad" : (budget?.utilization_today ?? 0) >= 0.8 ? "warn" : "ok";
+  const pill = (label, value, tone) => `<span class="status-pill status-pill--${tone}"><small>${escapeHtml(label)}</small> ${escapeHtml(value)}</span>`;
+  return `
+    <div class="health-strip" role="status" aria-label="Runtime health">
+      ${pill("Gate", streamState, streamTone)}
+      ${pill("Scheduler", titleCase(dashboard.experiment.status), dashboard.experiment.status === "running" ? "ok" : "idle")}
+      ${pill("Mode", "PAPER", "ok")}
+      ${pill("Jev", jev.label, jev.tone)}
+      ${pill("GPT", gpt.label, gpt.tone)}
+      ${pill("AI budget left today", remaining === null || remaining === undefined ? "no limit" : usdCost(remaining, 2), budgetTone)}
+      ${pill("Gate live orders", "BLOCKED BY DESIGN", "blocked")}
+    </div>`;
+}
+
+export function renderEconomics(economics) {
+  if (!economics) return "";
+  const t = economics.trading;
+  const ai = economics.ai_cost;
+  const k = economics.kpis;
+  const net = economics.net_economic_pnl_usdt;
+  return `
+    <div class="paper-dashboard-grid">
+      <section class="paper-subpanel">
+        <h3>Trading PnL (USDT)</h3>
+        <dl class="paper-definition-list">
+          <div><dt>Gross trading PnL</dt><dd>${escapeHtml(money(t.gross_trading_pnl_usdt, 4))}</dd></div>
+          <div><dt>Fees</dt><dd>${escapeHtml(money(-t.fees_usdt, 4))}</dd></div>
+          <div><dt>Funding</dt><dd>${escapeHtml(money(-t.funding_usdt, 4))}</dd></div>
+          <div><dt>Slippage</dt><dd>${escapeHtml(money(-t.slippage_usdt, 4))}</dd></div>
+          <div><dt>Unrealized</dt><dd>${escapeHtml(money(t.unrealized_pnl_usdt, 4))}</dd></div>
+          <div><dt>Net trading PnL</dt><dd><strong>${escapeHtml(money(t.net_trading_pnl_usdt, 4))}</strong></dd></div>
+        </dl>
+      </section>
+      <section class="paper-subpanel">
+        <h3>AI cost (USD) and net economics</h3>
+        <dl class="paper-definition-list">
+          <div><dt>Jev cost</dt><dd>${escapeHtml(usdCost(ai.jev_cost_usd))}</dd></div>
+          <div><dt>GPT cost</dt><dd>${escapeHtml(usdCost(ai.gpt_cost_usd))}</dd></div>
+          <div><dt>Total AI cost</dt><dd><strong>${escapeHtml(usdCost(ai.total_ai_cost_usd))}</strong>${ai.complete ? "" : ` · ${ai.calls_with_unavailable_cost} unpriced`}</dd></div>
+          <div><dt>FX policy</dt><dd>${economics.fx.mode === "manual" ? `${escapeHtml(economics.fx.usdt_per_usd)} USDT/USD · ${escapeHtml(economics.fx.source)}` : "none"}</dd></div>
+          <div><dt>Net experiment economics</dt><dd><strong>${net === null ? "Unavailable" : escapeHtml(money(net, 4))}</strong></dd></div>
+        </dl>
+        ${net === null ? `<p class="field-help">${escapeHtml(economics.net_economic_unavailable_reason || "")}</p>` : ""}
+      </section>
+    </div>
+    <div class="paper-metric-grid">
+      ${metric("AI cost / analysis", usdCost(k.ai_cost_per_analysis_usd), `${k.denominators.analyses} analyses`)}
+      ${metric("AI cost / eligible case", usdCost(k.ai_cost_per_eligible_case_usd), `${k.denominators.eligible_cases} eligible`)}
+      ${metric("AI cost / trade", usdCost(k.ai_cost_per_trade_usd), `${k.denominators.closed_trades} closed`)}
+      ${metric("AI cost / winning trade", usdCost(k.ai_cost_per_winning_trade_usd), `${k.denominators.winning_trades} wins`)}
+      ${metric("AI cost % of gross profit", k.ai_cost_pct_of_gross_profit == null ? "—" : percent(k.ai_cost_pct_of_gross_profit), "needs FX policy")}
+      ${metric("Net economic expectancy / trade", k.net_economic_expectancy_per_trade_usdt == null ? "—" : money(k.net_economic_expectancy_per_trade_usdt, 4), "after AI cost")}
+      ${metric("Cost on NO_TRADE", usdCost(ai.cost_on_no_trade_usd), "paid analyses without entry")}
+      ${metric("GPT escalation cost", usdCost(ai.gpt_escalation_cost_usd), "hybrid route")}
+    </div>
+    <p class="chart-caption">Aligned-arm AI value: ${escapeHtml(economics.aligned_arm_value.status.replaceAll("_", " "))}
+      (quant n=${escapeHtml(economics.aligned_arm_value.sample.quant_closed)}, hybrid n=${escapeHtml(economics.aligned_arm_value.sample.hybrid_closed)}; no causal claim).</p>`;
+}
+
+export function renderLedgerRows(rows) {
+  if (!rows?.length) return '<tr><td colspan="10" class="muted">No AI calls recorded.</td></tr>';
+  return rows.map((row) => `
+    <tr>
+      <td>${escapeHtml(row.provider_id)}</td>
+      <td>${escapeHtml(row.model)}${row.returned_models?.length ? `<br><small>${escapeHtml(row.returned_models.join(", "))}</small>` : ""}</td>
+      <td>${escapeHtml(row.reasoning_effort || "—")}</td>
+      <td>${escapeHtml(row.calls)} (${escapeHtml(row.real_external_calls)} real)</td>
+      <td>${escapeHtml(displayValue(row.input_tokens))} / ${escapeHtml(displayValue(row.output_tokens))}</td>
+      <td>${escapeHtml(displayValue(row.reasoning_tokens))}</td>
+      <td>${row.latency_p50_ms == null ? "—" : `${Number(row.latency_p50_ms).toFixed(0)} / ${Number(row.latency_p95_ms).toFixed(0)} ms`}</td>
+      <td>${escapeHtml(usdCost(row.estimated_cost_usd))}${row.calls_with_unavailable_cost ? ` · ${row.calls_with_unavailable_cost} unpriced` : ""}</td>
+      <td>${escapeHtml(usdCost(row.billed_cost_usd))}</td>
+      <td>${escapeHtml(row.budget_blocks)}</td>
+    </tr>`).join("");
+}
+
+function renderBudgetEvents(events) {
+  const shown = (events || []).filter((event) => !["reserved", "reconciled", "released"].includes(event.event_type)).slice(0, 12);
+  if (!shown.length) return '<p class="muted">No budget warnings, blocks, or fallbacks.</p>';
+  return `<ul class="paper-activity-list">${shown.map((event) => `
+    <li><strong>${escapeHtml(event.event_type)} · ${escapeHtml(event.code)}</strong>
+      <span>${escapeHtml(event.scope || "")} · ${escapeHtml(event.limit_action || "")} · ${escapeHtml(formatTimestamp(event.created_at))}</span></li>`).join("")}</ul>`;
+}
+
 export function renderDashboard(host, dashboard) {
   const state = dashboard.experiment.status;
   const origin = dashboard.data_safety.origin;
@@ -470,6 +584,10 @@ export function renderDashboard(host, dashboard) {
         <span class="demo-tag">${escapeHtml(origin)} · ${escapeHtml(titleCase(state))}</span>
       </div>
       ${renderMetrics(dashboard)}
+      <section class="paper-subpanel">
+        <div class="section-heading"><h3>AI spend and economic PnL</h3><span class="demo-tag">USD cost · USDT PnL · no silent conversion</span></div>
+        ${renderEconomics(dashboard.economics)}
+      </section>
       <section class="paper-subpanel">
         <div class="section-heading"><h3>Scheduler and provider health</h3>
           <span class="demo-tag">${dashboard.data_safety.real_money_execution ? "Unsafe" : "PAPER only"}</span>
@@ -502,9 +620,13 @@ export function renderDashboard(host, dashboard) {
       </div>
     </section>
     <section class="panel">
-      <div class="section-heading"><h2>Primary paper positions</h2><span class="demo-tag">Risk-controlled · isolated margin</span></div>
+      <div class="section-heading"><h2>Primary paper positions</h2><span class="demo-tag">PAPER wallet · risk-controlled · isolated margin</span></div>
       ${renderPositions(dashboard.positions)}
     </section>
+    ${(dashboard.exchange_accounts || []).length ? `<section class="panel panel--real-account">
+      <div class="section-heading"><h2>Gate account mirror</h2><span class="demo-tag demo-tag--real">REAL ACCOUNT · read-only · separate from PAPER</span></div>
+      ${dashboard.exchange_accounts.map((account) => renderAccountMirror(account)).join("")}
+    </section>` : ""}
     <section class="panel">
       <div class="section-heading"><h2>Aligned arm evaluation</h2><span class="demo-tag">Same frozen snapshot per cycle</span></div>
       <p class="panel-subtitle">${escapeHtml(metrics.decision_quality_status.replaceAll("_", " "))}. A missing sample is shown as —, not as zero.</p>
@@ -545,7 +667,14 @@ export function renderDashboard(host, dashboard) {
       <section class="panel"><h2>Risk journal</h2>${renderRiskEvents(dashboard.risk_events)}</section>
     </section>
     <section class="paper-dashboard-grid">
-      <section class="panel"><h2>Provider usage and cost</h2>${renderProviderUsage(metrics.provider_usage)}</section>
+      <section class="panel"><h2>Provider usage and cost</h2>${renderProviderUsage(metrics.provider_usage)}
+        <h3>AI cost ledger by provider</h3>
+        <div class="table-scroll"><table class="data-table">
+          <thead><tr><th>Provider</th><th>Model</th><th>Reasoning</th><th>Calls</th><th>In / out tokens</th><th>Reasoning tokens</th><th>p50 / p95</th><th>Estimated</th><th>Billed</th><th>Budget blocks</th></tr></thead>
+          <tbody>${renderLedgerRows(dashboard.ai_cost?.providers)}</tbody>
+        </table></div>
+        <h3>Budget events</h3>${renderBudgetEvents(dashboard.ai_cost?.recent_budget_events)}
+      </section>
       <section class="panel"><h2>Activity</h2>${renderActivity(dashboard.activity)}</section>
     </section>
   `;
@@ -781,10 +910,21 @@ export function render(root) {
           <span class="demo-tag">PAPER ONLY</span>
         </div>
         <p class="paper-safety-note">
-          The default run uses deterministic synthetic fixtures. Binance mode reads public USD-M data only.
-          Provider credentials are environment-variable references held by the local server; this browser does not receive secret values.
+          Gate mode reads live Gate USDT-perpetual public data through the local backend; fixture mode is labeled FIXTURE.
+          Provider and exchange credentials live in the OS credential store (Settings) and are never sent back to this browser.
+          Real Gate order placement is blocked by design; every trade here is a PAPER simulation.
         </p>
         <div class="paper-feedback" data-feedback role="status" aria-live="polite">Connecting to the local runtime…</div>
+      </section>
+
+      <div data-health-strip></div>
+
+      <section class="panel">
+        <div class="section-heading">
+          <h2>Live market · Gate USDT perpetual</h2>
+          <span class="demo-tag">Real exchange data · PAPER overlays</span>
+        </div>
+        <div class="live-chart" data-live-chart><p class="muted">Loading live chart…</p></div>
       </section>
 
       <section class="panel">
@@ -811,6 +951,7 @@ export function render(root) {
               <label>Market data
                 <select name="market_data_mode">
                   <option value="fixture">Deterministic fixture (offline)</option>
+                  <option value="gate_usdt">Gate.io USDT perpetual (live REST + WebSocket)</option>
                   <option value="binance_usdm">Binance USD-M public data</option>
                 </select>
               </label>
@@ -996,6 +1137,7 @@ export function render(root) {
   const dashboardHost = root.querySelector("[data-paper-dashboard]");
   let currentConfig = null;
   let currentProviders = [];
+  let currentDashboard = null;
 
   async function refresh({ initial = false } = {}) {
     try {
@@ -1013,6 +1155,23 @@ export function render(root) {
       if (initial) fillExperimentForm(configForm, currentConfig);
       root.querySelector("[data-provider-list]").innerHTML = renderProviderCards(currentProviders);
       renderDashboard(dashboardHost, dashboard);
+      currentDashboard = dashboard;
+      root.querySelector("[data-health-strip]").innerHTML = renderHealthStrip(dashboard);
+      const chartHost = root.querySelector("[data-live-chart]");
+      if (chartHost && !chartHost.__liveChart) {
+        mountLiveChart(chartHost, {
+          api: paperApi,
+          symbols: currentConfig.symbols,
+          symbol: currentConfig.symbols[0],
+          getOverlays: (symbol) => overlayLines(
+            symbol,
+            currentDashboard?.positions || [],
+            (currentDashboard?.exchange_accounts || []).flatMap((account) => account.last_sync?.positions || []),
+          ),
+        });
+      } else if (chartHost?.__liveChart) {
+        chartHost.__liveChart.refreshOverlays();
+      }
       const origin = dashboard.data_safety.origin;
       setFeedback(
         root,

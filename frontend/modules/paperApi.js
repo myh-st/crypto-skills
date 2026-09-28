@@ -93,6 +93,83 @@ export function createPaperApi(fetcher = globalThis.fetch) {
     async downloadExport() {
       return (await request("/export")).blob();
     },
+    // Credentials are write-only: the server stores them in the OS credential store and
+    // answers with masked metadata. Nothing is cached or persisted in the browser.
+    async saveProviderSecret(providerId, value) {
+      return (
+        await request(`/providers/${encodeURIComponent(providerId)}/secret`, {
+          method: "POST",
+          body: { value },
+        })
+      ).json();
+    },
+    async deleteProviderSecret(providerId) {
+      return (
+        await request(`/providers/${encodeURIComponent(providerId)}/secret/delete`, {
+          method: "POST",
+          body: {},
+        })
+      ).json();
+    },
+    async secretStore() {
+      return (await request("/secret-store")).json();
+    },
+    async cost() {
+      return (await request("/cost")).json();
+    },
+    async economics() {
+      return (await request("/economics")).json();
+    },
+    async addPrice(entry) {
+      return (await request("/price-book", { method: "POST", body: entry })).json();
+    },
+    async saveCostControls(controls) {
+      return (await request("/cost-controls", { method: "POST", body: controls })).json();
+    },
+    async exchangeAccounts() {
+      return (await request("/exchange-accounts")).json();
+    },
+    async saveExchangeAccount(account) {
+      return (await request("/exchange-accounts", { method: "POST", body: account })).json();
+    },
+    async saveAccountSecrets(accountId, apiKey, apiSecret) {
+      return (
+        await request(`/exchange-accounts/${encodeURIComponent(accountId)}/secrets`, {
+          method: "POST",
+          body: { api_key: apiKey, api_secret: apiSecret },
+        })
+      ).json();
+    },
+    async syncAccount(accountId) {
+      return (
+        await request(`/exchange-accounts/${encodeURIComponent(accountId)}/sync`, {
+          method: "POST",
+          body: {},
+        })
+      ).json();
+    },
+    async copyAccountEquity(accountId) {
+      return (
+        await request(`/exchange-accounts/${encodeURIComponent(accountId)}/copy-equity`, {
+          method: "POST",
+          body: {},
+        })
+      ).json();
+    },
+    async candles(symbol, interval, limit = 300) {
+      const query = new URLSearchParams({ symbol, interval, limit: String(limit) });
+      return (await request(`/market/candles?${query}`)).json();
+    },
+    async ticker(symbol) {
+      return (await request(`/market/ticker?${new URLSearchParams({ symbol })}`)).json();
+    },
+    async marketStatus() {
+      return (await request("/market/status")).json();
+    },
+    streamUrl(symbols, interval) {
+      const query = new URLSearchParams({ symbols: symbols.join(","), interval });
+      return `${API_PREFIX}/market/stream?${query}`;
+    },
   });
 }
 
