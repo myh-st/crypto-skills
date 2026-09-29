@@ -2561,13 +2561,14 @@ class PortfolioOS:
                     ai_trace["budget_block"] = blocked.get("code")
                 else:
                     proposal = dict(result["proposal"])
-                    proposal_source = "luna"
+                    proposal_source = "fixture_gpt" if provider_config["kind"].startswith("fixture_") else "luna"
                     ai_trace["luna"] = "completed"
             except (AIProviderError, PaperTradingError) as exc:
                 ai_trace["luna"] = "failed"
                 ai_trace["provider_error"] = str(exc)[:160]
         elif ai_trace["jev"] == "completed":
             proposal_source = "jev+deterministic"
+        ai_trace["jev_provider_kind"] = (self.store.provider(config["jev_provider_id"]) or {}).get("kind")
         if ai_trace["budget_block"]:
             proposal["reason_codes"] = list(dict.fromkeys([*proposal["reason_codes"], "AI_BUDGET_BLOCK"]))[:5]
         diff = self._proposal_diff(kind, view, proposal, price, equity)
@@ -2736,7 +2737,7 @@ class PortfolioOS:
             )
             if payload["status"] == "proposed" or payload["origin"] == "user":
                 self._activity_locked(
-                    db, source="AI" if payload.get("source") in {"luna", "jev+deterministic"} else "SYSTEM",
+                    db, source="AI" if payload.get("source") in {"luna", "fixture_gpt", "jev+deterministic"} else "SYSTEM",
                     category="DECISION", severity="ACTION" if payload["status"] == "proposed" else "INFO",
                     title=f"Re-plan {payload['status'].replace('_', ' ')}: {payload.get('headline') or payload.get('code')}",
                     summary=", ".join(payload.get("reason_codes") or [payload.get("reason") or ""])[:300],

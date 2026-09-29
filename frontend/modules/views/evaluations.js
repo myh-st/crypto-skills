@@ -1,5 +1,7 @@
 import { escapeHtml, formatTimestamp, titleCase } from "../format.js";
 import { evaluationService, runService, runtimeService } from "../services.js";
+import { paperApi } from "../paperApi.js";
+import { renderLearning, renderTournament } from "../components/strategyTournamentSummary.js";
 
 const RESULT_TONE = {
   pending: "neutral",
@@ -9,6 +11,29 @@ const RESULT_TONE = {
 };
 
 export function render(root, ctx) {
+  root.innerHTML = `<div class="view view--evaluations">
+    <section class="panel" aria-labelledby="tournament-heading">
+      <div class="section-heading"><h1 id="tournament-heading">Strategy tournament</h1><span class="demo-tag">aligned frozen inputs · separate PAPER wallets</span></div>
+      <div data-tournament><p class="muted">Loading…</p></div>
+    </section>
+    <section class="panel" aria-labelledby="learning-heading">
+      <h2 id="learning-heading">Learning loop</h2>
+      <div data-learning></div>
+    </section>
+    <div data-research-evaluations></div></div>`;
+  const view = root.firstElementChild;
+  Promise.all([paperApi.tournament(), paperApi.reviews()])
+    .then(([tournament, reviews]) => {
+      view.querySelector("[data-tournament]").innerHTML = renderTournament(tournament);
+      view.querySelector("[data-learning]").innerHTML = renderLearning(reviews.reviews, reviews.hypotheses, tournament.learning_tags);
+    })
+    .catch((error) => {
+      view.querySelector("[data-tournament]").innerHTML = `<p class="muted">PAPER runtime unavailable: ${escapeHtml(error.message)}</p>`;
+    });
+  renderResearchEvaluations(view.querySelector("[data-research-evaluations]"), ctx);
+}
+
+function renderResearchEvaluations(root, ctx) {
   const { store } = ctx;
   const { decisions, evaluationDemo, forwardRuns } = evaluationService.snapshot(store);
 
@@ -29,7 +54,7 @@ export function render(root, ctx) {
 
   root.innerHTML = `
     <section class="panel">
-      <h1>Evaluations</h1>
+      <h2>Research evaluations</h2>
       <p class="panel-subtitle demo-banner-inline">
         ${escapeHtml(evaluationDemo.summary)}
       </p>

@@ -20,9 +20,11 @@ const COLORS = {
   target: "#1f7a4d",
   liquidation: "#8a5a08",
   real: "#6b21a8",
+  pending: "#6b7280",
 };
 
 function finite(value) {
+  if (value === null || value === undefined || value === "") return null;
   const number = Number(value);
   return Number.isFinite(number) ? number : null;
 }
@@ -104,6 +106,48 @@ export function overlayLines(symbol, paperPositions = [], realPositions = []) {
   return lines;
 }
 
+// Unified Portfolio OS overlays: average entry, stop, open targets, liquidation (perp only),
+// and pending PAPER limit orders for one instrument. REAL mirror lines stay separate.
+export function portfolioOverlays(instrumentId, positions = [], orders = [], realPositions = []) {
+  const lines = [];
+  const add = (price, title, kind) => {
+    const value = finite(price);
+    if (value !== null) lines.push({ price: value, title, kind, source: "PAPER" });
+  };
+  for (const position of positions) {
+    if (position.instrument_id !== instrumentId || position.status !== "open") continue;
+    const side = position.market_type === "spot" ? "SPOT" : String(position.side || "").toUpperCase();
+    add(position.entry_price, `PAPER ${side} avg`, "entry");
+    add(position.stop_price, "PAPER stop", "stop");
+    (position.targets || []).filter((target) => !target.hit).forEach((target, index) => add(target.price, `PAPER TP${index + 1}`, "target"));
+    if (position.market_type === "perpetual") add(position.liquidation_price, "PAPER liq.", "liquidation");
+  }
+  for (const order of orders) {
+    if (order.instrument_id !== instrumentId || !["pending", "partially_filled"].includes(order.status)) continue;
+    add(order.limit_price, `PAPER ${String(order.side).toUpperCase()} limit`, "pending");
+  }
+  const symbol = instrumentId.split(":")[2]?.replace("_", "");
+  if (instrumentId.includes(":perpetual:")) {
+    for (const line of overlayLines(symbol, [], realPositions)) lines.push(line);
+  }
+  return lines;
+}
+
+export function quoteToStripState(quote) {
+  if (!quote) return null;
+  return {
+    ticker: {
+      last_price: quote.last_price,
+      mark_price: quote.mark_price ?? null,
+      index_price: null,
+      funding_rate: quote.funding_rate ?? null,
+      change_24h_pct: quote.change_24h == null ? null : quote.change_24h * 100,
+      volume_24h_quote: quote.volume_24h_quote ?? null,
+    },
+    book: { best_bid: quote.best_bid, best_ask: quote.best_ask, spread_bps: quote.spread_bps },
+  };
+}
+
 function fmt(value, digits = 2) {
   const number = finite(value);
   if (number === null) return "—";
@@ -112,7 +156,7 @@ function fmt(value, digits = 2) {
   return number.toLocaleString("en-US", { maximumFractionDigits: precision, minimumFractionDigits: 0 });
 }
 
-export function renderQuoteStrip(state) {
+export function renderQuoteStrip(state, { spot = false } = {}) {
   const ticker = state?.ticker || {};
   const book = state?.book || {};
   const spread = finite(book.spread_bps);
@@ -128,35 +172,42 @@ export function renderQuoteStrip(state) {
     ["24h change", change === null ? "—" : `${change.toFixed(2)}%`],
     ["24h volume", ticker.volume_24h_quote == null ? "—" : `${fmt(ticker.volume_24h_quote, 0)} USDT`],
   ];
-  return cells
+  const shown = spot ? cells.filter(([label]) => !["Mark", "Index", "Funding"].includes(label)) : cells;
+  return shown
     .map(([label, value]) => `<div class="live-quote"><span>${escapeHtml(label)}</span><strong>${escapeHtml(value)}</strong></div>`)
     .join("");
 }
 
-export function renderLiveChartShell(symbols, selected, interval) {
+export function renderLiveChartShell(symbols, selected, interval, { showSymbols = true, label = "Gate USDT perpetual" } = {}) {
   return `
     <div class="live-chart-toolbar">
-      <label class="live-chart-symbol">Symbol
+      ${showSymbols ? `<label class="live-chart-symbol">Symbol
         <select data-live-symbol>${symbols
           .map((symbol) => `<option value="${escapeHtml(symbol)}" ${symbol === selected ? "selected" : ""}>${escapeHtml(symbol)}</option>`)
           .join("")}</select>
-      </label>
+      </label>` : `<strong class="live-chart-title">${escapeHtml(label)}</strong>`}
       <div class="live-chart-intervals" role="group" aria-label="Timeframe">
         ${CHART_INTERVALS.map((value) => `<button type="button" class="chart-range-button ${value === interval ? "is-active" : ""}" data-live-interval="${value}" aria-pressed="${value === interval}">${value}</button>`).join("")}
       </div>
       <span class="live-status live-status--offline" data-live-status role="status" aria-live="polite">OFFLINE</span>
     </div>
     <div class="live-quote-strip" data-live-quotes>${renderQuoteStrip(null)}</div>
-    <div class="live-chart-canvas" data-live-canvas aria-label="Gate USDT perpetual candlestick chart"></div>
+    <div class="live-chart-canvas" data-live-canvas role="img" aria-label="${escapeHtml(label)} candlestick chart"></div>
     <p class="chart-caption" data-live-caption>Source: Gate USDT perpetual (backend-owned REST + WebSocket). Translucent candle = current, not yet closed.</p>
   `;
 }
 
-export async function mountLiveChart(host, { api, symbols, symbol, interval = "1m", getOverlays = () => [] }) {
+export async function mountLiveChart(host, {
+  api, symbols = [], symbol = null, interval = "1m", getOverlays = () => [], instrument = null, getMarkers = null, onQuote = null,
+}) {
   if (host.__liveChart) host.__liveChart.destroy();
-  const state = { symbol: symbol || symbols[0], interval, bars: [], chart: null, series: null, volume: null,
-    lines: [], source: null, serverState: null, lastEventAt: null, destroyed: false, quote: null, timer: null };
-  host.innerHTML = renderLiveChartShell(symbols, state.symbol, state.interval);
+  // Spot (and fixture-catalog) instruments are polled from the backend REST endpoint; Gate
+  // perpetuals use the backend-owned WebSocket via SSE. Both are same-origin and credential-free.
+  const polled = Boolean(instrument && (instrument.market_type === "spot" || instrument.instrument_id.startsWith("fixture:")));
+  const state = { symbol: symbol || symbols[0] || instrument?.symbol, interval, bars: [], chart: null, series: null, volume: null,
+    lines: [], source: null, serverState: null, lastEventAt: null, destroyed: false, quote: null, timer: null, poller: null, markers: null };
+  const label = instrument ? `${instrument.display_symbol} · ${instrument.market_type === "spot" ? "Gate Spot" : "Gate perpetual"}` : "Gate USDT perpetual";
+  host.innerHTML = renderLiveChartShell(symbols, state.symbol, state.interval, { showSymbols: !instrument, label });
   const statusEl = host.querySelector("[data-live-status]");
   const quotesEl = host.querySelector("[data-live-quotes]");
   const canvas = host.querySelector("[data-live-canvas]");
@@ -171,6 +222,13 @@ export async function mountLiveChart(host, { api, symbols, symbol, interval = "1
   }
 
   function setStatus() {
+    if (polled) {
+      const fresh = state.lastEventAt !== null && Date.now() - state.lastEventAt < 20_000;
+      const label = fresh ? "LIVE" : state.lastEventAt === null ? "OFFLINE" : "STALE";
+      statusEl.textContent = fresh ? "LIVE · REST 5s" : label;
+      statusEl.className = `live-status live-status--${label.toLowerCase()}`;
+      return;
+    }
     const readyState = state.source ? ["connecting", "open", "closed"][state.source.readyState] : "closed";
     const label = streamStatusLabel({ serverState: state.serverState, eventSourceState: readyState, lastEventAt: state.lastEventAt });
     statusEl.textContent = label;
@@ -184,10 +242,17 @@ export async function mountLiveChart(host, { api, symbols, symbol, interval = "1
       price: line.price,
       color: COLORS[line.kind] || COLORS.entry,
       lineWidth: line.kind === "real" ? 2 : 1,
-      lineStyle: line.kind === "entry" || line.kind === "real" ? lib.LineStyle.Solid : lib.LineStyle.Dashed,
+      lineStyle: line.kind === "entry" || line.kind === "real" ? lib.LineStyle.Solid : line.kind === "pending" ? lib.LineStyle.Dotted : lib.LineStyle.Dashed,
       axisLabelVisible: true,
       title: line.title,
     }));
+  }
+
+  function applyMarkers() {
+    if (!state.series || typeof getMarkers !== "function" || typeof lib.createSeriesMarkers !== "function") return;
+    const markers = getMarkers(state.symbol) || [];
+    if (!state.markers) state.markers = lib.createSeriesMarkers(state.series, markers);
+    else state.markers.setMarkers(markers);
   }
 
   function buildChart() {
@@ -208,34 +273,76 @@ export async function mountLiveChart(host, { api, symbols, symbol, interval = "1
     state.volume = state.chart.addSeries(lib.HistogramSeries, { priceFormat: { type: "volume" }, priceScaleId: "" });
     state.volume.priceScale().applyOptions({ scaleMargins: { top: 0.8, bottom: 0 } });
     state.lines = [];
+    state.markers = null;
   }
 
   async function loadHistory() {
     buildChart();
     caption.textContent = "Loading real Gate candles…";
     try {
-      const payload = await api.candles(state.symbol, state.interval, 400);
+      const payload = instrument
+        ? await api.instrumentCandles(instrument.instrument_id, state.interval, 400)
+        : await api.candles(state.symbol, state.interval, 400);
       if (payload.synthetic) throw new Error("synthetic data refused");
       state.bars = payload.candles.map(toChartBar).filter(Boolean);
       state.series.setData(state.bars);
       state.volume.setData(payload.candles.map(toVolumeBar).filter(Boolean));
       state.chart.timeScale().scrollToRealTime();
       caption.textContent = `${payload.data_origin} · ${payload.source} · ${state.bars.length} candles · translucent candle = current (not closed)`;
+      if (polled) state.lastEventAt = Date.now();
       applyOverlays();
+      applyMarkers();
     } catch (error) {
       state.bars = [];
       caption.textContent = `No chart data: ${error.message || "request failed"}. Nothing is simulated.`;
     }
+    await refreshQuote();
+  }
+
+  async function refreshQuote() {
     try {
-      const quote = await api.ticker(state.symbol);
-      quotesEl.innerHTML = renderQuoteStrip(quote);
+      if (instrument) {
+        const { quote } = await api.quote(instrument.instrument_id);
+        quotesEl.innerHTML = renderQuoteStrip(quoteToStripState(quote), { spot: instrument.market_type === "spot" });
+        if (typeof onQuote === "function") onQuote(quote);
+      } else {
+        const quote = await api.ticker(state.symbol);
+        quotesEl.innerHTML = renderQuoteStrip(quote);
+      }
     } catch {
       quotesEl.innerHTML = renderQuoteStrip(null);
     }
   }
 
+  async function poll() {
+    if (state.destroyed || !instrument) return;
+    try {
+      const payload = await api.instrumentCandles(instrument.instrument_id, state.interval, 10);
+      for (const candle of payload.candles || []) {
+        const bar = toChartBar(candle);
+        const merged = mergeBar(state.bars, bar);
+        if (merged.action !== "ignored") {
+          state.bars = merged.bars;
+          state.series.update(bar);
+          const volume = toVolumeBar(candle);
+          if (volume) state.volume.update(volume);
+        }
+      }
+      state.lastEventAt = Date.now();
+    } catch {
+      // Leave gaps as gaps; status turns STALE when polls stop succeeding.
+    }
+    await refreshQuote();
+    setStatus();
+  }
+
   function connect() {
     if (state.source) state.source.close();
+    if (state.poller) clearInterval(state.poller);
+    if (polled) {
+      state.poller = setInterval(poll, 5000);
+      return;
+    }
     if (typeof EventSource !== "function") return;
     state.source = new EventSource(api.streamUrl([state.symbol], state.interval));
     state.source.addEventListener("open", setStatus);
@@ -265,6 +372,10 @@ export async function mountLiveChart(host, { api, symbols, symbol, interval = "1
         state.quote = { ...(state.quote || {}), [type]: payload[type] };
         quotesEl.innerHTML = renderQuoteStrip(state.quote);
         state.lastEventAt = Date.now();
+        if (typeof onQuote === "function" && type === "book") {
+          const book = payload.book || {};
+          onQuote({ best_bid: book.best_bid, best_ask: book.best_ask, mid_price: book.mid_price, last_price: state.quote.ticker?.last_price ?? book.mid_price });
+        }
       });
     }
   }
@@ -301,10 +412,14 @@ export async function mountLiveChart(host, { api, symbols, symbol, interval = "1
       if (state.destroyed) return;
       state.destroyed = true;
       clearInterval(state.timer);
+      clearInterval(state.poller);
       if (state.source) state.source.close();
       if (state.chart) state.chart.remove();
     },
-    refreshOverlays: applyOverlays,
+    refreshOverlays() {
+      applyOverlays();
+      applyMarkers();
+    },
     get symbol() {
       return state.symbol;
     },

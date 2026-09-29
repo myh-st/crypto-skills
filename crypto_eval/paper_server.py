@@ -206,6 +206,26 @@ class PaperRequestHandler(BaseHTTPRequestHandler):
             )
             experiment = self.runtime.store.experiment()
             return {**unified, "activity": self.runtime.store.activity(experiment["experiment_id"], limit=200)}
+        if path == "/api/runtime/summary":
+            experiment = self.runtime.store.experiment()
+            stream = self.runtime.live_stream
+            symbol = q("symbol")
+            cycles = self.runtime.store.list_cycles(experiment["experiment_id"], limit=60)
+            if symbol:
+                cycles = [cycle for cycle in cycles if cycle["symbol"] == symbol.upper()]
+            return {
+                "experiment": {k: experiment[k] for k in ("experiment_id", "status", "config", "created_at", "updated_at")},
+                "market_stream": None if stream is None else self._stream_status(stream),
+                "cycles": [
+                    {k: cycle.get(k) for k in (
+                        "cycle_id", "symbol", "status", "cycle_slot", "data_cutoff", "primary_arm", "primary_decision",
+                        "risk", "portfolio_brain", "quant_gate", "jev_status", "market_regime", "as_of", "created_at",
+                    )}
+                    for cycle in cycles[:20]
+                ],
+                "exchange_accounts": self.runtime.store.list_exchange_accounts(),
+                "live_execution": {"gate_write_execution": False, "status": "BLOCKED_BY_DESIGN"},
+            }
         if path == "/api/tournament":
             return portfolio.tournament()
         if path == "/api/reviews":
