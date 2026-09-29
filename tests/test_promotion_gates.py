@@ -204,3 +204,24 @@ class GovernanceTests(PortfolioCase):
 
 if __name__ == "__main__":
     unittest.main()
+
+
+class SchemaEvolutionDriftTests(unittest.TestCase):
+    """A config field added by a later release, at its default value, is not drift from an older manifest."""
+
+    def test_new_field_at_default_is_not_drift_but_any_real_change_is(self):
+        from crypto_eval.promotion import diff_material, material_defaults
+
+        frozen = {"experiment_config": {"symbols": ["BTCUSDT"], "max_daily_loss": 0.05}}
+        current = {"experiment_config": {"symbols": ["BTCUSDT"], "max_daily_loss": 0.05, "strategy_engine": "breakout_15m", "sleeves": None}}
+        defaults = material_defaults()
+        self.assertEqual(diff_material(frozen, current, added_defaults=defaults), [])
+        engine_changed = {"experiment_config": {**current["experiment_config"], "strategy_engine": "sleeves_v1"}}
+        self.assertEqual(diff_material(frozen, engine_changed, added_defaults=defaults), ["experiment_config.strategy_engine"])
+        risk_changed = {"experiment_config": {**current["experiment_config"], "max_daily_loss": 0.08}}
+        self.assertEqual(diff_material(frozen, risk_changed, added_defaults=defaults), ["experiment_config.max_daily_loss"])
+        # a field REMOVED from the current manifest is always a change
+        self.assertEqual(diff_material(frozen, {"experiment_config": {"symbols": ["BTCUSDT"]}}, added_defaults=defaults),
+                         ["experiment_config.max_daily_loss"])
+        # without defaults (e.g. listing what a new version changes) every difference is reported
+        self.assertEqual(diff_material(frozen, current), ["experiment_config.strategy_engine"])

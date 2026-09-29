@@ -120,17 +120,37 @@ def build_manifest(*, config: dict[str, Any], settings: dict[str, Any], provider
     return {"schema_version": MANIFEST_SCHEMA_VERSION, "material": material, "material_sha256": canonical_hash(material)}
 
 
-def diff_material(frozen: dict[str, Any], current: dict[str, Any], prefix: str = "") -> list[str]:
+def diff_material(frozen: dict[str, Any], current: dict[str, Any], prefix: str = "",
+                  added_defaults: dict[str, Any] | None = None) -> list[str]:
+    """Material differences between a frozen manifest and the current one.
+
+    Schema evolution: a field that did not exist when the manifest was frozen (absent there) and now
+    holds its DEFAULT value is not a change in behaviour, so it is not drift. Any other value for a
+    new field, and every change to an existing field, still is.
+    """
     changes: list[str] = []
+    added_defaults = added_defaults or {}
     keys = set(frozen) | set(current)
     for key in sorted(keys):
         a, b = frozen.get(key), current.get(key)
         path = f"{prefix}{key}"
+        default = added_defaults.get(key) if isinstance(added_defaults, dict) else None
+        if key not in frozen and key in added_defaults and not isinstance(default, dict) and b == default:
+            continue
         if isinstance(a, dict) and isinstance(b, dict):
-            changes.extend(diff_material(a, b, f"{path}."))
+            changes.extend(diff_material(a, b, f"{path}.", default if isinstance(default, dict) else None))
         elif a != b:
             changes.append(path)
     return changes
+
+
+def material_defaults() -> dict[str, Any]:
+    """Default values of the material manifest sections, for schema-evolution-aware drift checks."""
+
+    from .paper_contracts import default_experiment_config
+
+    config = default_experiment_config()
+    return {"experiment_config": {k: v for k, v in config.items() if k not in OPERATIONAL_EXPERIMENT_FIELDS}}
 
 
 PROMOTION_SCHEMA = """
@@ -301,7 +321,7 @@ class ExperimentGovernance:
         latest = self.frozen()
         if not latest:
             return []
-        return diff_material(latest["manifest"]["material"], self.current_manifest()["material"])
+        return diff_material(latest["manifest"]["material"], self.current_manifest()["material"], added_defaults=material_defaults())
 
     def status(self) -> dict[str, Any]:
         latest = self.frozen()
