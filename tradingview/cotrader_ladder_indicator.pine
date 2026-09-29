@@ -1,0 +1,188 @@
+//@version=6
+// Spot Co-Trader Ladder — the same daily rule and position ladder as the Co-Trader app
+// (crypto_eval/spot_cotrader.py): decide on the CLOSED daily bar (00:00 UTC = 07:00 Bangkok).
+//
+//   Rule    HOLD when the 60-day return > 0 AND close > SMA100; CASH when both fail; else WATCH.
+//   Ladder  OUT      rule not HOLD                      → hold cash
+//           STARTER  rule HOLD                          → hold half a slot
+//           FULL     20-day closing high while HOLD     → hold two slots (4× the starter)
+//                    back to STARTER on a close below EMA20; OUT when the rule turns off
+//   Marks   B = buy starter · A = add to full · T = trim to starter · S = sell all
+//
+// Decision support only, not investment advice. Use it on the 1D chart.
+indicator("Spot Co-Trader Ladder", shorttitle = "CoTrader Ladder", overlay = true, max_labels_count = 500)
+
+// ─────────────────────────────────────────────────────────────── inputs
+grpRule = "Rule and ladder (same defaults as the app)"
+retLen = input.int(60, "Momentum lookback (days)", minval = 2, group = grpRule)
+smaLen = input.int(100, "Trend average (SMA days)", minval = 3, group = grpRule)
+hiLen = input.int(20, "Add on an N-day closing high", minval = 2, group = grpRule)
+emaLen = input.int(20, "Trim on a close below EMA", minval = 2, group = grpRule)
+nearPct = input.float(3.0, "Warn when within this % of a level", minval = 0.1, step = 0.5, group = grpRule) / 100.0
+
+grpShow = "Display"
+showTrend = input.bool(true, "Trend line (exit / buy level for the next close)", group = grpShow)
+showEma = input.bool(true, "EMA (trim level while FULL)", group = grpShow)
+showAdd = input.bool(true, "Add-above level (while STARTER)", group = grpShow)
+showSma = input.bool(false, "SMA", group = grpShow)
+showBg = input.bool(true, "Shade the ladder state", group = grpShow)
+showMarks = input.bool(true, "B / A / T / S markers", group = grpShow)
+showPanel = input.bool(true, "Thai verdict panel", group = grpShow)
+panelPos = input.string("top_right", "Panel position", options = ["top_right", "top_left", "bottom_right", "bottom_left"], group = grpShow)
+cdcBars = input.bool(false, "Colour bars by CDC Action Zone (reference only)", group = grpShow)
+
+// ─────────────────────────────────────────────────────────────── helpers
+// EMA seeded with the first value, exactly like the app (ta.ema seeds with an SMA instead).
+emaSeeded(float src, int len) =>
+    var float e = na
+    float alpha = 2.0 / (len + 1)
+    e := na(e) ? src : alpha * src + (1 - alpha) * e
+    e
+
+pct(float x) =>
+    na(x) ? "—" : (x >= 0 ? "+" : "") + str.tostring(x * 100, "#.0") + "%"
+
+price(float x) =>
+    na(x) ? "—" : str.tostring(x, format.mintick)
+
+// ─────────────────────────────────────────────────────────────── rule and ladder
+float ret60 = close / close[retLen] - 1
+float sma = ta.sma(close, smaLen)
+bool ready = not na(ret60) and not na(sma)
+bool up = ret60 > 0
+bool above = close > sma
+string ruleState = not ready ? "—" : up and above ? "HOLD" : not up and not above ? "CASH" : "WATCH"
+bool ruleOn = ready and up and above
+
+float ema = emaSeeded(close, emaLen)
+bool hiN = close >= ta.highest(close, hiLen)
+
+// 0 = not enough history, 1 = OUT, 2 = STARTER, 3 = FULL
+var bool full = false
+int ladder = 0
+if not ready
+    full := false
+    ladder := 0
+else if not ruleOn
+    full := false
+    ladder := 1
+else
+    if hiN
+        full := true
+    if close < ema
+        full := false
+    ladder := full ? 3 : 2
+
+int prevLadder = nz(ladder[1], 0)
+bool changed = ladder != prevLadder and prevLadder != 0 and ladder != 0
+string act = not changed ? "" : ladder == 1 ? "S" : ladder == 3 ? "A" : prevLadder == 3 ? "T" : "B"
+
+// Levels for the NEXT daily close (the app's trend_line_next / add_above / trim_below):
+//   ret60 > 0 tomorrow  <=> close > close[retLen - 1];  close > SMA tomorrow <=> close > sum(last smaLen-1)/(smaLen-1)
+float trendLine = math.max(close[retLen - 1], math.sum(close, smaLen - 1) / (smaLen - 1))
+float addAbove = ta.highest(close, hiLen - 1)
+float trimBelow = ema
+
+// ─────────────────────────────────────────────────────────────── plots
+plot(showTrend ? trendLine : na, "Trend line (next close)", color = color.new(#4f8bff, 0), linewidth = 2, offset = 1)
+plot(showEma ? ema : na, "EMA (trim level)", color = ladder == 3 ? color.new(#f59e0b, 0) : color.new(#f59e0b, 70), linewidth = 1)
+plot(showAdd and ladder == 2 ? addAbove : na, "Add above (next close)", color = color.new(#10b981, 0), style = plot.style_linebr, linewidth = 1, offset = 1)
+plot(showSma ? sma : na, "SMA", color = color.new(#94a3b8, 30), linewidth = 1)
+
+bgcolor(showBg ? (ladder == 3 ? color.new(#10b981, 88) : ladder == 2 ? color.new(#4f8bff, 90) : na) : na, title = "Ladder state")
+
+plotshape(showMarks and act == "B", "Buy starter", shape.labelup, location.belowbar, color.new(#10b981, 0), text = "B", textcolor = color.white, size = size.small)
+plotshape(showMarks and act == "A", "Add to full", shape.labelup, location.belowbar, color.new(#047857, 0), text = "A", textcolor = color.white, size = size.small)
+plotshape(showMarks and act == "T", "Trim to starter", shape.labeldown, location.abovebar, color.new(#f59e0b, 0), text = "T", textcolor = color.black, size = size.small)
+plotshape(showMarks and act == "S", "Sell all", shape.labeldown, location.abovebar, color.new(#dc2626, 0), text = "S", textcolor = color.white, size = size.small)
+
+// CDC Action Zone (reference only; the ladder never uses it)
+float ap = ta.ema(ohlc4, 2)
+float cdcFast = ta.ema(ap, 12)
+float cdcSlow = ta.ema(ap, 26)
+color cdcColor = cdcFast > cdcSlow ? (ap > cdcFast ? color.green : color.blue) : (ap > cdcFast ? color.yellow : color.red)
+barcolor(cdcBars ? cdcColor : na, title = "CDC zone")
+
+// ─────────────────────────────────────────────────────────────── alerts (use "Once Per Bar Close")
+alertcondition(act == "B", "Co-Trader: B เริ่มซื้อครึ่งไม้", "{{ticker}} เริ่มซื้อครึ่งไม้ (ปิดที่ {{close}})")
+alertcondition(act == "A", "Co-Trader: A ซื้อเพิ่มเป็นเต็มไม้", "{{ticker}} ซื้อเพิ่มเป็นเต็มไม้ (ปิดที่ {{close}})")
+alertcondition(act == "T", "Co-Trader: T ลดเหลือครึ่งไม้", "{{ticker}} ลดเหลือครึ่งไม้ (ปิดที่ {{close}})")
+alertcondition(act == "S", "Co-Trader: S ขายออกทั้งหมด", "{{ticker}} ขายออกทั้งหมด ถือเงินสด (ปิดที่ {{close}})")
+alertcondition(act != "", "Co-Trader: ladder changed (any)", "{{ticker}} ladder changed at close {{close}}")
+
+// ─────────────────────────────────────────────────────────────── Thai verdict panel
+// The verdict reads the last CLOSED bar; distances use the live price, like the app.
+int k = barstate.isconfirmed ? 0 : 1
+int L = ladder[k]
+string A = act[k]
+float lvTrend = trendLine[k]
+float lvAdd = addAbove[k]
+float lvTrim = trimBelow[k]
+float moveTrim = lvTrim / close - 1
+float moveAdd = lvAdd / close - 1
+float moveTrend = lvTrend / close - 1
+
+string verdict = "—"
+string detail = "ข้อมูลยังไม่พอ (ต้องมีอย่างน้อย " + str.tostring(smaLen) + " วัน)"
+color vColor = color.gray
+if A == "B"
+    verdict := "▲ เริ่มซื้อ"
+    detail := "ซื้อครึ่งไม้ (เทรนด์เพิ่งเริ่ม)"
+    vColor := color.new(#10b981, 0)
+else if A == "A"
+    verdict := "▲ ซื้อเพิ่ม"
+    detail := "เติมเป็นเต็มไม้ (เบรคจุดสูงสุด " + str.tostring(hiLen) + " วัน)"
+    vColor := color.new(#047857, 0)
+else if A == "T"
+    verdict := "▼ ลดครึ่ง"
+    detail := "ขายครึ่งหนึ่ง เหลือครึ่งไม้ (หลุด EMA" + str.tostring(emaLen) + ")"
+    vColor := color.new(#d97706, 0)
+else if A == "S"
+    verdict := "▼ ขายออก"
+    detail := "ขายทั้งหมด ถือเงินสด (หลุดเทรนด์)"
+    vColor := color.new(#dc2626, 0)
+else if L == 3
+    verdict := "■ ถือต่อ"
+    detail := math.abs(moveTrim) <= nearPct ? "เต็มไม้ · ใกล้จุดลด (" + pct(moveTrim) + ")" : "เต็มไม้"
+    vColor := math.abs(moveTrim) <= nearPct ? color.new(#d97706, 0) : color.new(#155eef, 0)
+else if L == 2
+    verdict := "■ ถือต่อ"
+    detail := math.abs(moveAdd) <= nearPct ? "ครึ่งไม้ · ใกล้จุดซื้อเพิ่ม (" + pct(moveAdd) + ")" : "ครึ่งไม้ · รอเบรคค่อยซื้อเพิ่ม"
+    vColor := color.new(#155eef, 0)
+else if L == 1
+    verdict := "◷ รอก่อน"
+    detail := math.abs(moveTrend) <= nearPct ? "ยังไม่ซื้อ · ใกล้สัญญาณซื้อ (" + pct(moveTrend) + ")" : "ยังไม่ซื้อ ถือเงินสด"
+    vColor := color.new(#64748b, 0)
+
+tablePos = switch panelPos
+    "top_left" => position.top_left
+    "bottom_right" => position.bottom_right
+    "bottom_left" => position.bottom_left
+    => position.top_right
+
+var table panel = table.new(tablePos, 2, 8, bgcolor = color.new(#111827, 8), frame_color = color.new(#1f2a3c, 0), frame_width = 1, border_color = color.new(#1f2a3c, 0), border_width = 1)
+
+if showPanel and barstate.islast
+    color fg = color.new(#e2e8f0, 0)
+    color muted = color.new(#94a3b8, 0)
+    table.cell(panel, 0, 0, verdict, text_color = color.white, bgcolor = vColor, text_size = size.large, text_halign = text.align_center)
+    table.merge_cells(panel, 0, 0, 1, 0)
+    table.cell(panel, 0, 1, detail, text_color = fg, text_size = size.normal)
+    table.merge_cells(panel, 0, 1, 1, 1)
+    table.cell(panel, 0, 2, "ไม้ตอนนี้", text_color = muted, text_halign = text.align_left)
+    table.cell(panel, 1, 2, L == 3 ? "เต็มไม้ (FULL)" : L == 2 ? "ครึ่งไม้ (STARTER)" : L == 1 ? "เงินสด (OUT)" : "—", text_color = fg, text_halign = text.align_right)
+    table.cell(panel, 0, 3, "กฎรายวัน", text_color = muted, text_halign = text.align_left)
+    table.cell(panel, 1, 3, ruleState[k] + "  (60d " + pct(ret60[k]) + ")", text_color = fg, text_halign = text.align_right)
+    table.cell(panel, 0, 4, L == 3 ? "ลดถ้าปิดต่ำกว่า" : "—", text_color = muted, text_halign = text.align_left)
+    table.cell(panel, 1, 4, L == 3 ? price(lvTrim) + "  (" + pct(moveTrim) + ")" : "", text_color = fg, text_halign = text.align_right)
+    table.cell(panel, 0, 5, L == 2 ? "ซื้อเพิ่มถ้าปิด ≥" : "—", text_color = muted, text_halign = text.align_left)
+    table.cell(panel, 1, 5, L == 2 ? price(lvAdd) + "  (" + pct(moveAdd) + ")" : "", text_color = fg, text_halign = text.align_right)
+    table.cell(panel, 0, 6, L == 1 ? "ซื้อได้ถ้าปิดเหนือ" : "ขายหมดถ้าปิดต่ำกว่า", text_color = muted, text_halign = text.align_left)
+    table.cell(panel, 1, 6, price(lvTrend) + "  (" + pct(moveTrend) + ")", text_color = fg, text_halign = text.align_right)
+    string note = timeframe.isdaily and timeframe.multiplier == 1 ? "ตัดสินใจตอนแท่งวันปิด 07:00 น. · ไม่ใช่คำแนะนำการลงทุน" : "⚠ ใช้กับกราฟ 1D เท่านั้น"
+    table.cell(panel, 0, 7, note, text_color = muted, text_size = size.small)
+    table.merge_cells(panel, 0, 7, 1, 7)
+
+// One dynamic alert per closed bar with the Thai verdict (create the alert with "Any alert() function call").
+if barstate.isconfirmed and act != ""
+    alert(syminfo.ticker + " · " + (act == "B" ? "เริ่มซื้อครึ่งไม้" : act == "A" ? "ซื้อเพิ่มเป็นเต็มไม้" : act == "T" ? "ลดเหลือครึ่งไม้" : "ขายออกทั้งหมด") + " · ปิด " + price(close), alert.freq_once_per_bar_close)
