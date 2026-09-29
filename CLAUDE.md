@@ -57,16 +57,16 @@ market snapshot (closed 15m bar + 1h/4h context)
 
 ## Current baseline and canonical active goal
 
-This branch is planning-only until `feature/continuous-paper-resilience` is completed, merged to main, and this branch is synchronized onto that final main.
+This branch is **planning-only and live execution must remain disabled** until the completed PAPER campaign passes the Experiment Promotion Gate and an explicit human decision authorizes implementation.
 
-The canonical active goal is:
+The canonical active planning files are:
 
-- `.goals/experiment-promotion-gates/goal.md`
-- `.goals/experiment-promotion-gates/status.json`
-- `docs/experiment-promotion-gates-plan.md`
+- `.goals/live-execution-gateway/goal.md`
+- `.goals/live-execution-gateway/status.json`
+- `docs/live-execution-gateway-plan.md`
 - `docs/development-train.md`
 
-This phase prevents experiment drift and premature promotion. It must not add new strategy scope or automatically enable real trading.
+Do not implement real-money writes from this planning snapshot. Re-verify current Gate official API semantics when/if this phase is later authorized.
 
 ## Safety boundaries (enforced by design, keep them)
 

@@ -1,0 +1,23 @@
+{
+  "goal": "live-execution-gateway",
+  "branch": "feature/live-execution-gateway",
+  "state": "planning_only_live_disabled",
+  "predecessor": "feature/experiment-promotion-gates",
+  "implementation_gate": [
+    "completed PAPER campaign",
+    "promotion status live-eligible",
+    "no unresolved critical safety/accounting/reconciliation/resilience defects",
+    "current Gate API semantics re-verified"
+  ],
+  "canonical_files": [
+    ".goals/live-execution-gateway/goal.md",
+    "docs/live-execution-gateway-plan.md",
+    "docs/development-train.md"
+  ],
+  "execution": {
+    "paper_default": true,
+    "live_enabled": false,
+    "withdrawals": false,
+    "transfers": false
+  }
+}
