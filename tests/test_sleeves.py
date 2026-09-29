@@ -281,6 +281,25 @@ class EngineTests(unittest.TestCase):
         self.assertTrue(set(config["sleeves"]["universe"]) <= set(symbols))
         self.assertEqual(stream_symbols(default_experiment_config()), default_experiment_config()["symbols"])
 
+    def test_a_sleeve_wallet_read_before_the_first_tick_gets_its_share_not_the_whole_book(self):
+        # Regression: the monitor's snapshot read the sleeve wallets before ensure_wallets ran, and
+        # lazy creation seeded each with the full starting balance (3x the capital).
+        perp = self.runtime.portfolio._perp_wallet()
+        self.assertAlmostEqual(float(perp["starting_balance"]), 300.0)
+        for cohort in COHORTS.values():
+            self.assertAlmostEqual(float(self.store.wallet_summary("EXP-001", cohort)["starting_balance"]), 100.0)
+        self.run_until(2)
+        self.assertAlmostEqual(sum(float(self.store.wallet_summary("EXP-001", c)["starting_balance"]) for c in COHORTS.values()), 300.0)
+
+    def test_starting_balance_edit_before_any_trade_resets_every_untouched_sleeve_wallet(self):
+        self.store.wallet_summary("EXP-001", "sleeve-ts")  # created at 100 (300 / 3)
+        self.runtime.stop()
+        config = dict(self.store.experiment()["config"])
+        config["starting_balance_usdt"] = 600.0
+        self.store.save_experiment(config)
+        self.assertAlmostEqual(float(self.store.wallet_summary("EXP-001", "sleeve-ts")["starting_balance"]), 200.0)
+        self.assertAlmostEqual(float(self.store.wallet_summary("EXP-001", "primary")["starting_balance"]), 600.0)
+
 
 class StopDistanceCapTests(unittest.TestCase):
     def test_only_an_engine_risk_config_widens_the_stop_cap_and_never_past_45_percent(self):
