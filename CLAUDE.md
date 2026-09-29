@@ -57,16 +57,16 @@ market snapshot (closed 15m bar + 1h/4h context)
 
 ## Current baseline and canonical active goal
 
-This branch is planning-only until `feature/spot-cycle-lifecycle-manager` is completed, merged to main, and this branch is synchronized onto that final main.
+This branch is planning-only until `feature/continuous-paper-resilience` is completed, merged to main, and this branch is synchronized onto that final main.
 
 The canonical active goal is:
 
-- `.goals/continuous-paper-resilience/goal.md`
-- `.goals/continuous-paper-resilience/status.json`
-- `docs/continuous-paper-resilience-plan.md`
+- `.goals/experiment-promotion-gates/goal.md`
+- `.goals/experiment-promotion-gates/status.json`
+- `docs/experiment-promotion-gates-plan.md`
 - `docs/development-train.md`
 
-Keep the platform local-first and simple. This phase is reliability hardening, not a distributed-infrastructure rewrite.
+This phase prevents experiment drift and premature promotion. It must not add new strategy scope or automatically enable real trading.
 
 ## Safety boundaries (enforced by design, keep them)
 
