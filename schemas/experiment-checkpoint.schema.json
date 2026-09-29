@@ -1,0 +1,106 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "experiment-checkpoint.schema.json",
+  "title": "Reproducible experiment checkpoint report",
+  "type": "object",
+  "required": [
+    "schema_version",
+    "identity",
+    "safety",
+    "reliability",
+    "economics",
+    "ai_incremental_value",
+    "spot_lifecycle",
+    "coverage",
+    "report_sha256"
+  ],
+  "properties": {
+    "schema_version": {
+      "const": "experiment-checkpoint.v1"
+    },
+    "report_sha256": {
+      "type": "string",
+      "minLength": 64
+    },
+    "identity": {
+      "type": "object",
+      "required": [
+        "experiment_id",
+        "manifest_version",
+        "material_sha256",
+        "frozen_at",
+        "manifest_drift",
+        "as_of",
+        "elapsed_days",
+        "checkpoint"
+      ],
+      "properties": {
+        "checkpoint": {
+          "enum": [
+            "PRE_DAY_7",
+            "DAY_7",
+            "DAY_30",
+            "DAY_60",
+            "DAY_90"
+          ]
+        },
+        "manifest_drift": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          }
+        }
+      }
+    },
+    "safety": {
+      "type": "object",
+      "required": [
+        "live_execution_enabled",
+        "reconciliation_ok",
+        "duplicate_cycles",
+        "secret_findings",
+        "open_critical_incidents",
+        "database_ok"
+      ],
+      "properties": {
+        "live_execution_enabled": {
+          "const": false
+        }
+      }
+    },
+    "reliability": {
+      "type": "object",
+      "required": [
+        "scheduler_slots",
+        "skipped_slot_ratio",
+        "incidents_by_kind"
+      ]
+    },
+    "economics": {
+      "type": "object",
+      "required": [
+        "completed_trades",
+        "denominator",
+        "net_trading_pnl_usdt",
+        "ai_cost_usd",
+        "net_economic_pnl_usdt",
+        "profit_factor",
+        "max_drawdown",
+        "top_trade_share"
+      ]
+    },
+    "ai_incremental_value": {
+      "type": "object"
+    },
+    "spot_lifecycle": {
+      "type": "object"
+    },
+    "coverage": {
+      "type": "object",
+      "required": [
+        "regimes_observed"
+      ]
+    }
+  },
+  "additionalProperties": false
+}

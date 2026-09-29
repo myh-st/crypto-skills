@@ -2589,3 +2589,10 @@ body.drawer-open { overflow: hidden; }
 .health-panel { display: grid; gap: 6px; }
 .health-panel p { margin: 0; }
 .incident-list { list-style: none; padding: 0; margin: 0; display: grid; gap: 4px; }
+.promotion { display: grid; gap: 8px; }
+.promotion p { margin: 0; }
+.manifest-form { display: flex; flex-wrap: wrap; gap: 8px; align-items: end; }
+.manifest-form label { display: grid; gap: 2px; font-size: 12px; color: var(--color-text-muted); }
+.manifest-form input { padding: 6px 8px; border: 1px solid var(--color-border); border-radius: 6px; font: inherit; width: min(280px, 100%); }
+.gate-result ul, .review-history { margin: 4px 0 0; padding-left: 18px; }
+.review-history { list-style: none; padding: 0; display: grid; gap: 2px; }

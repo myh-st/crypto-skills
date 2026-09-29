@@ -529,3 +529,29 @@ test("health panel shows overall state, component pills, incidents, and the back
   assert.match(renderHealth({ overall: "OK", components: {}, open_incidents: [] }), /No open incidents/);
   assert.match(renderHealth(null), /unavailable/);
 });
+
+// ------------------------------------------------------------------ promotion gate
+import { renderPromotion } from "../modules/components/promotionPanel.js";
+
+test("promotion panel shows identity, gate decision, blockers, drift, and that live stays disabled", () => {
+  const html = renderPromotion({
+    manifest: { status: { version: 2, material_sha256: "a".repeat(64), frozen_at: "2026-09-29T00:00:00Z", drift: ["providers.0.model"] } },
+    review: { report: { identity: { experiment_id: "EXP-001", elapsed_days: 31.2, checkpoint: "DAY_30" },
+      economics: { completed_trades: 48, perp_trades: 40, spot_round_trips: 8, net_economic_pnl_usdt: null, profit_factor: 1.3, max_drawdown: 0.07 } },
+      gate: { status: "INVALID_EXPERIMENT", blockers: ["UNVERSIONED_MATERIAL_CHANGE"], reasons: ["changed <b>"], next_step: "start a new experiment" } },
+    reviews: [{ status: "CONTINUE_COLLECTING_DATA", checkpoint: "DAY_7", manifest_version: 1, report_sha256: "b".repeat(64), created_at: "2026-09-22T00:00:00Z" }],
+  });
+  assert.match(html, /Live trading: DISABLED/);
+  assert.match(html, /manifest v2/);
+  assert.match(html, /DAY 30/);
+  assert.match(html, /48/);
+  assert.match(html, /unavailable/);
+  assert.match(html, /INVALID EXPERIMENT/);
+  assert.match(html, /UNVERSIONED_MATERIAL_CHANGE/);
+  assert.match(html, /data-manifest-form/);
+  assert.doesNotMatch(html, /<b>/);
+  assert.match(html, /CONTINUE COLLECTING DATA/);
+  const clean = renderPromotion({ manifest: { status: { version: 1, drift: [] } } });
+  assert.doesNotMatch(clean, /data-manifest-form/);
+  assert.match(clean, /No checkpoint review yet/);
+});

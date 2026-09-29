@@ -189,8 +189,23 @@ export function createPaperApi(fetcher = globalThis.fetch) {
     async portfolioSettings() {
       return (await request("/portfolio/settings")).json();
     },
-    async savePortfolioSettings(patch) {
-      return (await request("/portfolio/settings", { method: "POST", body: patch })).json();
+    async savePortfolioSettings(patch, { confirm = false } = {}) {
+      return (await request("/portfolio/settings", { method: "POST", body: confirm ? { ...patch, confirm: true } : patch })).json();
+    },
+    async experimentManifest() {
+      return (await request("/experiment/manifest")).json();
+    },
+    async recordManifestVersion(reason, { confirm = false } = {}) {
+      return (await request("/experiment/manifest/version", { method: "POST", body: { reason, confirm } })).json();
+    },
+    async promotionReport() {
+      return (await request("/promotion/report")).json();
+    },
+    async promotionReview() {
+      return (await request("/promotion/review", { method: "POST", body: {} })).json();
+    },
+    async promotionReviews() {
+      return (await request("/promotion/reviews")).json();
     },
     async automation(patch, { confirm = false } = {}) {
       return (await request("/automation", { method: "POST", body: confirm ? { ...patch, confirm: true } : patch })).json();

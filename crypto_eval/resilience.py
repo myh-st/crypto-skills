@@ -25,7 +25,7 @@ from typing import Any, Callable
 
 from .paper_contracts import PaperTradingError, iso_utc, parse_utc
 
-DB_SCHEMA_VERSION = 5  # PRAGMA user_version after Portfolio OS, safety, lifecycle, resilience
+DB_SCHEMA_VERSION = 6  # PRAGMA user_version after Portfolio OS, safety, lifecycle, resilience, promotion
 HEALTH_SCHEMA_VERSION = "runtime-health.v1"
 INCIDENT_KINDS = (
     "PROCESS_RESTART",

@@ -3,6 +3,7 @@
 import { escapeHtml } from "../format.js";
 import { paperApi } from "../paperApi.js";
 import { feedback } from "../components/ui.js";
+import { withConfirmation } from "../components/confirmDialog.js";
 
 const MODES = [["AUTO_PAPER", "AI managed (AUTO_PAPER)"], ["RECOMMEND_ONLY", "Recommend only"], ["MANUAL_OVERRIDE", "Manual override"], ["PAUSED", "AI paused"]];
 
@@ -98,7 +99,12 @@ export async function mountPortfolioSettings(host) {
       event.preventDefault();
       const note = form.querySelector("[data-portfolio-settings-feedback]");
       try {
-        await paperApi.savePortfolioSettings(patchFromForm(form));
+        const patch = patchFromForm(form);
+        const result = await withConfirmation((confirm) => paperApi.savePortfolioSettings(patch, { confirm }));
+        if (result === null) {
+          feedback(note, "Cancelled · nothing changed.", "neutral");
+          return;
+        }
         feedback(note, "Portfolio policy saved and audited.", "success");
       } catch (error) {
         feedback(note, error.message, "error");

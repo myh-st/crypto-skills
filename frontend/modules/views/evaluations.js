@@ -3,6 +3,8 @@ import { evaluationService, runService, runtimeService } from "../services.js";
 import { paperApi } from "../paperApi.js";
 import { renderLearning, renderTournament } from "../components/strategyTournamentSummary.js";
 import { renderBenchmark } from "../components/lifecycleCard.js";
+import { renderPromotion } from "../components/promotionPanel.js";
+import { withConfirmation } from "../components/confirmDialog.js";
 
 const RESULT_TONE = {
   pending: "neutral",
@@ -13,8 +15,12 @@ const RESULT_TONE = {
 
 export function render(root, ctx) {
   root.innerHTML = `<div class="view view--evaluations">
+    <section class="panel" aria-labelledby="promotion-heading">
+      <div class="section-heading"><h1 id="promotion-heading">Experiment &amp; promotion gate</h1><span class="demo-tag">frozen manifest · checkpoints day 7/30/60/90</span></div>
+      <div data-promotion-host role="status" aria-live="polite"><p class="muted small">Loading…</p></div>
+    </section>
     <section class="panel" aria-labelledby="tournament-heading">
-      <div class="section-heading"><h1 id="tournament-heading">Strategy tournament</h1><span class="demo-tag">aligned frozen inputs · separate PAPER wallets</span></div>
+      <div class="section-heading"><h2 id="tournament-heading">Strategy tournament</h2><span class="demo-tag">aligned frozen inputs · separate PAPER wallets</span></div>
       <div data-tournament><p class="muted">Loading…</p></div>
     </section>
     <section class="panel" aria-labelledby="benchmark-heading">
@@ -39,6 +45,47 @@ export function render(root, ctx) {
     .catch((error) => {
       view.querySelector("[data-tournament]").innerHTML = `<p class="muted">PAPER runtime unavailable: ${escapeHtml(error.message)}</p>`;
     });
+  const promotionHost = view.querySelector("[data-promotion-host]");
+  let promotionState = { manifest: null, review: null, reviews: [] };
+  const drawPromotion = () => { promotionHost.innerHTML = renderPromotion(promotionState); };
+  async function loadPromotion() {
+    try {
+      const [manifest, preview, history] = await Promise.all([
+        paperApi.experimentManifest(), paperApi.promotionReport(), paperApi.promotionReviews(),
+      ]);
+      promotionState = { manifest, review: preview, reviews: history.reviews || [] };
+      drawPromotion();
+    } catch (error) {
+      promotionHost.innerHTML = `<p class="muted small">Promotion data unavailable: ${escapeHtml(error.message)}</p>`;
+    }
+  }
+  promotionHost.addEventListener("click", async (event) => {
+    const button = event.target.closest("[data-promotion-review]");
+    if (!button) return;
+    button.disabled = true;
+    try {
+      const { review } = await paperApi.promotionReview();
+      promotionState = { ...promotionState, review, reviews: (await paperApi.promotionReviews()).reviews || [] };
+      drawPromotion();
+    } catch (error) {
+      promotionHost.insertAdjacentHTML("afterbegin", `<p class="paper-feedback paper-feedback--error">${escapeHtml(error.message)}</p>`);
+    } finally {
+      button.disabled = false;
+    }
+  });
+  promotionHost.addEventListener("submit", async (event) => {
+    const form = event.target.closest("[data-manifest-form]");
+    if (!form) return;
+    event.preventDefault();
+    const reason = String(new FormData(form).get("reason") || "").trim();
+    try {
+      const result = await withConfirmation((confirm) => paperApi.recordManifestVersion(reason, { confirm }));
+      if (result) await loadPromotion();
+    } catch (error) {
+      promotionHost.insertAdjacentHTML("afterbegin", `<p class="paper-feedback paper-feedback--error">${escapeHtml(error.message)}</p>`);
+    }
+  });
+  loadPromotion();
   const benchmarkHost = view.querySelector("[data-benchmark]");
   paperApi.lifecycleBenchmarks()
     .then(({ reports }) => { benchmarkHost.innerHTML = renderBenchmark(reports[0]); })

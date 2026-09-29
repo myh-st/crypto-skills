@@ -238,6 +238,16 @@ class PaperRequestHandler(BaseHTTPRequestHandler):
             return self.runtime.health()
         if path == "/api/incidents":
             return {"incidents": self.runtime.resilience.incidents(status=q("status") or None)}
+        if path == "/api/experiment/manifest":
+            governance = self.runtime.governance
+            return {"status": governance.status(), "manifests": governance.manifests()}
+        if path == "/api/promotion/reviews":
+            return {"reviews": self.runtime.governance.reviews()}
+        if path == "/api/promotion/report":
+            from .promotion import evaluate_gate, validate_criteria
+
+            report = self.runtime.governance.checkpoint_report()
+            return {"report": report, "gate": evaluate_gate(report, validate_criteria(portfolio.settings()["promotion"])), "persisted": False}
         if path == "/api/lifecycle":
             return portfolio.lifecycle_overview()
         if path == "/api/lifecycle/benchmarks":
@@ -283,6 +293,23 @@ class PaperRequestHandler(BaseHTTPRequestHandler):
             served = database_path(self.runtime.store)
             target = served.parent / "backups" if served else default_backup_dir()
             return {"backup": backup_database(self.runtime.store, target, label="api")}
+        if path == "/api/promotion/review":
+            if self._read_json():
+                raise PaperTradingError("promotion review takes no parameters")
+            return {"review": self.runtime.governance.review()}
+        if path == "/api/experiment/manifest/version":
+            body = self._read_json()
+            if set(body) - {"reason", "confirm"}:
+                raise PaperTradingError("manifest version accepts reason and confirm")
+            reason = str(body.get("reason") or "").strip()
+            if len(reason) < 4:
+                raise PaperTradingError("a reason is required to record a new manifest version")
+            if body.get("confirm") is not True:
+                drift = self.runtime.governance.drift()
+                raise ConfirmationRequired("CONFIRM_MANIFEST_VERSION",
+                                           "record the current configuration as a new experiment version?",
+                                           {"changed": drift[:12]})
+            return {"manifest": self.runtime.governance.freeze(reason=f"user: {reason[:200]}")}
         if path == "/api/lifecycle/benchmark":
             body = self._read_json()
             if set(body) - {"instrument_id", "bars"}:
@@ -309,7 +336,11 @@ class PaperRequestHandler(BaseHTTPRequestHandler):
             body = self._read_json()
             return {"assessment": portfolio.assess(body.get("instrument_id"), force=True)}
         if path == "/api/portfolio/settings":
-            return {"settings": portfolio.update_settings(self._read_json())}
+            body = self._read_json()
+            confirm = body.pop("confirm", False) if isinstance(body, dict) else False
+            if not isinstance(confirm, bool):
+                raise PaperTradingError("confirm must be boolean")
+            return {"settings": portfolio.update_settings(body, confirm=confirm)}
         if path == "/api/automation":
             body = self._read_json()
             confirm = body.pop("confirm", False)

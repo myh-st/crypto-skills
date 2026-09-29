@@ -13,6 +13,7 @@ from typing import Any
 
 from .execution_safety import DEFAULT_SAFETY_SETTINGS, validate_safety_settings
 from .spot_lifecycle import DEFAULT_LIFECYCLE_SETTINGS, validate_lifecycle_settings
+from .promotion import DEFAULT_PROMOTION_CRITERIA, validate_criteria
 from .paper_contracts import PaperTradingError
 
 
@@ -299,6 +300,7 @@ DEFAULT_PORTFOLIO_SETTINGS: dict[str, Any] = {
     },
     "safety": dict(DEFAULT_SAFETY_SETTINGS),
     "lifecycle": dict(DEFAULT_LIFECYCLE_SETTINGS),
+    "promotion": dict(DEFAULT_PROMOTION_CRITERIA),
     "ai_spot": {
         "enabled": False,
         "trigger": "prefer_spot",
@@ -436,5 +438,6 @@ def validate_portfolio_settings(value: dict[str, Any], *, base: dict[str, Any] |
         raise PaperTradingError("brain.hold_cash_drawdown_fraction must be at least the de-risk fraction")
     merged["safety"] = validate_safety_settings(merged["safety"])
     merged["lifecycle"] = validate_lifecycle_settings(merged["lifecycle"])
+    merged["promotion"] = validate_criteria(merged["promotion"])
     merged["schema_version"] = DEFAULT_PORTFOLIO_SETTINGS["schema_version"]
     return merged

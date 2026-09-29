@@ -217,6 +217,10 @@ def _parser() -> argparse.ArgumentParser:
     restore.add_argument("backup", type=Path, help="backup .sqlite3 file (its .json manifest must sit beside it)")
     restore.add_argument("--database", type=Path, help="target PAPER SQLite path (default: the paper-server database)")
     restore.add_argument("--force", action="store_true", help="keep the existing database aside as .pre-restore-* and restore")
+    checkpoint = commands.add_parser("paper-checkpoint", help="reproducible checkpoint report + promotion gate review (read-mostly)")
+    checkpoint.add_argument("--database", type=Path, help="PAPER SQLite path (default: the paper-server database)")
+    checkpoint.add_argument("--out", type=Path, help="write the review JSON here")
+    checkpoint.add_argument("--dry-run", action="store_true", help="evaluate without persisting a review record")
     soak = commands.add_parser("paper-soak", help="accelerated local soak with restarts, sleep gaps, and invariant checks (fixture data)")
     soak.add_argument("--database", type=Path, required=True, help="fresh SQLite path for the soak (must not exist)")
     soak.add_argument("--days", type=float, default=3.0)
@@ -521,6 +525,35 @@ def _dispatch(args: argparse.Namespace) -> int:
             print(json.dumps(restore_database(args.backup, database, force=args.force), indent=2, sort_keys=True))
         finally:
             lock.release()
+        return 0
+    if args.command == "paper-checkpoint":
+        from .paper_runtime import PaperRuntime, PaperStore
+        from .paper_server import default_database_path
+        from .promotion import evaluate_gate, validate_criteria
+
+        database = Path(args.database or default_database_path())
+        if not database.exists():
+            raise EvaluationError(f"database not found: {database}")
+        store = PaperStore(database)
+        try:
+            runtime = PaperRuntime(store)
+            if args.dry_run:
+                report = runtime.governance.checkpoint_report()
+                review = {"report": report, "gate": evaluate_gate(report, validate_criteria(runtime.portfolio.settings()["promotion"])),
+                          "persisted": False}
+            else:
+                review = runtime.governance.review()
+        finally:
+            store.close()
+        text = json.dumps(review, indent=2, sort_keys=True, default=str)
+        if args.out:
+            args.out.parent.mkdir(parents=True, exist_ok=True)
+            args.out.write_text(text)
+        gate = review["gate"]
+        print(f"{review['report']['identity']['checkpoint']}: {gate['status']} · blockers: {', '.join(gate['blockers']) or 'none'}")
+        for reason in gate["reasons"]:
+            print(f"  - {reason}")
+        print(f"  next: {gate['next_step']}")
         return 0
     if args.command == "paper-soak":
         from .soak import main_soak
