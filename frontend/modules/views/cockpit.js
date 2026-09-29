@@ -10,6 +10,7 @@ import { renderKpiStrip } from "../components/portfolioKpiStrip.js";
 import { renderUnifiedPositions } from "../components/positionsTable.js";
 import { renderTradingStatusBar } from "../components/tradingStatusBar.js";
 import { feedback } from "../components/ui.js";
+import { renderKillSwitchControl, renderSafetyStrip } from "../components/safetyStrip.js";
 
 const LAST_VISIT_KEY = "portfolio-os.last-visit.v1";
 
@@ -68,6 +69,7 @@ export function renderCockpit(root, ctx) {
       </div>
     </header>
     <div data-status-bar></div>
+    <div data-safety-strip></div>
     <div data-kpis><div class="kpi-strip kpi-strip--loading" aria-busy="true"></div></div>
     <div class="paper-feedback" data-cockpit-feedback role="status" aria-live="polite"></div>
     <div class="cockpit-grid">
@@ -104,13 +106,14 @@ export function renderCockpit(root, ctx) {
 
   async function refresh() {
     try {
-      const [experimentPayload, portfolio, attention, activity, settings, market] = await Promise.all([
+      const [experimentPayload, portfolio, attention, activity, settings, market, safety] = await Promise.all([
         paperApi.experiment(),
         paperApi.portfolio(),
         paperApi.attention(),
         paperApi.activity({ limit: 80 }),
         paperApi.portfolioSettings(),
         paperApi.marketStatus().catch(() => ({ stream: null })),
+        paperApi.safety().catch(() => null),
       ]);
       if (disposed) return;
       const experiment = experimentPayload.experiment;
@@ -127,7 +130,14 @@ export function renderCockpit(root, ctx) {
       root.querySelector("[data-positions]").innerHTML = renderUnifiedPositions(
         [...paper.perpetual.positions, ...paper.spot.holdings], { compact: true, emptyMessage: "No open PAPER positions. Use Trade to simulate one, or let the scheduler find setups." },
       );
-      root.querySelector("[data-automation-panel]").innerHTML = renderAutomation(experiment, current.automation);
+      root.querySelector("[data-automation-panel]").innerHTML = renderAutomation(experiment, current.automation)
+        + (safety ? renderKillSwitchControl(safety.kill_switch) : "");
+      const unsafe = (safety?.market_states || []).filter((item) => item.state !== "NORMAL");
+      root.querySelector("[data-safety-strip]").innerHTML = safety
+        ? renderSafetyStrip({ killSwitch: safety.kill_switch })
+          + (unsafe.length ? `<p class="small warn-text">${unsafe.map((item) => `${escapeHtml(item.instrument_id.split(":").slice(1).join(" "))}: ${escapeHtml(item.state.replaceAll("_", " "))}`).join(" · ")}</p>` : "")
+          + (safety.reconciliation?.ok === false ? '<p class="paper-feedback paper-feedback--error">Ledger reconciliation failed — automation is restricted until it is resolved.</p>' : "")
+        : "";
       const events = activity.events || [];
       const since = previousVisit ? events.filter((event) => event.timestamp > previousVisit) : events;
       root.querySelector("[data-since]").innerHTML = previousVisit
@@ -139,6 +149,21 @@ export function renderCockpit(root, ctx) {
       if (!disposed) feedback(note, `Local PAPER runtime unavailable: ${error.message}. Start it with python3 -m crypto_eval paper-server.`, "error");
     }
   }
+
+  view.addEventListener("submit", async (event) => {
+    const form = event.target.closest("[data-kill-switch-form]");
+    if (!form) return;
+    event.preventDefault();
+    const level = form.elements.namedItem("level").value;
+    const reason = form.elements.namedItem("reason").value;
+    try {
+      const result = await withConfirmation((confirm) => paperApi.setKillSwitch(level, { reason, confirm }));
+      if (result) feedback(note, `Kill switch ${result.kill_switch.level.replaceAll("_", " ")}.`, "success");
+      await refresh();
+    } catch (error) {
+      feedback(note, error.message, "error");
+    }
+  });
 
   view.addEventListener("click", async (event) => {
     const button = event.target.closest("button");

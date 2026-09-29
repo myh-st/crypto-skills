@@ -73,10 +73,14 @@ export function renderPreview(preview) {
       ["Cash remaining", `${price(preview.cash_remaining_usdt)} USDT`],
     ];
   const brain = preview.portfolio_brain;
+  const plan = preview.execution_plan;
+  const market = preview.market_safety;
   return `
     <div class="ticket-preview ticket-preview--${preview.allowed ? "ok" : "blocked"}" aria-live="polite">
       <p class="ticket-verdict"><strong>${preview.allowed ? "✓ Risk approved" : `✕ ${escapeHtml(preview.code)}`}</strong>${preview.allowed ? "" : ` · ${escapeHtml(preview.reason)}`}</p>
       <dl class="kv">${rows.map(([label, value]) => `<div><dt>${escapeHtml(label)}</dt><dd>${escapeHtml(value)}</dd></div>`).join("")}</dl>
+      ${plan ? `<p class="small">Execution: <strong>${escapeHtml(plan.decision)}</strong>${plan.style ? ` · ${escapeHtml(plan.style.replaceAll("_", " ").toLowerCase())}` : ""}${plan.slices?.length > 1 ? ` · ${plan.slices.length} slices` : ""}${plan.max_slippage_bps ? ` · max slippage ${escapeHtml(plan.max_slippage_bps)} bps` : ""}${plan.reasons?.length ? ` · ${escapeHtml(plan.reasons.join(", "))}` : ""}</p>` : ""}
+      ${market && market.state !== "NORMAL" ? `<p class="small warn-text">Market ${escapeHtml(market.state.replaceAll("_", " "))} · ${escapeHtml(market.reasons.join(", "))}</p>` : ""}
       ${brain ? `<p class="small">Portfolio Brain: <strong>${escapeHtml(brain.action)}</strong> · ${escapeHtml((brain.reason_codes || []).join(", "))}${brain.advisories?.length ? ` · ${escapeHtml(brain.advisories.join(", "))}` : ""}</p>` : ""}
       ${(preview.warnings || []).length ? `<p class="small warn-text">⚠ ${escapeHtml(preview.warnings.join(" · "))}</p>` : ""}
       <p class="muted small">Quote ${escapeHtml(preview.quote?.source || "—")} · ${preview.quote?.fresh ? "fresh" : "STALE"} · server-authoritative PAPER preview</p>
@@ -182,8 +186,13 @@ export function mountTradeTicket(host, { api, instrument, lastPrice = null, onRe
     if (!lastPreview?.allowed) return;
     submit.disabled = true;
     const note = host.querySelector("[data-ticket-feedback]");
+    if (Date.parse(lastPreview.expires_at || lastPreview.as_of) - 5000 < Date.now()) {
+      await refreshPreview();
+      feedback(note, "The preview expired and was refreshed from live data. Review it and submit again.", "neutral");
+      return;
+    }
     try {
-      const { order } = await api.createOrder({ ...ticketBody(form, instrument), client_request_id: uid("ticket") });
+      const { order } = await api.createOrder({ ...ticketBody(form, instrument), client_request_id: uid("ticket"), preview_as_of: lastPreview.as_of });
       if (order.accepted) {
         feedback(note, `PAPER ${order.status}${order.position_ref ? " · position open" : ""}.`, "success");
       } else {

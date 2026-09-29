@@ -67,33 +67,28 @@ market snapshot (closed 15m bar + 1h/4h context)
   - Confirmation-required actions return HTTP 409.
 - `ai_cost.py` holds the AI usage/cost ledger, the versioned price book, and budget guards (`BLOCK_PAID_AI`, `FALLBACK_QUANT`, `JEV_ONLY`, `PAUSE_NEW_ENTRIES`). Paid calls fail closed when their price is unknown.
 
-## Current live-integration baseline and canonical next phase
+## Current baseline and canonical active goal
 
-The real AI + live Gate integration from PR #2 is now an implementation baseline, not the active product goal:
+The implementation baseline is `main` after Phase 1 (AI Portfolio Trading OS, PR #3). It includes:
+- real Gate Spot and Perp market data;
+- backend SSE;
+- real Jev and Azure Foundry integration;
+- deterministic PAPER risk and execution;
+- the AI cost ledger and budget guard;
+- read-only Gate account sync;
+- the Portfolio OS: catalog, Spot, unified orders, position manager, authority modes, re-plan, Portfolio Brain, activity and attention, learning. See `docs/ai-portfolio-trading-os.md`.
 
-- `gate_market.py`: Gate perpetual REST warm-up
-- `gate_stream.py` and `ws_client.py`: public Gate WebSocket live stream and chart
-- `gate_account.py`: read-only account sync; `DisabledLiveExecutionAdapter` blocks every write
-- `secret_store.py`: macOS Keychain or Linux `secret-tool`; there is deliberately no plaintext backend
-- `real_integration.py`: real local acceptance; never substitutes fixtures for failed required real checks
-- `ai_cost.py`: versioned AI price book, usage ledger, and hard budget guard
+The fixed phase order and campaign rules are in `docs/development-train.md`.
 
-`docs/paper-futures-runtime.md` documents the implemented runtime baseline.
+The canonical active files for this branch (Phase 2) are:
 
-The canonical active product goal for this branch is:
+- `.goals/crash-execution-safety/goal.md`
+- `.goals/crash-execution-safety/status.json`
+- `docs/crash-execution-safety-plan.md`
 
-- `.goals/ai-portfolio-trading-os/goal.md`
-- `.goals/ai-portfolio-trading-os/status.json`
-- `docs/ai-portfolio-trading-os-plan.md`
-- `docs/claude-opus-5-5-ai-portfolio-trading-os-prompt.md`
+`docs/paper-futures-runtime.md` and `docs/ai-portfolio-trading-os.md` are implementation references, not active goals. Preserve their behavior; do not build duplicate subsystems.
 
-This phase extends the platform into an AI Portfolio Trading OS: portfolio-first UX, Spot + Perpetual PAPER trading, exchange-backed instrument selection, full position/order management, explicit AI/manual authority modes, structured AI re-plan, Portfolio Brain, attention/activity, strategy tournament, and post-trade learning.
-
-Testing tiers remain:
-
-- **CI and unit tests** must use fakes or fixtures only. Never add real network calls to tests.
-- **Local acceptance** may use real public Gate market data and real configured Jev/Azure providers.
-- Real Gate money-moving writes remain blocked by design.
+CI and unit tests remain offline and fake-only. Real Gate money-moving writes remain blocked by design.
 
 ## Safety boundaries (enforced by design, keep them)
 

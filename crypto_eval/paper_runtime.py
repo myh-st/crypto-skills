@@ -11,6 +11,7 @@ import re
 import sqlite3
 import threading
 import time
+import uuid
 import zipfile
 from contextlib import contextmanager
 from dataclasses import dataclass
@@ -67,6 +68,7 @@ from .gate_account import ReadOnlyGateClient, sync_read_only_account
 from .secret_store import CredentialResolver, store_secret
 from .portfolio_brain import evaluate_entry as portfolio_brain_entry
 from .portfolio_store import PORTFOLIO_SCHEMA
+from .execution_safety import KILL_RANK, SAFETY_SCHEMA, classify_market, suspect_print
 
 
 MARKET_PROVIDER_IDS = {
@@ -810,6 +812,7 @@ class PaperStore:
         self._db.executescript(COST_SCHEMA)
         self._db.executescript(EXTRA_SCHEMA)
         self._db.executescript(PORTFOLIO_SCHEMA)
+        self._db.executescript(SAFETY_SCHEMA)
 
     def _migrate_schema(self) -> None:
         with self._lock:
@@ -851,7 +854,12 @@ class PaperStore:
             meta_columns = {
                 row["name"] for row in self._db.execute("PRAGMA table_info(position_meta)").fetchall()
             }
-            for name, declaration in (("initial_risk", "REAL"), ("review_count", "INTEGER NOT NULL DEFAULT 0")):
+            for name, declaration in (
+                ("initial_risk", "REAL"),
+                ("review_count", "INTEGER NOT NULL DEFAULT 0"),
+                ("core_quantity", "REAL NOT NULL DEFAULT 0"),
+                ("stop_breaches", "INTEGER NOT NULL DEFAULT 0"),
+            ):
                 if name not in meta_columns:
                     self._db.execute(f"ALTER TABLE position_meta ADD COLUMN {name} {declaration}")
             order_columns = {
@@ -2746,6 +2754,7 @@ class PaperStore:
         as_of: str,
         data_origin: str,
         slippage_cost: float = 0.0,
+        order_key: str | None = None,
     ) -> dict[str, Any]:
         if not risk.allowed or not risk.reduce_only:
             return {"accepted": False, "filled_quantity": 0.0, "reason": risk.reason}
@@ -2766,7 +2775,7 @@ class PaperStore:
             quantity = min(float(risk.quantity), float(row["quantity"]))
             if quantity <= 0:
                 return {"accepted": False, "filled_quantity": 0.0, "reason": "no remaining quantity"}
-            order_id = f"{row['position_id']}:reduce:{as_of}"
+            order_id = f"{row['position_id']}:reduce:{order_key or as_of}"
             inserted = db.execute(
                 "INSERT OR IGNORE INTO orders(order_id, experiment_id, cycle_id, position_id, symbol, "
                 "cohort, side, order_type, reduce_only, quantity, filled_quantity, limit_price, status, "
@@ -2841,8 +2850,14 @@ class PaperStore:
         data_origin: str,
         maker_fee_rate: float | None = None,
         slippage_bps: float = 0.0,
+        suspect: dict[str, Any] | None = None,
     ) -> list[dict[str, Any]]:
-        """Apply one closed execution bar once; no AI/provider is invoked here."""
+        """Apply one closed execution bar once; no AI/provider is invoked here.
+
+        ``suspect`` marks an isolated spike (see ``execution_safety.suspect_print``). Stops and
+        liquidation are then not triggered from that bar's extreme (mark-price semantics: a bad
+        last print does not liquidate); the bar's close still marks the position.
+        """
         close_time = iso_utc(parse_utc(bar["close_time"], "monitor.close_time"))
         open_time = iso_utc(parse_utc(bar["open_time"], "monitor.open_time"))
         o, h, l, c = (float(bar[key]) for key in ("open", "high", "low", "close"))
@@ -2925,6 +2940,14 @@ class PaperStore:
                 target = float(current["target_price"])
                 exit_reason = None
                 exit_price = None
+                if suspect is not None:
+                    db.execute(
+                        "INSERT INTO safety_events(experiment_id, instrument_id, position_ref, kind, code, source, detail_json, created_at) "
+                        "VALUES(?, ?, ?, 'guard', 'SUSPECT_PRINT', 'SYSTEM', ?, ?)",
+                        (experiment_id, None, f"perp:{current['position_id']}", _json({**suspect, "stop": stop, "liquidation": liq}), close_time),
+                    )
+                    h = max(o, c) if side == "short" else h
+                    l = min(o, c) if side == "long" else l
                 if side == "long":
                     if o <= liq or l <= liq:
                         exit_reason, exit_price = "liquidation", min(o, liq)
@@ -3144,7 +3167,7 @@ class PaperStore:
             "side, quantity, price, fee, slippage_cost, as_of) "
             "VALUES(?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
             (
-                f"{position['position_id']}:exit:{as_of}",
+                f"{position['position_id']}:exit:{as_of}:{uuid.uuid4().hex[:6]}",
                 position["experiment_id"],
                 position["cycle_id"],
                 f"{position['position_id']}:exit",
@@ -3766,6 +3789,9 @@ class PaperRuntime:
         config = experiment["config"]
         if experiment["status"] != "running":
             raise PaperTradingError("start the PAPER runtime before running a cycle")
+        kill_level = self.portfolio.kill_switch()["level"]
+        if kill_level == "FULL_AUTOMATION_HALT":
+            raise PaperTradingError("KILL_SWITCH_FULL_AUTOMATION_HALT: decision cycles are halted")
         normalized_symbol = symbol.strip().upper()
         if normalized_symbol not in config["symbols"]:
             raise PaperTradingError("symbol is not in the configured experiment universe")
@@ -4420,7 +4446,34 @@ class PaperRuntime:
             pause_entries_reason = None
             portfolio_settings = self.portfolio.settings()
             automation = portfolio_settings["automation"]
-            if automation["emergency_stop"]:
+            safety_settings = portfolio_settings["safety"]
+            instrument_id = self.portfolio.perp_instrument_id(normalized_symbol)
+            book_quote = None
+            if isinstance(context.get("best_bid"), (int, float)) and isinstance(context.get("best_ask"), (int, float)):
+                book_quote = {
+                    "best_bid": context["best_bid"], "best_ask": context["best_ask"], "last_price": context.get("last_price"),
+                    "mark_price": context.get("mark_price"), "index_price": context.get("index_price"),
+                    "observed_at": context.get("book_observed_at") or snapshot.as_of,
+                }
+            market_safety = classify_market(
+                instrument_id=instrument_id, market_type="perpetual", quote=book_quote, bars_1m=snapshot.candles_1m,
+                settings=safety_settings, now=current_time,
+                prior=self.portfolio.safety.prior_state(experiment_id, instrument_id),
+                require_quote=config["market_data_mode"] == "gate_usdt",
+            )
+            self.portfolio.safety.record_state(experiment_id, market_safety)
+            if KILL_RANK[kill_level] >= KILL_RANK["NO_NEW_ENTRIES"]:
+                pause_entries_reason = (f"KILL_SWITCH_{kill_level}", "the kill switch blocks new entries; monitoring continues")
+            elif feed_blocks_entries:
+                pause_entries_reason = ("STALE_MARKET_FEED", "required live market feed is stale")
+            elif market_safety["restrictions"]["new_entries"] == "BLOCKED":
+                code = market_safety["state"] if market_safety["state"] in {"CRASH_MODE", "MARKET_DATA_UNTRUSTED"} else "LIQUIDITY_VACUUM"
+                pause_entries_reason = (code, f"market safety {market_safety['state']}: {', '.join(market_safety['reasons'])}")
+            elif market_safety["restrictions"]["new_entries"] == "REDUCED_SIZE":
+                risk_config = {**risk_config, "risk_per_trade": float(risk_config["risk_per_trade"]) * safety_settings["volatility_entry_multiplier"]}
+            if pause_entries_reason is not None:
+                pass
+            elif automation["emergency_stop"]:
                 pause_entries_reason = ("EMERGENCY_STOP", "emergency stop is active; new PAPER entries are blocked")
             elif automation["new_entries_paused"]:
                 pause_entries_reason = (
@@ -4729,6 +4782,8 @@ class PaperRuntime:
                 "risk": risk_summary,
                 "portfolio_brain": primary_brain,
                 "automation": dict(automation),
+                "market_safety": {k: market_safety[k] for k in ("state", "price_confidence", "reasons", "restrictions")},
+                "kill_switch": kill_level,
                 "cycle_latency_ms": end_to_end_ms,
                 "manual_cycle": bool(manual),
                 "live_execution_enabled": False,
@@ -4815,6 +4870,10 @@ class PaperRuntime:
             start = min(parse_utc(value, "monitor.last_processed") for value in last_bars if value)
             try:
                 bars = provider.fetch_monitor_bars(symbol, start, current_time)
+                try:
+                    history = provider.fetch_monitor_bars(symbol, start - timedelta(minutes=21), start)
+                except PaperTradingError:
+                    history = []
             except PaperTradingError:
                 self.store.record_runtime_event(
                     experiment["experiment_id"],
@@ -4824,7 +4883,10 @@ class PaperRuntime:
                 )
                 continue
             funding_rates: dict[int, float | None] = {}
+            safety_settings = self.portfolio.safety_settings()
             for bar in bars:
+                suspect = suspect_print(bar, history, safety_settings)
+                history.append(bar)
                 close_time = parse_utc(bar["close_time"], "monitor.bar.close_time")
                 settlement_slot = int(close_time.timestamp()) // (8 * 60 * 60)
                 current_positions = [
@@ -4855,6 +4917,7 @@ class PaperRuntime:
                     slippage_bps=config["slippage_bps"],
                     maker_fee_rate=config["maker_fee_rate"],
                     data_origin=MARKET_DATA_ORIGINS[config["market_data_mode"]],
+                    suspect=suspect,
                 )
                 events.extend(result)
         return events
@@ -4867,6 +4930,7 @@ class PaperRuntime:
         as_of: datetime | None = None,
         reference_price: float | None = None,
         data_origin: str | None = None,
+        order_key: str | None = None,
     ) -> dict[str, Any]:
         if not math.isfinite(float(fraction)) or not 0 < float(fraction) <= 1:
             raise PaperTradingError("reduce fraction must be greater than 0 and at most 1")
@@ -4926,6 +4990,7 @@ class PaperRuntime:
             as_of=iso_utc(current_time),
             data_origin=origin,
             slippage_cost=abs(fill_price - mark) * float(risk.quantity),
+            order_key=order_key,
         )
 
     def test_provider(self, provider_id: str) -> dict[str, Any]:
@@ -5421,6 +5486,8 @@ class PaperScheduler:
             try:
                 experiment = self.runtime.store.experiment()
                 if experiment["status"] != "running":
+                    continue
+                if self.runtime.portfolio.kill_switch()["level"] == "FULL_AUTOMATION_HALT":
                     continue
                 config = experiment["config"]
                 now = self.runtime._clock().astimezone(timezone.utc)
@@ -6911,6 +6978,12 @@ class PaperRuntimeReports:
         files["strategy-tournament.json"] = json.dumps(
             portfolio_files["tournament"], indent=2, sort_keys=True, default=str
         ).encode("utf-8")
+        files["safety-events.csv"] = csv_rows(
+            [{**{k: v for k, v in event.items() if k != "detail"}, "detail": event["detail"]} for event in portfolio_files["safety_events"]]
+        )
+        files["execution-plans.jsonl"] = jsonl(portfolio_files["execution_plans"])
+        files["market-safety-states.csv"] = csv_rows(portfolio_files["market_safety_states"])
+        files["kill-switch.json"] = json.dumps(portfolio_files["kill_switch"], indent=2, sort_keys=True).encode("utf-8")
         files["portfolio-settings.json"] = json.dumps(
             portfolio_files["settings"], indent=2, sort_keys=True
         ).encode("utf-8")

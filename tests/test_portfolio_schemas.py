@@ -22,6 +22,7 @@ CONTRACTS = (
     "paper-order-preview", "paper-order-view", "position-protection-update", "position-management-mode",
     "position-plan", "position-replan-request", "position-replan-proposal", "portfolio-state",
     "portfolio-brain-decision", "activity-event", "attention-event", "post-trade-review", "learning-tag",
+    "market-safety-state", "execution-plan", "kill-switch-level",
 )
 
 
@@ -38,6 +39,19 @@ class PortfolioSchemaTests(PortfolioCase):
             schema = json.loads((ROOT / "schemas" / f"{name}.schema.json").read_text())
             self.assertEqual(schema["$id"], f"{name}.schema.json")
             self.assertIn("title", schema)
+
+    def test_safety_outputs_conform(self):
+        for instrument_id in ("fixture:spot:ETH_USDT", "fixture:perpetual:BTC_USDT"):
+            self.assertConforms(self.os.assess(instrument_id, force=True), "market-safety-state")
+        self.assertConforms(self.os.kill_switch()["level"], "kill-switch-level")
+        self.os.create_order({"client_request_id": "schema-safety-01", "instrument_id": "fixture:spot:ETH_USDT",
+                              "action": "buy", "quote_amount": 25.0})
+        ref = next(v["position_ref"] for v in self.os.list_positions() if v["market_type"] == "spot")
+        self.os.reduce_position(ref, 0.5)
+        plans = self.os.safety.plans(self.os.experiment_id)
+        self.assertTrue(plans)
+        for row in plans:
+            self.assertConforms(row["plan"], "execution-plan")
 
     def test_runtime_outputs_conform(self):
         for market_type in ("spot", "perpetual"):

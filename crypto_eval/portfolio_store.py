@@ -11,6 +11,7 @@ import copy
 import math
 from typing import Any
 
+from .execution_safety import DEFAULT_SAFETY_SETTINGS, validate_safety_settings
 from .paper_contracts import PaperTradingError
 
 
@@ -149,6 +150,8 @@ CREATE TABLE IF NOT EXISTS position_meta(
     review_exposure REAL,
     initial_risk REAL,
     review_count INTEGER NOT NULL DEFAULT 0,
+    core_quantity REAL NOT NULL DEFAULT 0,
+    stop_breaches INTEGER NOT NULL DEFAULT 0,
     created_at TEXT NOT NULL,
     updated_at TEXT NOT NULL
 );
@@ -293,6 +296,7 @@ DEFAULT_PORTFOLIO_SETTINGS: dict[str, Any] = {
         "ai_management_paused": False,
         "emergency_stop": False,
     },
+    "safety": dict(DEFAULT_SAFETY_SETTINGS),
     "ai_spot": {
         "enabled": False,
         "trigger": "prefer_spot",
@@ -428,5 +432,6 @@ def validate_portfolio_settings(value: dict[str, Any], *, base: dict[str, Any] |
             raise PaperTradingError(f"review.{key} must be boolean")
     if merged["brain"]["hold_cash_drawdown_fraction"] < merged["brain"]["de_risk_drawdown_fraction"]:
         raise PaperTradingError("brain.hold_cash_drawdown_fraction must be at least the de-risk fraction")
+    merged["safety"] = validate_safety_settings(merged["safety"])
     merged["schema_version"] = DEFAULT_PORTFOLIO_SETTINGS["schema_version"]
     return merged

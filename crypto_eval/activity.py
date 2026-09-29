@@ -426,6 +426,21 @@ def derive_attention(context: dict[str, Any], settings: dict[str, Any], now: dat
             kind="concentration", key=breach["key"], severity="WATCH", category="RISK",
             title=breach["title"], summary=breach["summary"], action={"route": "portfolio"},
         ))
+    kill = (context.get("kill_switch") or {}).get("level", "NORMAL")
+    if kill != "NORMAL":
+        items.append(attention_candidate(
+            kind="kill_switch", key=kill, severity="CRITICAL" if kill in {"RISK_REDUCING_ONLY", "FULL_AUTOMATION_HALT"} else "ACTION",
+            category="ALERT", title=f"Kill switch {kill}", summary=str((context.get("kill_switch") or {}).get("reason") or "")[:200],
+            action={"route": "overview"},
+        ))
+    open_instruments = {p.get("instrument_id") for p in positions}
+    for market in context.get("market_states", []):
+        if market["state"] in {"CRASH_MODE", "MARKET_DATA_UNTRUSTED"} and market["instrument_id"] in open_instruments:
+            items.append(attention_candidate(
+                kind="market_safety", key=market["instrument_id"], severity="CRITICAL", category="RISK",
+                title=f"{market['instrument_id'].split(':')[-1]} {market['state']}", summary=", ".join(market["reasons"])[:200],
+                action={"route": "trade"}, instrument_id=market["instrument_id"],
+            ))
     automation = settings["automation"]
     if automation["emergency_stop"]:
         items.append(attention_candidate(

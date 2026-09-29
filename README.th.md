@@ -75,6 +75,11 @@ Perpetual มีหน้า Overview, Portfolio, Trade, Activity, Research, Eva
 - **บันทึก:** Activity รวม AI/USER/SYSTEM และคิวเรื่องที่ต้องดู
 - **การเรียนรู้:** post-trade review และ strategy tournament ที่รวมต้นทุน AI
 
+- **ความปลอดภัยในการ execute:** สถานะตลาด (crash, ผันผวน, ข้อมูลไม่น่าเชื่อถือ)
+  การจัดการ print ผิดปกติ ตัววางแผน execute แบบ deterministic (กรอบ slippage,
+  แบ่งไม้, จำกัดความเร็วการขาย, ปกป้อง Spot Core) kill switch และการ reconcile บัญชี
+  ดู [`docs/crash-execution-safety.md`](docs/crash-execution-safety.md)
+
 การเขียนคำสั่งเงินจริงไปยัง Gate ยังถูกบล็อกโดยการออกแบบ รายละเอียดอยู่ที่
 [`docs/ai-portfolio-trading-os.md`](docs/ai-portfolio-trading-os.md)
 

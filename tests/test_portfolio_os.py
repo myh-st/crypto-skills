@@ -329,17 +329,31 @@ class SpotAccountingTests(PortfolioCase):
         holding = self.os.list_positions()[0]
         self.assertAlmostEqual(holding["quantity"], 0.05)
 
-    def test_spot_plan_stop_wins_same_bar(self):
+    def test_spot_plan_stop_needs_confirmed_closes_and_never_sells_core(self):
         quote = self.os.quote("fixture:spot:ETH_USDT")
-        buy = self.buy_spot(amount=20.0, stop_price=quote["mid_price"] * 0.98, targets=[quote["mid_price"] * 1.02])
-        start = NOW.replace(second=0) + timedelta(minutes=1)
         mid = quote["mid_price"]
-        self.spot_path["ETHUSDT"] = minute_bars(start, [(mid, mid * 1.03, mid * 0.97, mid)])
-        self.clock.value = start + timedelta(minutes=2)
+        buy = self.buy_spot(amount=20.0, stop_price=mid * 0.98, targets=[mid * 1.2])
+        ref = buy["position_ref"]
+        quantity = self.os.position(ref)["quantity"]
+        self.os.set_core_quantity(ref, core_fraction=0.5)
+        start = NOW.replace(second=0) + timedelta(minutes=1)
+        # A wick through the stop that closes back above it never sells a Spot holding.
+        self.spot_path["ETHUSDT"] = minute_bars(start, [
+            (mid, mid * 1.001, mid * 0.90, mid),
+            (mid, mid * 1.001, mid * 0.97, mid * 0.97),
+            (mid * 0.97, mid * 0.975, mid * 0.96, mid * 0.965),
+        ])
+        self.clock.value = start + timedelta(minutes=1)
         self.os.monitor_spot()
-        view = self.os.position(buy["position_ref"])
-        self.assertEqual(view["status"], "closed")
-        self.assertEqual(view["exit_reason"], "plan_stop")
+        self.assertEqual(self.os.position(ref)["quantity"], quantity)
+        self.clock.value = start + timedelta(minutes=4)
+        self.os.monitor_spot()
+        view = self.os.position(ref)
+        self.assertEqual(view["status"], "open")
+        self.assertAlmostEqual(view["quantity"], quantity * 0.5, places=9)
+        actions = [e["action"] for e in self.os.management_events(ref)]
+        self.assertIn("PLAN_STOP", actions)
+        self.assertIn("CORE_ALLOCATION", actions)
 
 
 # ---------------------------------------------------------------- perpetual orders/positions
