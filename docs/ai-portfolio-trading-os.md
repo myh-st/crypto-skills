@@ -329,6 +329,18 @@ python3 -m crypto_eval portfolio-real-check     # Portfolio OS: real Jev -> Luna
 
 It writes a JSON summary next to the database.
 
+`portfolio-real-check --full-loop [--max-candles N]` drives the full live loop:
+- **Setup:** it tests the real providers, takes the 20 most liquid tradable Gate
+  perpetuals as the universe, and sets an explicit FX policy.
+- **Entry:** it runs the real decision stack (quant → Jev → optional Luna →
+  Portfolio Brain → RiskEngine) on each new closed 15m candle until one produces an
+  AI-approved PAPER entry.
+- **Management:** that position then goes through AI review, human override and
+  reduce, return to AI, and close.
+- **Checks:** the journal sources, the post-trade review, and economic PnL.
+- **No qualifying setup:** if the live market shows none within N candles, the entry is
+  reported `NOT_VERIFIED`; no fixture is ever substituted.
+
 It applies the same explicit acceptance budget as `real-integration-check`: $3.00 per
 GPT call and $5.00 per day. The default $0.50 per-call cap is below the worst-case
 reservation of a reasoning=max Luna call with a 32k-token output cap, so with default

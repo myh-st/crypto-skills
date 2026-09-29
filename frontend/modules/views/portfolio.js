@@ -4,9 +4,8 @@ import { escapeHtml, formatTimestamp } from "../format.js";
 import { paperApi } from "../paperApi.js";
 import { renderGrowthChart } from "../components/portfolioSummary.js";
 import { renderKpiStrip } from "../components/portfolioKpiStrip.js";
-import { renderOrdersPanel } from "../components/ordersPanel.js";
+import { handleOrderClick, handleOrderSubmit, renderOrdersPanel } from "../components/ordersPanel.js";
 import { renderUnifiedPositions } from "../components/positionsTable.js";
-import { withConfirmation } from "../components/confirmDialog.js";
 import { feedback, fmtNumber, pct, pnl, price } from "../components/ui.js";
 import { renderAccountMirror } from "./runtimeSettings.js";
 
@@ -180,17 +179,8 @@ export function render(root, ctx) {
         orderFilter = button.dataset.orderFilter;
         view.querySelectorAll("[data-order-filter]").forEach((item) => item.setAttribute("aria-pressed", String(item === button)));
         view.querySelector("[data-orders]").innerHTML = renderOrdersPanel(orders, { filter: orderFilter });
-      } else if (button.dataset.cancelOrder) {
-        button.disabled = true;
-        await paperApi.cancelOrder(button.dataset.cancelOrder);
-        feedback(note, "Pending PAPER order cancelled.", "success");
-        await refresh();
-      } else if (button.dataset.amendOrder) {
-        const value = window.prompt("New limit price", button.dataset.limit || "");
-        if (value === null || value.trim() === "") return;
-        const result = await withConfirmation(() => paperApi.amendOrder(button.dataset.amendOrder, { limit_price: Number(value) }));
-        if (result?.order) feedback(note, result.order.accepted === false ? `Amend rejected: ${result.order.reason}` : "Order amended (cancel/replace).", result.order.accepted === false ? "error" : "success");
-        await refresh();
+      } else {
+        await handleOrderClick(event, { api: paperApi, root: view, note, onDone: refresh });
       }
     } catch (error) {
       feedback(note, error.message, "error");
@@ -199,8 +189,13 @@ export function render(root, ctx) {
     }
   });
 
+  view.addEventListener("submit", (event) => handleOrderSubmit(event, { api: paperApi, note, onDone: refresh }));
+
   refresh();
-  const timer = setInterval(refresh, 15000);
+  const timer = setInterval(() => {
+    // Do not re-render while the user is editing an inline amend form.
+    if (!view.querySelector(".amend-row:not([hidden])")) refresh();
+  }, 15000);
   ctx.onPortfolioChange?.(refresh);
   return () => {
     disposed = true;

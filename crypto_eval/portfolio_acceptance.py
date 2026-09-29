@@ -157,5 +157,167 @@ def run_portfolio_real_check(*, database: Path | None = None, out: Path | None =
     return 0 if ok else 1
 
 
+def run_full_loop_check(
+    *, database: Path | None = None, out: Path | None = None, universe_size: int = 20, max_candles: int = 1
+) -> int:
+    """Real Gate market -> quant -> Jev -> optional Luna -> Brain -> Risk -> PAPER entry -> AI management
+    -> human override -> AI regains control -> close -> journal -> economic PnL (FX policy explicit)."""
+
+    load_environment_file(REPOSITORY_ROOT / ".env")
+    started = datetime.now(timezone.utc)
+    check_id = f"pfl-{started.strftime('%Y%m%dT%H%M%SZ')}-{uuid.uuid4().hex[:6]}"
+    database = database or _app_dir() / "integration" / f"{check_id}.sqlite3"
+    database.parent.mkdir(parents=True, exist_ok=True)
+    print(f"REAL full human/AI loop {check_id}")
+    print(f"Isolated PAPER database: {database}")
+    print("No fixture substitution: if the live market has no qualifying setup the entry is NOT_VERIFIED.\n")
+    resolver = CredentialResolver(default_secret_store())
+    import_env_secrets(resolver)
+    store = PaperStore(database)
+    catalog = MarketCatalog(source="gate")
+    runtime = PaperRuntime(store, resolver=resolver, catalog=catalog)
+    steps: list[dict[str, Any]] = []
+
+    def step(name: str, fn, *, not_verified_on: type[Exception] | None = None) -> Any:
+        try:
+            result = fn()
+            steps.append({"step": name, "status": "PASS", "detail": result})
+            print(f"PASS  {name}")
+            return result
+        except _NotVerified as exc:
+            steps.append({"step": name, "status": "NOT_VERIFIED", "detail": str(exc)[:300]})
+            print(f"NOT_VERIFIED  {name}: {exc}")
+        except Exception as exc:
+            steps.append({"step": name, "status": "FAIL", "detail": str(exc)[:300]})
+            print(f"FAIL  {name}: {str(exc)[:200]}")
+        return None
+
+    def setup() -> dict[str, Any]:
+        listing = catalog.list("perpetual", tradable_only=True, limit=200)["instruments"]
+        symbols = [item["symbol"] for item in listing if item["quote"] == "USDT" and item.get("volume_24h_quote")][:universe_size]
+        configure_real_providers(
+            runtime, symbols=symbols, prices=fallback_prices(),
+            evaluation_arms=["quant", "jev", "hybrid", "hybrid_brain"],
+        )
+        config = dict(store.experiment()["config"])
+        config["primary_arm"] = "hybrid"
+        config["shadow_leverage"] = [1]
+        store.save_experiment(config)
+        budget = dict(store.experiment()["config"]["ai_budget"])
+        budget.update({"daily_usd": 5.0, "experiment_usd": 5.0, "max_gpt_call_usd": 3.0, "max_cycle_usd": 4.0})
+        store.update_cost_controls(
+            ai_budget=budget,
+            cost_fx={"version": "ai-cost-fx.v1", "mode": "manual", "usdt_per_usd": 1.0,
+                     "source": "acceptance assumption: 1 USDT = 1 USD (explicit, not a market rate)",
+                     "recorded_at": started.isoformat()},
+        )
+        for provider_id in (config["jev_provider_id"], config["gpt_provider_id"]):
+            runtime.test_provider(provider_id)
+        runtime.start()
+        return {"universe": symbols, "arms": store.experiment()["config"]["evaluation_arms"]}
+
+    universe = step("real providers tested, liquid Gate perp universe, explicit FX policy", setup)
+    state: dict[str, Any] = {}
+
+    def scan() -> dict[str, Any]:
+        import time as _time
+
+        for attempt in range(max(1, max_candles)):
+            if attempt:
+                now = datetime.now(timezone.utc).timestamp()
+                wake = (int(now) // 900 + 1) * 900 + 75
+                print(f"      no entry yet; waiting for the next closed 15m candle ({attempt + 1}/{max_candles})", flush=True)
+                _time.sleep(max(1, wake - now))
+            try:
+                return scan_once()
+            except _NotVerified as exc:
+                last = exc
+        raise last
+
+    def scan_once() -> dict[str, Any]:
+        seen = []
+        for symbol in universe["universe"]:
+            try:
+                cycle = runtime.run_cycle(symbol, manual=True)
+            except PaperTradingError as exc:
+                seen.append({"symbol": symbol, "error": str(exc)[:80]})
+                continue
+            primary = cycle.get("primary_decision") or {}
+            filled = [e for e in cycle.get("executions", []) if e.get("cohort") == "primary" and e.get("status") == "filled"]
+            seen.append({"symbol": symbol, "gate": (cycle.get("quant_gate") or {}).get("eligible"),
+                         "jev": cycle.get("jev_status"), "decision": primary.get("decision"),
+                         "route": primary.get("ai_path"), "risk": (cycle.get("risk") or {}).get("code"),
+                         "brain": (cycle.get("portfolio_brain") or {}).get("action")})
+            if filled:
+                state["position_ref"] = f"perp:{filled[0]['position_id']}"
+                state["cycle"] = cycle
+                return {"entry_symbol": symbol, "decision": seen[-1], "scanned": len(seen)}
+        state["scan"] = seen
+        raise _NotVerified(
+            f"no AI-approved PAPER entry on this closed candle across {len(seen)} live symbols "
+            f"({sum(1 for item in seen if item.get('gate'))} quant-eligible); nothing was substituted"
+        )
+
+    if universe:
+        step("live decision stack opens an AI PAPER position", scan)
+    portfolio = runtime.portfolio
+    if state.get("position_ref"):
+        ref = state["position_ref"]
+
+        def ai_manages() -> dict[str, Any]:
+            view = portfolio.position(ref)
+            if view["source"] != "AI" or view["management_mode"] != "AUTO_PAPER":
+                raise PaperTradingError(f"AI position authority wrong: {view['source']} / {view['management_mode']}")
+            with store.transaction() as db:
+                db.execute("UPDATE position_meta SET next_ai_review_at='2020-01-01T00:00:00.000Z' WHERE position_ref=?", (ref,))
+            reviews = portfolio.review_positions()
+            return {"review": reviews}
+
+        step("AI manages the position (autonomous review, real AI route)", ai_manages)
+
+        def human_override() -> dict[str, Any]:
+            if portfolio.position(ref)["status"] != "open":
+                return {"note": "AI closed the position during review; human override not applicable"}
+            portfolio.set_management_mode(ref, "MANUAL_OVERRIDE")
+            reduced = portfolio.reduce_position(ref, 0.25)
+            portfolio.set_management_mode(ref, "AUTO_PAPER", confirm=True)
+            closed = portfolio.close_position(ref, confirm=True)
+            return {"reduced": reduced["result"], "closed": closed["closed"]}
+
+        step("human override -> reduce -> AI regains control -> close", human_override)
+
+        def journal_and_economics() -> dict[str, Any]:
+            events = portfolio.management_events(ref)
+            sources = {event["source"] for event in events}
+            activity = portfolio.activity(position_ref=ref)["events"]
+            paper = portfolio.portfolio()["paper"]
+            if paper["economic_pnl_usdt"] is None:
+                raise PaperTradingError(f"economic PnL unavailable: {paper['economic_unavailable_reason']}")
+            portfolio.sync_reviews()
+            review = portfolio._review_for(ref)
+            return {
+                "journal_sources": sorted(sources), "journal_actions": [event["action"] for event in reversed(events)],
+                "activity_events": len(activity), "trading_pnl_usdt": paper["trading_pnl_usdt"],
+                "ai_cost_usd": paper["ai_cost_usd"], "economic_pnl_usdt": paper["economic_pnl_usdt"],
+                "review": None if review is None else {k: review[k] for k in ("outcome", "tags", "lesson")},
+            }
+
+        step("journal (AI/USER/SYSTEM) + post-trade review + economic PnL after AI cost", journal_and_economics)
+    runtime.stop()
+    statuses = {item["status"] for item in steps}
+    status = "FAIL" if "FAIL" in statuses else "NOT_VERIFIED" if "NOT_VERIFIED" in statuses else "PASS"
+    summary = {"check_id": check_id, "status": status, "database": str(database), "steps": steps,
+               "scan": state.get("scan"), "gate_live_write_execution": "BLOCKED_BY_DESIGN"}
+    path = out or database.with_suffix(".json")
+    path.write_text(json.dumps(summary, indent=2, default=str))
+    print(f"\nOverall: {status} · summary: {path}")
+    store.close()
+    return 0 if status == "PASS" else 1
+
+
+class _NotVerified(Exception):
+    """The live market did not present the required condition; nothing was substituted."""
+
+
 if __name__ == "__main__":
     sys.exit(run_portfolio_real_check())

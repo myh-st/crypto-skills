@@ -196,9 +196,14 @@ test("orders panel only offers Cancel for pending orders and never Close", () =>
   const html = renderOrdersPanel(orders);
   assert.equal((html.match(/data-cancel-order=/g) || []).length, 1);
   assert.match(html, /data-cancel-order="spot:p"/);
-  assert.match(html, /data-amend-order="spot:p"/);
+  assert.match(html, /data-amend-order="spot:p" aria-expanded="false"/);
+  assert.match(html, /<tr class="amend-row" id="amend-spot-p" hidden>/);
+  assert.match(html, /data-amend-form="spot:p"[^]*name="limit_price"[^]*name="quantity"/);
+  assert.match(html, /cancel\/replace/);
   assert.doesNotMatch(html, />Close</);
   assert.equal((renderOrdersPanel(orders, { filter: "open" }).match(/<tr>/g) || []).length, 2);
+  const perpPending = renderOrdersPanel([{ ...orders[2], order_ref: "perp:y", status: "pending", cancellable: true, amendable: true, stop_price: 5 }]);
+  assert.match(perpPending, /name="stop_price"[^>]*value="5"/);
   assert.doesNotMatch(renderOrdersPanel(orders, { instrumentId: "gate:spot:ETH_USDT" }), /BTC/);
 });
 
@@ -400,4 +405,14 @@ test("market selector rows expose tradable state and favorites accessibly", () =
   assert.match(html, /▼/);
   assert.match(html, /aria-disabled="true"[^]*untradable/);
   assert.match(html, /300\.0M/);
+});
+
+test("no view relies on window.prompt for trading actions", async () => {
+  const { readFileSync, readdirSync } = await import("node:fs");
+  for (const dir of ["../modules/views/", "../modules/components/"]) {
+    for (const name of readdirSync(new URL(dir, import.meta.url))) {
+      const source = readFileSync(new URL(dir + name, import.meta.url), "utf8");
+      assert.doesNotMatch(source, /window\.prompt\(/, `${name} uses window.prompt`);
+    }
+  }
 });

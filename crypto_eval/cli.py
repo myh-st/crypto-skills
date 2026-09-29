@@ -204,6 +204,11 @@ def _parser() -> argparse.ArgumentParser:
     )
     portfolio_real.add_argument("--database", type=Path, help="isolated SQLite path for the check")
     portfolio_real.add_argument("--out", type=Path, help="summary JSON path")
+    portfolio_real.add_argument(
+        "--full-loop", action="store_true",
+        help="scan a live liquid perp universe with the real decision stack and drive the full human/AI loop",
+    )
+    portfolio_real.add_argument("--max-candles", type=int, default=1, help="closed 15m candles to scan (full loop)")
 
     setup = commands.add_parser(
         "paper-setup-real",
@@ -474,8 +479,10 @@ def _dispatch(args: argparse.Namespace) -> int:
             out=args.out,
         )
     if args.command == "portfolio-real-check":
-        from .portfolio_acceptance import run_portfolio_real_check
+        from .portfolio_acceptance import run_full_loop_check, run_portfolio_real_check
 
+        if args.full_loop:
+            return run_full_loop_check(database=args.database, out=args.out, max_candles=max(1, min(args.max_candles, 96)))
         return run_portfolio_real_check(database=args.database, out=args.out)
     if args.command == "paper-setup-real":
         from .real_integration import setup_real

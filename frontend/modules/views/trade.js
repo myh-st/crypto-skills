@@ -8,7 +8,7 @@ import { renderTimeline } from "../components/activityTimeline.js";
 import { latestCycleFor, renderAiPlan } from "../components/aiPlanPanel.js";
 import { mountLiveChart, portfolioOverlays } from "../components/liveChart.js";
 import { loadPicks, mountMarketSelector, rememberInstrument } from "../components/marketSelector.js";
-import { renderOrdersPanel } from "../components/ordersPanel.js";
+import { handleOrderClick, handleOrderSubmit, renderOrdersPanel } from "../components/ordersPanel.js";
 import { mountTradeTicket } from "../components/paperTradeTicket.js";
 import { renderUnifiedPositions } from "../components/positionsTable.js";
 import { renderTradingStatusBar } from "../components/tradingStatusBar.js";
@@ -188,17 +188,9 @@ export function render(root, ctx) {
       renderBottom();
       return;
     }
-    const cancel = event.target.closest("[data-cancel-order]");
-    if (cancel) {
-      try {
-        await paperApi.cancelOrder(cancel.dataset.cancelOrder);
-        feedback(note, "Pending PAPER order cancelled.", "success");
-        refreshData();
-      } catch (error) {
-        feedback(note, error.message, "error");
-      }
-    }
+    await handleOrderClick(event, { api: paperApi, root: view, note, onDone: refreshData });
   });
+  view.addEventListener("submit", (event) => handleOrderSubmit(event, { api: paperApi, note, onDone: refreshData }));
 
   (async () => {
     try {
@@ -211,7 +203,9 @@ export function render(root, ctx) {
       feedback(note, `Market catalog unavailable: ${error.message}`, "error");
     }
   })();
-  const timer = setInterval(refreshData, 10000);
+  const timer = setInterval(() => {
+    if (!view.querySelector(".amend-row:not([hidden])")) refreshData();
+  }, 10000);
   ctx.onPortfolioChange?.(refreshData);
   return () => {
     state.disposed = true;
