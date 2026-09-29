@@ -53,6 +53,18 @@ market snapshot (closed 15m bar + 1h/4h context)
 
 - `paper_runtime.py` is the core module (about 6.7k lines). It contains `RiskEngine`, `PaperStore` (all SQLite), `PaperRuntime` (cycle orchestration), `PaperScheduler` (15m scheduler plus the independent bar-monitor thread), and `PaperRuntimeReports`. `paper_server.py` is the stdlib HTTP API on top of it. The API contract for `/api/dashboard` is `schemas/paper-dashboard.schema.json`.
 - Invariants to preserve: GPT can never set quantity or leverage, and it cannot override risk. Jev's `escalation_needed` cannot bypass the router. A risk rejection never creates an order or fill. A cycle key is unique per (experiment, symbol, closed candle), so retries return the stored cycle without calling Jev or GPT again. If one bar hits both stop and target, the stop wins. Missing data or unknown cost stays explicitly unavailable and is never zero-filled.
+- Portfolio OS layer (`docs/ai-portfolio-trading-os.md`):
+  - `market_catalog.py`: Gate Spot and Perp catalog, public GET only, fail-closed.
+  - `spot_accounting.py`: Spot accounting and `SpotRiskEngine`.
+  - `portfolio_os.py`: orders, position manager, authority modes, re-plan, review queue, attention and activity hooks, AI Spot allocations.
+  - `portfolio_brain.py`: entry gate that can only shrink or block; never bypasses `RiskEngine`.
+  - `activity.py`, `learning.py`, `portfolio_store.py`: schema and settings.
+  - Reached as `runtime.portfolio`; the scheduler's monitor loop calls `portfolio.after_monitor()`.
+- Portfolio OS invariants to keep:
+  - AI may mutate a position only in `AUTO_PAPER`, and never to increase risk.
+  - Only the user changes authority.
+  - Perp order requests never carry a quantity.
+  - Confirmation-required actions return HTTP 409.
 - `ai_cost.py` holds the AI usage/cost ledger, the versioned price book, and budget guards (`BLOCK_PAID_AI`, `FALLBACK_QUANT`, `JEV_ONLY`, `PAUSE_NEW_ENTRIES`). Paid calls fail closed when their price is unknown.
 
 ## Current live-integration baseline and canonical next phase

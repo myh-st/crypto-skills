@@ -2,7 +2,7 @@
   "goal": "ai-portfolio-trading-os",
   "branch": "feature/ai-portfolio-trading-os",
   "base_commit": "3271426cc509f0932c649e7575afd3096c4a4ed4",
-  "state": "planned_ready_for_development",
+  "state": "implemented_pending_real_ai_acceptance",
   "canonical_files": [
     ".goals/ai-portfolio-trading-os/goal.md",
     "docs/ai-portfolio-trading-os-plan.md",
@@ -37,5 +37,34 @@
     "attention_queue": true,
     "activity_journal": true,
     "mobile_critical_controls": true
+  },
+  "implementation": {
+    "pull_request": "https://github.com/myh-st/crypto-skills/pull/3",
+    "runtime_doc": "docs/ai-portfolio-trading-os.md",
+    "phases_complete": [
+      "0_baseline",
+      "1_frontend_refactor",
+      "2_portfolio_first_ux",
+      "3_exchange_catalog",
+      "4_spot_domain",
+      "5_trade_workspace",
+      "6_position_order_manager",
+      "7_management_authority",
+      "8_ai_replan",
+      "9_portfolio_brain",
+      "10_autonomous_review",
+      "11_strategy_tournament",
+      "12_learning_loop",
+      "13_attention_activity"
+    ],
+    "contracts": "schemas/*.schema.json (18 Portfolio OS contracts)",
+    "tests": {
+      "python": "tests/test_portfolio_os.py, tests/test_portfolio_schemas.py",
+      "frontend": "frontend/tests/portfolio-os.test.mjs"
+    },
+    "local_acceptance": {
+      "gate_public_data": "passed",
+      "real_jev_luna": "pending"
+    }
   }
 }

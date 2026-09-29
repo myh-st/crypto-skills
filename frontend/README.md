@@ -65,7 +65,9 @@ From the repository root, run:
 python3 -m crypto_eval paper-server
 ```
 
-Then open **http://127.0.0.1:8765/** and choose **Paper Trading**. The server
+Then open **http://127.0.0.1:8765/**. With the PAPER server running, **Overview**
+is the portfolio cockpit; the experiment controls live in **Research › Paper
+Trading Lab**. The server
 binds to loopback only and stores its SQLite database under the user's local
 application-data directory. The first run uses deterministic fixture candles
 and local mocked Jev/GPT adapters; no external model request is made. Select
@@ -87,9 +89,20 @@ the same enum so the UI still works.
 
 ## What you can do
 
-- **Overview** — start an analysis, review six clearly labeled fixture cards with
-  sparklines, compare BTC/ETH/SOL/SEI in a labeled performance chart, and
-  inspect recent decisions, the agent-aware watchlist, and activity.
+- **Overview** — with the PAPER server: the portfolio cockpit (equity, trading
+  and economic PnL, drawdown, open risk, AI spend, attention queue, open
+  positions, automation controls, changes since your last visit). Without a
+  PAPER runtime it falls back to the research workspace, whose fixture cards are
+  clearly labeled.
+- **Portfolio** — PAPER Spot and PAPER Perpetual sections, allocation, exposure,
+  equity, economics, and orders; the real Gate mirror is separate and read-only.
+- **Trade** — exchange-backed Spot/Perpetual selector, live chart with PAPER plan
+  overlays, current AI plan, and a risk-first *Simulate Long/Short/Buy/Sell*
+  ticket sized by the server. The position drawer handles protection, reduce and
+  close, authority modes, and structured AI re-plans.
+- **Activity** — the unified AI / USER / SYSTEM journal plus attention history.
+- **Research** — links to the research tools and the analysis workspace (market
+  cards, performance chart, recent decisions, watchlist).
 - **New Analysis** — a searchable asset composer with Spot/Futures/Investment,
   a horizon selector, question examples, optional capital and risk controls,
   quick templates, recent searches, and collapsed request metadata.
@@ -107,7 +120,7 @@ the same enum so the UI still works.
 - **Settings** — local-only presentation preferences (default horizon/risk
   lens, density, advanced-panel default) stored in `localStorage`, plus a
   "Reset demo data" action.
-- **Paper Trading** — loopback runtime controls, EXP-001 settings, provider
+- **Research › Paper Trading Lab** — loopback runtime controls, EXP-001 settings, provider
   references, portfolio/equity, aligned arm and leverage evaluation, risk
   events, activity, and a secret-free experiment bundle. This page reads and
   writes the local server API; it does not use the browser demo store.

@@ -55,6 +55,29 @@ Market / spot / derivatives / options / on-chain / tokenomics / macro
 
 ![สถาปัตยกรรมจาก evidence ถึง decision ของ Crypto Skills](docs/architecture-preview.png)
 
+## AI Portfolio Trading OS (PAPER)
+
+เริ่มแอปบนเครื่องด้วย `python3 -m crypto_eval paper-server` แล้วเปิด
+`http://127.0.0.1:8765/` แอปเป็น cockpit สำหรับพอร์ต PAPER ทั้ง Spot และ
+Perpetual มีหน้า Overview, Portfolio, Trade, Activity, Research, Evaluations
+และ Settings
+
+- **สินทรัพย์:** เลือกจาก catalog ของ Gate จริง
+- **Spot:** มีบัญชีแยก (ต้นทุนเฉลี่ย ค่าธรรมเนียม และ limit ที่ fill บางส่วน)
+  ไม่ใช่ futures ที่ leverage 1 เท่า
+- **Ticket ที่ผู้ใช้ส่งเอง:** ผ่าน RiskEngine และเส้นทาง fill เดียวกับการเทรดของ AI
+- **จัดการ position:** แก้ stop/เป้า ลด/ปิด และกำหนดอำนาจชัดเจน
+  (`AUTO_PAPER`, `RECOMMEND_ONLY`, `MANUAL_OVERRIDE`, `PAUSED`)
+- **AI re-plan:** แบบมีโครงสร้าง แสดงค่าก่อน/หลัง ให้ Apply / Edit / Reject
+- **Portfolio Brain:** ลดขนาดหรือบล็อกได้ แต่ข้าม RiskEngine ไม่ได้
+- **ตรวจ position อัตโนมัติ:** คิวรีวิวที่เริ่มจากเงื่อนไขแบบ deterministic
+  ไม่เรียก AI ทุก tick
+- **บันทึก:** Activity รวม AI/USER/SYSTEM และคิวเรื่องที่ต้องดู
+- **การเรียนรู้:** post-trade review และ strategy tournament ที่รวมต้นทุน AI
+
+การเขียนคำสั่งเงินจริงไปยัง Gate ยังถูกบล็อกโดยการออกแบบ รายละเอียดอยู่ที่
+[`docs/ai-portfolio-trading-os.md`](docs/ai-portfolio-trading-os.md)
+
 ## โครงสร้าง repository
 
 ```text
@@ -63,7 +86,9 @@ crypto-skills/
 ├── README.th.md                        # ภาษาไทย
 ├── docs/
 │   ├── architecture.md                 # workflow และขอบเขตการทำงาน
-│   └── evaluation.md                   # CLI, metric, ขอบเขตข้อมูล และ experiment
+│   ├── evaluation.md                   # CLI, metric, ขอบเขตข้อมูล และ experiment
+│   ├── paper-futures-runtime.md        # runtime PAPER futures และการตั้งค่าอย่างปลอดภัย
+│   └── ai-portfolio-trading-os.md      # cockpit PAPER Spot + Perp, อำนาจ, re-plan, brain
 ├── schemas/
 │   ├── analysis-output.schema.json     # สัญญา output ของ decision
 │   ├── decision-state.schema.json      # canonical final decision states

@@ -8,6 +8,12 @@ transfers and withdrawals are **BLOCKED BY DESIGN**: the authenticated client
 refuses any non-GET method or non-allowlisted endpoint before network transport,
 and `DisabledLiveExecutionAdapter` refuses every mutating operation.
 
+The daily Portfolio OS on top of this runtime is described in
+[`ai-portfolio-trading-os.md`](ai-portfolio-trading-os.md). It covers Spot and
+Perpetual PAPER trading, the position manager, authority modes, re-plan,
+Portfolio Brain, activity and attention, and learning. The experiment and
+provider controls in this document live in **Research › Paper Trading Lab**.
+
 ## Real AI + live Gate quick start
 
 ```bash
@@ -68,7 +74,8 @@ From the repository root:
 python3 -m crypto_eval paper-server
 ```
 
-Open <http://127.0.0.1:8765/> and choose **Paper Trading**. The HTTP server
+Open <http://127.0.0.1:8765/>. Daily work starts on **Overview** and **Trade**;
+the experiment controls below live in **Research › Paper Trading Lab**. The HTTP server
 binds to `127.0.0.1` by default and can be bound to `::1`; non-loopback hosts
 are rejected. SQLite is stored under the operating system's user application
 data directory. To use a disposable local database for a smoke test:
@@ -140,7 +147,7 @@ BTC/ETH/SOL/SUI/SEI USDT-margined perpetuals, 15m decisions, 1h/4h context,
 closed candle plus 60 seconds, 1% risk per trade, three primary positions,
 3x primary leverage, a 5 USDT minimum paper notional, and parallel
 1x/2x/3x/5x/10x leverage wallets. The evaluation arms are Quant, Jev, Luna,
-Luna + Skill, Quant + Jev, and Hybrid.
+Luna + Skill, Quant + Jev, Hybrid, and Hybrid + Portfolio Brain.
 All configured arms read one frozen snapshot per symbol/cycle; one Jev result
 is shared by Jev-dependent arms. GPT calls are keyed by their distinct,
 declared research treatment, not retried as duplicate cycle work.
