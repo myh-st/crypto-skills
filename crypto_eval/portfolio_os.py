@@ -54,6 +54,8 @@ from .portfolio_store import (
     default_portfolio_settings,
     validate_portfolio_settings,
 )
+from .spot_benchmarks import run_benchmarks
+from .spot_lifecycle import classify_regime, merge_recommendation, plan_lifecycle, regime_evidence
 from .spot_accounting import EPSILON, SpotHoldingState, SpotRiskEngine, apply_buy, apply_sell, floor_to_step
 
 
@@ -824,8 +826,9 @@ class PortfolioOS:
             "exit_reason": row.get("exit_reason"),
             "total_bought": float(row["total_bought"]),
             "total_sold": float(row["total_sold"]),
-            "core_quantity": float((meta or {}).get("core_quantity") or 0.0),
-            "tactical_quantity": max(0.0, quantity - float((meta or {}).get("core_quantity") or 0.0)),
+            "core_quantity": min(quantity, float((meta or {}).get("core_quantity") or 0.0)),
+            "tactical_quantity": max(0.0, quantity - min(quantity, float((meta or {}).get("core_quantity") or 0.0))),
+            "lifecycle_state": (self._lifecycle_row(f"spot:{row['holding_id']}") or {}).get("state"),
         }
 
     def _pending_by_ref(self) -> dict[str, dict[str, Any]]:
@@ -909,6 +912,8 @@ class PortfolioOS:
         view["journal"] = self.management_events(ref, limit=100)
         view["proposals"] = self.list_replans(position_ref=ref, limit=10)
         view["review"] = self._review_for(ref)
+        if kind == "spot":
+            view["lifecycle"] = self.lifecycle_view(ref)
         return view
 
     @staticmethod
@@ -3766,6 +3771,273 @@ class PortfolioOS:
                 actions.append({"position_ref": ref, "buffer_pct": buffer, "error": str(exc)[:160]})
         return actions
 
+    # ------------------------------------------------------------ Spot lifecycle
+    LIFECYCLE_MAJORS = ("BTC", "ETH", "SOL", "BNB", "XRP")
+
+    def lifecycle_settings(self) -> dict[str, Any]:
+        return self.settings()["lifecycle"]
+
+    def _regime_bars(self, base: str, now: datetime, bars: int = 120) -> list[dict[str, Any]]:
+        """Closed 4h Spot candles ending at ``now`` (point-in-time). Empty when unavailable."""
+
+        pair = f"{base}_USDT"
+        key = f"{pair}:{bars}:{int(now.timestamp()) // 14400}"
+        cache = self.__dict__.setdefault("_regime_cache", {})
+        if key in cache:
+            return cache[key]
+        try:
+            spot = self.catalog.spot
+            if self.catalog.source == "gate":
+                result = spot.fetch_candles(pair, "4h", bars=bars, as_of=now)
+            else:
+                result = spot._futures._lane(neutral_symbol(pair), "4h", bars, now)
+        except (PaperTradingError, MarketDataError, AttributeError, KeyError, ValueError):
+            result = []
+        if len(cache) > 256:
+            cache.clear()
+        cache[key] = result
+        return result
+
+    def _lifecycle_row(self, ref: str) -> dict[str, Any] | None:
+        rows = self.store._query("SELECT * FROM spot_lifecycle WHERE position_ref=?", (ref,))
+        if not rows:
+            return None
+        row = dict(rows[0])
+        row["pending_plan"] = _loads(row.pop("pending_plan_json"), None)
+        return row
+
+    def lifecycle_events(self, ref: str | None = None, *, limit: int = 100) -> list[dict[str, Any]]:
+        sql = "SELECT * FROM lifecycle_events WHERE experiment_id=?"
+        params: list[Any] = [self.experiment_id]
+        if ref:
+            sql += " AND position_ref=?"
+            params.append(ref)
+        rows = self.store._query(sql + " ORDER BY event_id DESC LIMIT ?", (*params, limit))
+        return [{**{k: v for k, v in dict(row).items() if not k.endswith("_json")},
+                 "reasons": _loads(row["reasons_json"], []), "plan": _loads(row["plan_json"], {}),
+                 "result": _loads(row["result_json"], {})} for row in rows]
+
+    def _lifecycle_evidence(self, view: dict[str, Any], now: datetime) -> tuple[dict[str, Any], dict[str, Any], dict[str, Any] | None]:
+        settings = self.lifecycle_settings()
+        base = view["base"]
+        bars = self._regime_bars(base, now)
+        btc = self._regime_bars("BTC", now) if base != "BTC" else bars
+        eth = self._regime_bars("ETH", now) if base != "ETH" else bars
+        tracked = {p["base"] for p in self.list_positions() if p["market_type"] == "spot" and p["status"] == "open"}
+        basket_bases = sorted((tracked | set(self.LIFECYCLE_MAJORS)) - {base})[:6]
+        basket = {other: self._regime_bars(other, now) for other in basket_bases}
+        try:
+            safety = self.assess(view["instrument_id"])
+        except PaperTradingError:
+            safety = None
+        evidence = regime_evidence(symbol=view["symbol"], as_of=now, asset_bars=bars, btc_bars=btc, eth_bars=eth,
+                                   basket=basket, settings=settings, safety=safety, data_origin=self.catalog.data_origin)
+        return evidence, classify_regime(evidence, settings), safety
+
+    def lifecycle_review(
+        self,
+        ref: str,
+        *,
+        now: datetime | None = None,
+        recommendation: dict[str, Any] | None = None,
+        source: str = "SYSTEM",
+        execute: bool = True,
+    ) -> dict[str, Any]:
+        """One lifecycle review: evidence -> regime -> deterministic plan (-> bounded recommendation).
+        AUTO_PAPER holdings execute through the normal risk/safety path as AI; other modes get a
+        pending proposal the user can apply. HOLD is recorded and changes nothing."""
+
+        settings = self.lifecycle_settings()
+        now = (now or self._now()).astimezone(timezone.utc)
+        view = self.position(ref)
+        if view["market_type"] != "spot":
+            raise PaperTradingError("the lifecycle manager applies to Spot holdings")
+        if view["status"] != "open":
+            raise PaperTradingError("POSITION_CLOSED: the Spot holding is closed")
+        meta = self._meta(ref) or {}
+        row = self._lifecycle_row(ref)
+        auto = meta.get("management_mode") == "AUTO_PAPER"
+        with self.store.transaction() as db:
+            if row is None:
+                db.execute("INSERT OR IGNORE INTO spot_lifecycle(position_ref, experiment_id, state, peak_mark, updated_at) "
+                           "VALUES(?, ?, 'ACCUMULATE', ?, ?)", (ref, self.experiment_id, view["mark_price"], iso_utc(now)))
+        row = self._lifecycle_row(ref) or {}
+        if auto and meta.get("owner_source") == "AI" and not view.get("core_quantity") and settings["default_core_fraction"] > 0:
+            # AI-owned holdings get the policy Core split once; user holdings keep the user's choice.
+            self.set_core_quantity(ref, core_fraction=settings["default_core_fraction"], source="SYSTEM")
+            view = self.position(ref)
+        evidence, regime, safety = self._lifecycle_evidence(view, now)
+        spot_settings = self.settings()
+        plan = plan_lifecycle(
+            position_ref=ref, holding=view, lifecycle=row, evidence=evidence, regime=regime, settings=settings,
+            safety=safety, max_allocation_pct=spot_settings["spot_max_allocation_pct"], now=now,
+        )
+        if recommendation is not None:
+            if not isinstance(recommendation, dict):
+                raise PaperTradingError("recommendation must be an object")
+            plan = merge_recommendation(plan, {**recommendation, "source": "AI" if source == "AI" else "USER"})
+        status, result = "HOLD", {}
+        if plan["action"] != "HOLD":
+            if auto and execute and settings["enabled"]:
+                status, result = self._execute_lifecycle(ref, plan, source="AI", now=now)
+            else:
+                status = "PROPOSED"
+        next_review = iso_utc(now + timedelta(minutes=settings["review_interval_minutes"]))
+        state_after = plan["state_after"] if status in {"HOLD", "APPLIED"} else row.get("state", "ACCUMULATE")
+        if status == "APPLIED" and result.get("closed"):
+            state_after = "CASH_WAIT"
+        with self.store.transaction() as db:
+            db.execute(
+                "UPDATE spot_lifecycle SET state=?, state_version=state_version+?, regime=?, peak_mark=?, breakdown_streak=?, "
+                "last_review_at=?, next_review_at=?, last_action_at=COALESCE(?, last_action_at), pending_plan_json=?, updated_at=? "
+                "WHERE position_ref=?",
+                (state_after, int(state_after != row.get("state")), plan["regime"], plan["peak_mark"], plan["breakdown_streak"],
+                 iso_utc(now), next_review, iso_utc(now) if status == "APPLIED" else None,
+                 _dumps(plan) if status == "PROPOSED" else None, iso_utc(now), ref),
+            )
+            event_id = db.execute(
+                "INSERT INTO lifecycle_events(experiment_id, position_ref, instrument_id, created_at, source, state_before, state_after, "
+                "action, regime, status, sell_quantity, add_quote_usdt, reasons_json, evidence_json, plan_json, result_json) "
+                "VALUES(?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
+                (self.experiment_id, ref, view["instrument_id"], iso_utc(now), "AI" if status == "APPLIED" else source,
+                 plan["state_before"], state_after, plan["action"], plan["regime"], status, plan["sell_quantity"],
+                 float(result.get("add_quote_usdt") or 0.0), _dumps(plan["reasons"]), _dumps(evidence), _dumps(plan), _dumps(result)),
+            ).lastrowid
+            if status != "HOLD" or state_after != row.get("state"):
+                self._activity_locked(
+                    db, source="AI" if status == "APPLIED" else "SYSTEM", category="MANAGEMENT",
+                    severity="ACTION" if status in {"PROPOSED", "BLOCKED"} else "INFO",
+                    title=f"Lifecycle {plan['action'].replace('_', ' ').lower()} ({status.lower()})",
+                    summary=f"{plan['state_before']} -> {state_after} · regime {plan['regime']} · {', '.join(plan['reasons'])}"[:300],
+                    instrument_id=view["instrument_id"], symbol=view["symbol"], market_type="spot", position_ref=ref,
+                    payload_ref=f"lifecycle:{event_id}",
+                )
+        return {"position_ref": ref, "status": status, "plan": plan, "result": result, "regime": regime,
+                "evidence": evidence, "event_id": event_id}
+
+    def _execute_lifecycle(self, ref: str, plan: dict[str, Any], *, source: str, now: datetime,
+                           confirm: bool = True) -> tuple[str, dict[str, Any]]:
+        try:
+            if plan["action"] == "ADD":
+                view = self.position(ref)
+                amount = round(plan["add_fraction"] * self.spot_wallet()["equity_usdt"], 8)
+                response = self.create_order({
+                    "client_request_id": f"lifecycle:{ref}:{plan['as_of']}"[:80], "instrument_id": view["instrument_id"],
+                    "action": "buy", "quote_amount": amount, "note": "lifecycle add on qualified pullback",
+                }, source=source)
+                if not response.get("accepted"):
+                    return "BLOCKED", {"code": response.get("code"), "reason": response.get("reason")}
+                return "APPLIED", {"add_quote_usdt": amount, "order_ref": response.get("order_ref")}
+            quantity = float(self.position(ref)["quantity"])
+            fraction = min(1.0, plan["sell_quantity"] / quantity) if quantity > 0 else 0.0
+            if fraction <= 0:
+                return "HOLD", {}
+            result = self.reduce_position(ref, 1.0 if plan["action"] == "EXIT" else fraction, source=source, confirm=confirm,
+                                          request_id=f"lifecycle:{ref}:{plan['as_of']}"[:80], reason="lifecycle")
+            return "APPLIED", {"closed": result["closed"], "fraction": fraction,
+                               "filled_quantity": (result.get("result") or {}).get("filled_quantity")}
+        except ConfirmationRequired:
+            raise
+        except PaperTradingError as exc:
+            return "BLOCKED", {"reason": str(exc)[:200]}
+
+    def apply_lifecycle(self, ref: str, *, confirm: bool = False, source: str = "USER") -> dict[str, Any]:
+        """Apply a pending lifecycle proposal. Stale proposals (older than one review interval) are refused."""
+
+        row = self._lifecycle_row(ref)
+        plan = (row or {}).get("pending_plan")
+        if not plan:
+            raise PaperTradingError("no pending lifecycle proposal for this holding")
+        now = self._now()
+        age = (now - parse_utc(plan["as_of"], "plan.as_of")).total_seconds() / 60
+        if age > self.lifecycle_settings()["review_interval_minutes"]:
+            self._safety_reject("STALE_DECISION", {"lifecycle_plan_age_minutes": age}, position_ref=ref, source=source)
+            raise PaperTradingError("STALE_DECISION: the lifecycle proposal expired; run a new review")
+        status, result = self._execute_lifecycle(ref, plan, source=source, now=now, confirm=confirm)
+        state_after = "CASH_WAIT" if result.get("closed") else plan["state_after"] if status == "APPLIED" else row["state"]
+        with self.store.transaction() as db:
+            db.execute("UPDATE spot_lifecycle SET state=?, state_version=state_version+?, last_action_at=?, pending_plan_json=?, "
+                       "updated_at=? WHERE position_ref=?",
+                       (state_after, int(state_after != row["state"]), iso_utc(now) if status == "APPLIED" else row["last_action_at"],
+                        None if status == "APPLIED" else _dumps(plan), iso_utc(now), ref))
+            db.execute(
+                "INSERT INTO lifecycle_events(experiment_id, position_ref, instrument_id, created_at, source, state_before, state_after, "
+                "action, regime, status, sell_quantity, add_quote_usdt, reasons_json, evidence_json, plan_json, result_json) "
+                "VALUES(?, ?, NULL, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, '{}', ?, ?)",
+                (self.experiment_id, ref, iso_utc(now), source, row["state"], state_after, plan["action"], plan["regime"], status,
+                 plan["sell_quantity"], float(result.get("add_quote_usdt") or 0.0), _dumps(plan["reasons"]), _dumps(plan), _dumps(result)),
+            )
+        return {"position_ref": ref, "status": status, "result": result, "state": state_after}
+
+    def dismiss_lifecycle(self, ref: str) -> dict[str, Any]:
+        with self.store.transaction() as db:
+            db.execute("UPDATE spot_lifecycle SET pending_plan_json=NULL, updated_at=? WHERE position_ref=?", (self._iso(), ref))
+        return {"position_ref": ref, "pending_plan": None}
+
+    def lifecycle_due(self, *, now: datetime | None = None) -> list[dict[str, Any]]:
+        """Scheduler hook: review open Spot holdings whose review is due. Never per tick."""
+
+        settings = self.lifecycle_settings()
+        if not settings["enabled"]:
+            return []
+        now = (now or self._now()).astimezone(timezone.utc)
+        results = []
+        for view in [p for p in self.list_positions() if p["market_type"] == "spot" and p["status"] == "open"]:
+            if view["management_mode"] == "PAUSED":
+                continue
+            row = self._lifecycle_row(view["position_ref"])
+            due = (row or {}).get("next_review_at")
+            if due and parse_utc(due, "next_review_at") > now:
+                continue
+            try:
+                review = self.lifecycle_review(view["position_ref"], now=now)
+                results.append({"position_ref": view["position_ref"], "status": review["status"], "action": review["plan"]["action"]})
+            except PaperTradingError as exc:
+                results.append({"position_ref": view["position_ref"], "status": "ERROR", "reason": str(exc)[:160]})
+        return results
+
+    def lifecycle_view(self, ref: str) -> dict[str, Any]:
+        row = self._lifecycle_row(ref)
+        return {"position_ref": ref, "lifecycle": row, "events": self.lifecycle_events(ref, limit=20)}
+
+    def lifecycle_overview(self) -> dict[str, Any]:
+        rows = [dict(r) for r in self.store._query("SELECT * FROM spot_lifecycle WHERE experiment_id=?", (self.experiment_id,))]
+        for row in rows:
+            row["pending_plan"] = _loads(row.pop("pending_plan_json"), None)
+        counts: dict[str, int] = {}
+        for event in self.lifecycle_events(limit=10_000):
+            key = f"{event['action']}:{event['status']}"
+            counts[key] = counts.get(key, 0) + 1
+        return {"holdings": rows, "counts": counts, "settings": self.lifecycle_settings()}
+
+    def lifecycle_benchmark(self, instrument_id: str, *, bars: int = 360) -> dict[str, Any]:
+        """Aligned offline benchmark arms on closed 4h Spot bars (point-in-time)."""
+
+        instrument = self.catalog.get(instrument_id)
+        if instrument.get("market_type") != "spot":
+            raise PaperTradingError("benchmarks run on Spot instruments")
+        bars = max(120, min(1000, int(_num(bars, "bars", positive=True))))
+        now = self._now()
+        series = self._regime_bars(instrument["base"], now, bars)
+        btc = self._regime_bars("BTC", now, bars) if instrument["base"] != "BTC" else None
+        settings = self.settings()
+        report = run_benchmarks(
+            series, symbol=instrument["symbol"], fee_rate=float(settings["spot_fee_rate"] or instrument.get("taker_fee_rate") or 0.001),
+            slippage_bps=float(settings["spot_slippage_bps"]), initial_usdt=float(settings["spot_starting_balance_usdt"]),
+            settings=self.lifecycle_settings(), btc_bars=btc, data_origin=self.catalog.data_origin,
+        )
+        report["report_id"] = f"lcb-{uuid.uuid4().hex[:16]}"
+        report["instrument_id"] = instrument_id
+        with self.store.transaction() as db:
+            db.execute("INSERT INTO lifecycle_benchmarks(report_id, experiment_id, instrument_id, created_at, report_json) VALUES(?, ?, ?, ?, ?)",
+                       (report["report_id"], self.experiment_id, instrument_id, iso_utc(now), _dumps(report)))
+        return report
+
+    def lifecycle_benchmarks(self, *, limit: int = 20) -> list[dict[str, Any]]:
+        rows = self.store._query("SELECT report_json FROM lifecycle_benchmarks WHERE experiment_id=? ORDER BY created_at DESC LIMIT ?",
+                                 (self.experiment_id, limit))
+        return [_loads(row["report_json"], {}) for row in rows]
+
     # --------------------------------------------------------------- hooks
     def after_monitor(self, *, now: datetime | None = None) -> dict[str, Any]:
         summary: dict[str, Any] = {}
@@ -3776,6 +4048,7 @@ class PortfolioOS:
             ("reconciliation", lambda: self.reconcile()["ok"]),
             ("reviews", self.sync_reviews),
             ("position_reviews", lambda: len(self.review_positions(now=now))),
+            ("lifecycle", lambda: len(self.lifecycle_due(now=now))),
             ("snapshot", lambda: bool(self.record_snapshot())),
             ("attention", self.evaluate_attention),
         ):
@@ -3831,4 +4104,7 @@ class PortfolioOS:
             "execution_plans": self.safety.plans(experiment_id, limit=100_000),
             "market_safety_states": self.safety.states(experiment_id),
             "kill_switch": self.kill_switch(),
+            "lifecycle_states": rows("SELECT * FROM spot_lifecycle WHERE experiment_id=? ORDER BY position_ref"),
+            "lifecycle_events": self.lifecycle_events(limit=100_000),
+            "lifecycle_benchmarks": self.lifecycle_benchmarks(limit=1000),
         }

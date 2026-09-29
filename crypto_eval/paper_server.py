@@ -228,6 +228,12 @@ class PaperRequestHandler(BaseHTTPRequestHandler):
             }
         if path == "/api/safety":
             return portfolio.safety_overview()
+        if path == "/api/lifecycle":
+            return portfolio.lifecycle_overview()
+        if path == "/api/lifecycle/benchmarks":
+            return {"reports": portfolio.lifecycle_benchmarks()}
+        if path.startswith("/api/lifecycle/"):
+            return portfolio.lifecycle_view(urllib.parse.unquote(path[len("/api/lifecycle/") :]))
         if path == "/api/execution-plans":
             return {"plans": portfolio.safety.plans(portfolio.experiment_id)}
         if path == "/api/tournament":
@@ -258,6 +264,28 @@ class PaperRequestHandler(BaseHTTPRequestHandler):
             if not isinstance(confirm, bool):
                 raise PaperTradingError("confirm must be boolean")
             return {"kill_switch": portfolio.set_kill_switch(body.get("level"), reason=str(body.get("reason") or "")[:300], confirm=confirm)}
+        if path == "/api/lifecycle/benchmark":
+            body = self._read_json()
+            if set(body) - {"instrument_id", "bars"}:
+                raise PaperTradingError("benchmark accepts instrument_id and bars")
+            return {"report": portfolio.lifecycle_benchmark(body.get("instrument_id"), bars=body.get("bars", 360))}
+        if path.startswith("/api/lifecycle/"):
+            remainder = urllib.parse.unquote(path[len("/api/lifecycle/") :])
+            ref, _, action = remainder.rpartition("/")
+            body = self._read_json()
+            confirm = body.get("confirm", False)
+            if not isinstance(confirm, bool):
+                raise PaperTradingError("confirm must be boolean")
+            if action == "review":
+                if set(body) - {"recommendation"}:
+                    raise PaperTradingError("lifecycle review accepts an optional recommendation")
+                review = portfolio.lifecycle_review(ref, recommendation=body.get("recommendation"), source="USER", execute=False)
+                return {"review": {k: review[k] for k in ("position_ref", "status", "plan", "result", "regime", "evidence", "event_id")}}
+            if action == "apply":
+                return {"result": portfolio.apply_lifecycle(ref, confirm=confirm)}
+            if action == "dismiss":
+                return {"result": portfolio.dismiss_lifecycle(ref)}
+            return None
         if path == "/api/safety/assess":
             body = self._read_json()
             return {"assessment": portfolio.assess(body.get("instrument_id"), force=True)}
