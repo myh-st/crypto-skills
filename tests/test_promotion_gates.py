@@ -144,6 +144,16 @@ class GovernanceTests(PortfolioCase):
         self.os.update_settings({"attention": {"near_stop_pct": 0.02}})  # operational: no new version
         self.assertEqual(self.gov.status()["version"], 2)
 
+    def test_promotion_criteria_cannot_move_without_a_new_version(self):
+        self.assertIn("promotion", self.gov.frozen()["manifest"]["material"]["portfolio_policy"])
+        with self.assertRaises(ConfirmationRequired) as raised:
+            self.os.update_settings({"promotion": {"min_completed_trades": 50}})
+        self.assertIn("promotion.min_completed_trades", raised.exception.details["fields"])
+        self.assertEqual(self.gov.status()["version"], 1)
+        self.os.update_settings({"promotion": {"min_completed_trades": 50}}, confirm=True)
+        self.assertEqual(self.gov.status()["version"], 2)
+        self.assertIn("promotion.min_completed_trades", self.gov.frozen()["reason"])
+
     def test_unversioned_provider_change_invalidates_until_recorded(self):
         provider = self.store.provider(self.store.experiment()["config"]["gpt_provider_id"])
         changed = dict(provider, model=f"{provider.get('model', 'm')}-other")

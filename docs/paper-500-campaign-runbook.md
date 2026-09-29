@@ -39,8 +39,9 @@ rather than forcing a verdict.
      economic PnL is unavailable and the gate cannot PASS**.
    - Set the `ai_budget` daily and experiment caps you can afford, and a `limit_action`
      (recommended: `FALLBACK_QUANT`).
-7. **Promotion criteria** (Settings → promotion). Keep the defaults unless there is a written
-   reason:
+7. **Promotion criteria** (Settings → promotion). They freeze into the manifest at Start;
+   changing them later creates a new version and restarts the evaluation window. Keep the
+   defaults unless there is a written reason:
    - 90 days, 200 trades, PF ≥ 1.15, DD ≤ 20%, positive net economic PnL;
    - top trade ≤ 50%, skipped slots ≤ 5%, 0 open critical incidents, ≥ 2 regimes.
 8. **Authority.** AI-opened positions `AUTO_PAPER` (default); your own positions
@@ -86,6 +87,15 @@ or Evaluations → Run checkpoint review. Archive the JSON; its `report_sha256` 
 | `PROVIDER_OUTAGE` (circuit open) | Decisions fall back automatically. If outages persist, the AI arms' samples shrink; note it at the checkpoint. |
 | `SCHEDULER_GAP` / `MONITOR_GAP` | Expected after sleep or downtime. Frequent gaps inflate the skipped-slot ratio and can `FAIL_RELIABILITY`, so keep the machine awake (power settings) for the campaign. |
 | Manifest drift banner | Either revert the change or record a new version with a reason. Never leave drift unresolved. |
+
+## Scope of EXP-001 (known, not covered by the campaign)
+
+- Spot lifecycle decisions are deterministic. No Jev/Luna lifecycle recommendation is wired, so
+  the campaign does not evaluate AI lifecycle recommendations.
+- The perpetual and spot capital defaults are 100/100 USDT; set 300/200 before Start (step 4).
+  The Overview has no "total 500" line; confirm the split on Portfolio.
+- Manifest status is on Evaluations, and the FX policy is in the experiment config; neither is
+  shown on Overview.
 
 ## What does not happen during the campaign
 

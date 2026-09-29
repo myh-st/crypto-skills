@@ -35,6 +35,7 @@ The material fields, hashed together as `material_sha256`:
   - Portfolio Brain, crash/execution safety, Spot lifecycle, and AI Spot settings;
   - Spot risk and allocation settings;
   - the AI-management review switches;
+  - the promotion gate criteria (so the goalposts cannot move inside one version);
 - providers (id, kind, model, deployment, reasoning effort, enabled, role). There are never
   credentials;
 - the skill directory hash (SKILL.md plus references);
@@ -85,7 +86,7 @@ Exactly one status, in fixed precedence:
    or one trade carries more than `max_top_trade_share` of net PnL.
 6. `PASS`: next step `LIVE_ELIGIBLE_REVIEW` (human review; nothing is enabled).
 
-Criteria are portfolio settings under `promotion` and are audited like every settings change.
+Criteria are portfolio settings under `promotion`. They are part of the frozen manifest: changing them after Start requires `CONFIRM_MATERIAL_CHANGE` and records a new manifest version, and the gate then evaluates only that version's window.
 The defaults:
 
 | Criterion | Default |
