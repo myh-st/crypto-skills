@@ -54,13 +54,14 @@ export function calendarHeatmap(days, { title = "Daily P&L", motionKey = "" } = 
     if (!d) return '<span class="cal-cell cal-cell--pad"></span>';
     const i = order++;
     if (d.pnl_pct === null || d.pnl_pct === undefined) {
-      return `<span class="cal-cell cal-cell--none" style="--i:${i}" title="${escapeHtml(d.date)} · no data"></span>`;
+      return `<span class="cal-cell cal-cell--none" style="--i:${i}" role="img" aria-label="${escapeHtml(d.date)}: no data" title="${escapeHtml(d.date)} · no data"></span>`;
     }
     const v = Number(d.pnl_pct);
     const level = Math.min(4, Math.max(1, Math.ceil((Math.abs(v) / scale) * 4)));
     const tone = v > 0 ? "pos" : v < 0 ? "neg" : "flat";
+    const text = `${d.date}: ${fmtPct(v, 2)} (${fmtNum(d.pnl_usdt)} USDT), ${d.trades} trades`;
     return `<span class="cal-cell cal-cell--${tone} cal-l${tone === "flat" ? 0 : level}${d.today ? " cal-cell--today" : ""}" style="--i:${i}"
-      title="${escapeHtml(d.date)} · ${escapeHtml(fmtPct(v, 2))} (${escapeHtml(fmtNum(d.pnl_usdt))} USDT) · ${escapeHtml(d.trades)} trades"></span>`;
+      role="img" aria-label="${escapeHtml(text)}" title="${escapeHtml(text)}"></span>`;
   };
   const green = days.filter((d) => Number(d.pnl_usdt) > 0).length;
   const red = days.filter((d) => Number(d.pnl_usdt) < 0).length;
@@ -115,7 +116,8 @@ export function gauge(used, { label = "", danger = 0.8, motionKey = "" } = {}) {
 export function rangeBar({ p5, median, p95 }, { span = null } = {}) {
   const s = span ?? Math.max(0.01, Math.abs(p5), Math.abs(p95));
   const pos = (v) => 50 + (Math.max(-s, Math.min(s, v)) / s) * 50;
-  return `<span class="range-bar" title="5th ${escapeHtml(fmtPct(p5))} · median ${escapeHtml(fmtPct(median))} · 95th ${escapeHtml(fmtPct(p95))}">
+  const text = `5th percentile ${fmtPct(p5)}, median ${fmtPct(median)}, 95th percentile ${fmtPct(p95)}`;
+  return `<span class="range-bar" role="img" aria-label="${escapeHtml(text)}" title="${escapeHtml(text)}">
     <span class="range-zero"></span>
     <span class="range-span" style="left:${pos(p5).toFixed(1)}%;width:${(pos(p95) - pos(p5)).toFixed(1)}%"></span>
     <span class="range-mid ${median >= 0 ? "range-mid--pos" : "range-mid--neg"}" style="left:${pos(median).toFixed(1)}%"></span></span>`;

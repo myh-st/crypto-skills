@@ -24,18 +24,30 @@ function progress(status) {
   </section>`;
 }
 
+function gateList(gate) {
+  if (!gate?.checks?.length) return "";
+  const mark = { pass: "✓", fail: "✗", unknown: "?" };
+  const show = (v) => (v === null || v === undefined ? "not measured" : typeof v === "number" && Math.abs(v) < 1 && v !== 0 ? `${(v * 100).toFixed(1)}%` : String(v));
+  const thr = (c) => (Math.abs(c.threshold) < 1 && c.threshold !== 0 ? `${(c.threshold * 100).toFixed(0)}%` : String(c.threshold));
+  return `<ul class="gate-list">${gate.checks.map((c) => `<li class="gate-${escapeHtml(c.status)}">
+    <span class="gate-mark" aria-label="${escapeHtml(c.status)}">${mark[c.status] || "?"}</span>
+    <span>${escapeHtml(c.name)}: <strong>${escapeHtml(show(c.value))}</strong> <small class="muted">(needs ${escapeHtml(c.op)} ${escapeHtml(thr(c))})</small></span></li>`).join("")}</ul>`;
+}
+
 function verdict(data) {
   const w = data.wfo?.[PRE_DECLARED] || {};
-  const pass = Number(w.oos_sharpe) >= 1.5 && Number(w.oos_ret) > 0 && Number(w.holdout_ret) > 0;
+  const gate = data.gate || {};
+  const pass = gate.passed === true;   // the full pre-declared gate, never a subset of it
   const weak = !pass && Number(w.oos_ret) > 0;
   const tone = pass ? "pos" : weak ? "warn" : "neg";
-  const head = pass ? "A day-trading edge survived out of sample" : weak ? "Some edge, but below the bar" : "No robust day-trading edge found yet";
+  const head = pass ? "A day-trading edge passed the full research gate" : weak ? "Some edge, but it fails the research gate" : "No robust day-trading edge found yet";
   return `<section class="panel verdict verdict--${tone}" data-motion-enter="ss:verdict">
     <h2>${escapeHtml(head)}</h2>
     <p>Walk-forward (${escapeHtml(PRE_DECLARED)}, chosen before the run): out-of-sample Sharpe <strong>${escapeHtml(w.oos_sharpe ?? "—")}</strong>,
       return <strong>${escapeHtml(fmtPct(w.oos_ret, 1))}</strong>, green weeks ${escapeHtml(w.oos_pos_weeks != null ? `${Math.round(w.oos_pos_weeks * 100)}%` : "—")};
       final holdout Sharpe <strong>${escapeHtml(w.holdout_sharpe ?? "—")}</strong>, return <strong>${escapeHtml(fmtPct(w.holdout_ret, 1))}</strong>.</p>
-    <p class="small muted">Bar to pass: out-of-sample Sharpe ≥ 1.5, profitable, and profitable in the untouched holdout.
+    ${gateList(gate)}
+    <p class="small muted">Gate from .goals/day-trade-futures/goal.md: every criterion must be measured and met (${escapeHtml(gate.failed ?? 0)} failed, ${escapeHtml(gate.unknown ?? 0)} not measured).
       ${escapeHtml(Number(data.search?.n_runs || 0).toLocaleString("en-US"))} backtests (${escapeHtml(data.search?.n_configs)} configs × ${escapeHtml(data.search?.n_coins)} coins).</p>
   </section>`;
 }
