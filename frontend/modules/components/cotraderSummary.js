@@ -76,7 +76,7 @@ export function renderNextStepsTh(d) {
   ].filter(Boolean).join(" · ");
   const noCapital = num(d?.settings?.cotrader_capital_usdt) === null;
   return `<section class="panel cot-next" lang="th" aria-label="สรุปว่าต้องทำอะไรต่อ">
-    <div class="section-heading"><h2>ทำอะไรต่อ</h2><span class="muted small">ตามแท่งปิดรายวันล่าสุด · ตัดสินใจวันละครั้งหลัง 07:00 น.</span></div>
+    <div class="section-heading"><h2>ทำอะไรต่อ</h2><span class="muted small">อัปเดตทุกวัน 07:00 น.</span></div>
     <p class="cot-next-lead"><strong>${s.todo.length ? "วันนี้มีสิ่งที่ต้องทำ:" : "วันนี้ไม่ต้องซื้อขายเพิ่ม — ถือตามเดิม"}</strong></p>
     ${s.todo.length ? `<ul class="cot-next-todo">${list(s.todo)}</ul>` : ""}
     <dl class="cot-next-kv">

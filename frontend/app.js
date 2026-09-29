@@ -73,8 +73,9 @@ async function main() {
   const runtimeBadge = document.getElementById("runtime-mode");
   const runtimeMessage = document.getElementById("runtime-message");
   if (paperRuntime && cotraderMode) {
-    runtimeBadge.textContent = "SPOT CO-TRADER";
-    runtimeMessage.textContent = "Decision support on the daily close · public Gate spot data · no orders are ever placed";
+    // The sidebar brand already names the app; the top bar keeps only the theme toggle.
+    runtimeBadge.hidden = true;
+    runtimeMessage.textContent = "";
   } else if (paperRuntime) {
     runtimeBadge.textContent = "PAPER";
     runtimeMessage.textContent = "PAPER execution · exchange data from the local backend · Gate live orders BLOCKED BY DESIGN · No real-money execution";

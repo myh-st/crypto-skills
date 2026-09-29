@@ -3136,3 +3136,5 @@ body.drawer-open { overflow: hidden; }
 .cot-watch-form { margin-top: 8px; }
 .paper-feedback--warning { color: var(--color-caution-text); background: var(--color-caution-bg); }
 .paper-feedback--info { color: var(--color-text-muted); }
+
+.demo-topbar-badge[hidden] { display: none; }

@@ -48,7 +48,7 @@ export function renderRegimeStrip(d) {
   const spent = num(ai.spent_today_usd);
   const left = cap !== null && spent !== null ? Math.max(0, cap - spent) : null;
   const totalLeft = num(ai.total_cap_usd) !== null && num(ai.spent_total_usd) !== null ? Math.max(0, num(ai.total_cap_usd) - num(ai.spent_total_usd)) : null;
-  const star = ai.pricing_is_fallback ? "*" : "";
+  const star = ai.pricing_is_fallback ? `<abbr class="cot-star" title="${escapeHtml(PRICING_FALLBACK_NOTE)}">*</abbr>` : "";
   let aiHtml;
   if (ai.enabled === false) aiHtml = "<strong>AI off</strong>";
   else if (ai.blocked_reason) aiHtml = `<strong class="warn-text"><span aria-hidden="true">⚠</span> AI unavailable</strong><small>${escapeHtml(ai.blocked_reason)}</small>`;
@@ -69,7 +69,7 @@ export function renderRegimeStrip(d) {
       <small>00:00 UTC = 07:00 Bangkok</small></div>
     <div class="cot-regime-cell"><span class="cot-kicker">AI budget</span>${aiHtml}${split}</div>
   </section>
-  ${ai.pricing_is_fallback ? `<p class="cot-note small">* ${escapeHtml(PRICING_FALLBACK_NOTE)}</p>` : ""}`;
+`;
 }
 
 export function renderBriefing(briefing) {
@@ -134,7 +134,7 @@ export function renderCotraderOverview(d, { scorecard = null, scorecardError = n
     ${renderRegimeStrip(d)}
     ${renderBriefing(d.briefing)}
     <section class="cot-section">
-      <div class="section-heading"><h2>Coins</h2><span class="muted small">rule signal on the last closed daily bar (${escapeHtml(isoDate(d.last_close))}); live price for display only</span></div>
+      <div class="section-heading"><h2>Coins</h2><span class="muted small">daily close ${escapeHtml(isoDate(d.last_close))}</span></div>
       ${renderCoinGrid(d.coins)}
     </section>
     <section class="panel cot-scorecard">
@@ -312,7 +312,7 @@ export function renderDetailHead(coin, holding = null) {
     <div class="cot-detail-title">
       ${coinIcon(base, { size: 44 })}
       <div><h1>${escapeHtml(base)} <span class="muted small">${escapeHtml(coin.symbol || "")}</span></h1>
-        <div class="cot-detail-price"><strong data-motion-key="cot:${escapeHtml(base)}:price">${escapeHtml(fmtPrice(coin.price))}</strong> ${pctChange(coin.change_24h)} <span class="muted small">24h · live, display only</span></div>
+        <div class="cot-detail-price"><strong data-motion-key="cot:${escapeHtml(base)}:price">${escapeHtml(fmtPrice(coin.price))}</strong> ${pctChange(coin.change_24h)} <span class="muted small">24h</span></div>
         ${held}</div>
       <div class="cot-detail-action">${actionBadge(action.type)}${stateChip(coin.state)}</div>
     </div>
@@ -321,12 +321,12 @@ export function renderDetailHead(coin, holding = null) {
 
 // ---------------------------------------------------------------- pages
 
+// The sidebar already switches between Signals and Watchlist, and the decision card carries the
+// disclaimer, so the page header stays a title plus the refresh control.
 function shell(activeTab, body) {
-  const tab = (id, href, label) => `<a href="${href}" class="cot-tab${activeTab === id ? " is-active" : ""}"${activeTab === id ? ' aria-current="page"' : ""}>${label}</a>`;
+  const title = activeTab === "watchlist" ? "Watchlist" : "Signals";
   return `<div class="view view--cotrader">
-    <header class="page-header"><div><h1>Co-Trader</h1><p>Spot trend rule + AI second opinion · decide on the daily close</p></div>${autoRefreshBar(REFRESH_MS)}</header>
-    <nav class="cot-tabs" aria-label="Co-Trader sections">${tab("signals", "#/cotrader", "Signals")}${tab("watchlist", "#/cotrader/watchlist", "Watchlist")}</nav>
-    <p class="cot-disclaimer" role="note"><span aria-hidden="true">ⓘ</span> ${escapeHtml(DISCLAIMER)}</p>
+    <header class="page-header"><div><h1>${title}</h1></div>${autoRefreshBar(REFRESH_MS)}</header>
     ${body}
   </div>`;
 }
