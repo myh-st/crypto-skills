@@ -541,7 +541,7 @@ test("promotion panel shows identity, gate decision, blockers, drift, and that l
       gate: { status: "INVALID_EXPERIMENT", blockers: ["UNVERSIONED_MATERIAL_CHANGE"], reasons: ["changed <b>"], next_step: "start a new experiment" } },
     reviews: [{ status: "CONTINUE_COLLECTING_DATA", checkpoint: "DAY_7", manifest_version: 1, report_sha256: "b".repeat(64), created_at: "2026-09-22T00:00:00Z" }],
   });
-  assert.match(html, /Live trading: DISABLED/);
+  assert.match(html, /Real-money execution: DISABLED/);
   assert.match(html, /manifest v2/);
   assert.match(html, /DAY 30/);
   assert.match(html, /48/);

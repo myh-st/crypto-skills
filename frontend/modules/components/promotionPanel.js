@@ -1,5 +1,5 @@
 // Experiment identity + promotion gate. Concise decision first; evidence stays in the export.
-// A PASS only makes a separate live-execution review eligible; nothing here enables live trading.
+// A PASS only makes a separate live-execution review eligible; nothing here enables real-money execution.
 import { escapeHtml, relativeTime } from "../format.js";
 import { fmtNumber, pct } from "./ui.js";
 
@@ -16,7 +16,7 @@ export function renderPromotion({ manifest = null, review = null, reviews = [] }
   const drift = status?.drift || [];
   return `
     <div class="promotion" data-promotion>
-      <p class="small"><strong>Live trading: DISABLED</strong> · a PASS only makes a separate, human-reviewed live-execution phase eligible for review.</p>
+      <p class="small"><strong>Real-money execution: DISABLED</strong> · a PASS only makes a separate, human-reviewed live-execution phase eligible for review.</p>
       <dl class="kv">
         <div><dt>Experiment</dt><dd>${escapeHtml(identity.experiment_id || "—")} · manifest v${escapeHtml(status?.version ?? "—")}</dd></div>
         <div><dt>Frozen config</dt><dd><code>${escapeHtml((status?.material_sha256 || "not frozen").slice(0, 12))}</code>${status?.frozen_at ? ` · ${escapeHtml(relativeTime(status.frozen_at))}` : ""}</dd></div>
