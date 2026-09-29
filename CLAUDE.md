@@ -34,6 +34,8 @@ python3 -m crypto_eval paper-server [--database .paper-smoke.sqlite3] [--no-live
 python3 -m crypto_eval serve --host 127.0.0.1 --port 8765 --interval 1h                   # Spot analysis runtime, /frontend/
 python3 -m crypto_eval real-integration-check --symbol BTCUSDT   # REAL paid/external calls; local acceptance only
 python3 -m crypto_eval paper-setup-real                          # moves .env creds into the OS credential store
+python3 -m crypto_eval paper-backup [--database P]              # verified, secret-free snapshot (restore: paper-restore)
+python3 -m crypto_eval paper-soak --database FRESH.sqlite3 --days 3   # accelerated restart/sleep soak, fixture data
 ```
 
 All subcommands are defined in `crypto_eval/cli.py`.

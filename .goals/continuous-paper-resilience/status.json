@@ -1,7 +1,7 @@
 {
   "goal": "continuous-paper-resilience",
   "branch": "feature/continuous-paper-resilience",
-  "state": "in_progress",
+  "state": "complete_pending_merge",
   "predecessor": "feature/spot-cycle-lifecycle-manager",
   "canonical_files": [
     ".goals/continuous-paper-resilience/goal.md",
@@ -20,5 +20,18 @@
     "ha_cluster"
   ],
   "real_gate_write_enabled": false,
-  "base": "main@e21f91f (Phase 3 merged)"
+  "base": "main@e21f91f (Phase 3 merged)",
+  "verification": {
+    "validate_repo": "PASS",
+    "python_unittest": "PASS (288 tests)",
+    "frontend_node_test": "PASS (75 tests)",
+    "node_check": "PASS",
+    "recovery_drills": "PASS (tests/test_continuous_resilience.py: kill with open perp, spot+pending limit, restart during AI request, restart during sliced execution, stale reservations, low disk, lock contention, sleep gap, lag, interrupted slot resume, monitor gap, feed stale/gap, provider circuit, backup/restore incl. tamper + credential rejection, retention, instance lock, health, soak)",
+    "soak": "PASS 7 simulated days: 13 restarts (6 unclean), 1 sleep gap, 1320 cycles, 0 duplicates, reconciliation ok, integrity ok; ~24 MB/simulated day (2 symbols, pre-compaction)",
+    "performance_fix": "decision-cycle cost no longer grows with history (risk statistics used a full export per arm per cycle); identical results on all cohorts",
+    "browser_qa": "PASS: Overview System health panel, Create backup (verified, no credentials)",
+    "real_local_acceptance": "PASS 2026-09-29: real paper-server processes with live Gate public WS (LIVE after warm-up, FEED_STALE auto-resolved); second instance refused INSTANCE_LOCKED; backup while running verified/clean; restore refused while running; SIGKILL -> UNCLEAN_SHUTDOWN + PROCESS_RESTART with reconciliation ok; SIGTERM exit 0 -> GRACEFUL_SHUTDOWN; restore after stop OK",
+    "known_gaps": "storage growth ~tens of MB/day per few symbols (plan multi-GB disk for 90 days); multi-day real-time (non-accelerated) soak NOT_VERIFIED; real provider outage not induced (circuit verified with fakes)",
+    "real_gate_write": "BLOCKED_BY_DESIGN (unchanged)"
+  }
 }

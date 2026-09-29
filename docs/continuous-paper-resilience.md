@@ -111,11 +111,14 @@ Retention runs from the monitor at most once a day and only touches diagnostics:
 Trades, fills, wallets, journals, AI cost, decisions, and safety/lifecycle evidence are never
 deleted.
 
-Measured growth (accelerated soak, fixture data, 2 symbols, 5-minute monitor): about 21 MB per
-simulated day before compaction; compaction reduces the cycles table about 3x. Real growth
-scales with the number of symbols, the monitor interval, and open positions (the `processed_bars`
-and `equity` series are accounting evidence and are kept). The Overview shows the database
-size and free disk, and `STORAGE_LOW` fails closed.
+Measured growth (7-day accelerated soak, fixture data, 2 symbols, 5-minute monitor ticks):
+about 24 MB per simulated day. The DB reached 166 MB after 7 days, before compaction starts at
+day 30. On a 1-day sample, compaction reduces the cycles table about 3x.
+
+Growth scales with symbols, monitor frequency, and open positions. The `processed_bars` and
+`equity` series are accounting evidence and are kept. Plan several GB of free disk for a 90-day,
+5-symbol campaign. The Overview shows the database size and free disk, and `STORAGE_LOW` fails
+closed.
 
 ## Long-run performance
 
@@ -130,6 +133,14 @@ now uses indexed queries:
 
 Results are identical on every cohort. A cycle now costs about 60 ms at day 3, and a
 regression test forbids a full-history export inside a cycle.
+
+7-day soak result (`paper-soak --days 7`):
+
+- PASS
+- 13 restarts (6 unclean) and one 3-hour sleep gap
+- 1320 cycles, 660 slots DONE and 12 SKIPPED_GAP
+- 0 duplicate cycles, reconciliation OK, integrity OK
+- 3m49s wall time
 
 ## Backup and restore
 
