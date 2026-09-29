@@ -1,0 +1,23 @@
+{
+  "goal": "crash-execution-safety",
+  "branch": "feature/crash-execution-safety",
+  "state": "planning_ready_waiting_for_portfolio_os_completion",
+  "initial_base": "feature/ai-portfolio-trading-os@334d2300e8a476b1ccdfb77797ac19f9c57ff424",
+  "implementation_blocked_until": "feature/ai-portfolio-trading-os final work is pushed and reviewed",
+  "canonical_files": [
+    ".goals/crash-execution-safety/goal.md",
+    "docs/crash-execution-safety-plan.md"
+  ],
+  "scope": {
+    "execution_mode": "PAPER",
+    "real_gate_write_enabled": false,
+    "crash_guard": true,
+    "price_sanity": true,
+    "liquidity_guard": true,
+    "execution_planner": true,
+    "kill_switch": true,
+    "reconciliation_safety": true,
+    "spot_core_tactical": true,
+    "futures_liquidation_emergency": true
+  }
+}
