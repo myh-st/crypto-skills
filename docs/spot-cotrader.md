@@ -356,3 +356,27 @@ AI retries: a Jev/Luna attempt blocked by the **budget** is final for its trigge
 but one blocked by **provider setup** (`fixture_provider`, `provider_unavailable`,
 `provider_unsupported`) is retried after the normal 10-minute spacing, so configuring the real
 providers scores the same close without a restart.
+
+
+## Claude routine narrator (no per-call API cost)
+
+`POST /api/cotrader/settings {"narrator": "claude_routine"}` switches the daily narration from Luna
+to the user's own scheduled Claude routine (Claude Code desktop scheduled task on the user's plan):
+
+- **Luna is off.** No Luna call is made or recorded: state-change reviews, the Jev-disagree
+  escalation, the daily briefing and manual "Ask AI" all return `luna_off`. The UI hides the Ask AI
+  button and says the routine updates each morning. Jev keeps scoring (it is cheap); turn it off
+  with `{"jev_scoring": false}`.
+- **`GET /api/cotrader/routine/context`** (read-only) returns, for the latest common close, the
+  same typed inputs Luna receives (`build_spot_review_input` per coin plus the coin's ladder, and
+  `build_spot_briefing_input`), the shared instructions, the JSON output contracts and the publish
+  shape. Only closed bars are included.
+- **`POST /api/cotrader/routine/publish`** `{model, data_cutoff, briefing, reviews: {BASE: review}}`
+  is validated by the same parsers as Luna (`parse_spot_briefing`, `parse_spot_review`: Thai summary
+  required, bounded lists, positive levels). A stale `data_cutoff`, an unknown coin or an invalid
+  field rejects the whole publish (HTTP 400). Rows are stored as `source: "claude"`, `trigger:
+  "routine"`, `cost_status: "subscription"`, and re-publishing the same close replaces them.
+- The UI, journal and AI Scorecard treat `claude` as the narrative AI (newest of claude/luna), and
+  the scorecard tracks Claude's stances separately.
+- The routine only runs while the Claude desktop app is running and the Mac is awake; a missed
+  morning simply leaves yesterday's narration (the rule, ladder and Jev still update on their own).

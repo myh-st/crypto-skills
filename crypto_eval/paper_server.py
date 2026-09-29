@@ -205,6 +205,8 @@ class PaperRequestHandler(BaseHTTPRequestHandler):
             return {"journal": service.journal()}
         if remainder == "settings":
             return {"settings": service.settings_view()}
+        if remainder == "routine/context":
+            return service.routine_context()
         if not remainder or "/" in remainder:
             return None
         return service.coin_detail(remainder)
@@ -220,6 +222,8 @@ class PaperRequestHandler(BaseHTTPRequestHandler):
             return 200, {"settings": service.update_settings(self._read_json())}
         if remainder == "watchlist":
             return 200, service.update_watchlist(self._read_json())
+        if remainder == "routine/publish":
+            return 200, service.publish_routine(self._read_json())
         if remainder.endswith("/analyze") and remainder.count("/") == 1:
             body = self._cotrader_body()
             if set(body) - {"confirm"}:

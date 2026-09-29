@@ -23,7 +23,7 @@ import { chartLevels, equitySummary, mountCotraderChart, mountEquityChart, price
 import { cdcChip, ladderLevels, renderEvidence, renderLadderDetail, renderLadderRow } from "../components/cotraderLadder.js";
 import { mountWatchlist, renderWatchlistShell } from "./cotraderWatchlist.js";
 import { renderNextStepsTh } from "../components/cotraderSummary.js";
-import { normaliseView, renderCoinTable } from "../components/cotraderTable.js";
+import { normaliseView, renderCoinTable, verdictOf, verdictPill } from "../components/cotraderTable.js";
 import { hashQuery } from "../router.js";
 import { icon } from "../components/icons.js";
 
@@ -63,7 +63,7 @@ export function renderRegimeStrip(d) {
   return `<section class="cot-regime cot-regime--${label ? label.toLowerCase().replace("_", "-") : "none"}" aria-label="Market regime">
     <div class="cot-regime-cell cot-regime-main"><span class="cot-kicker">Regime</span>
       <strong class="cot-regime-label"><span aria-hidden="true">${REGIME_GLYPH[label] || "?"}</span> ${escapeHtml(label ? label.replace("_", "-") : "unknown")}</strong></div>
-    <a class="cot-regime-cell cot-regime-link" href="#/cotrader?view=in" title="Show the coins in trend"><span class="cot-kicker">Breadth</span><strong>${escapeHtml(breadth)}</strong>
+    <a class="cot-regime-cell cot-regime-link" href="#/cotrader?view=hold" title="Show the coins to keep holding"><span class="cot-kicker">Breadth</span><strong>${escapeHtml(breadth)}</strong>
       ${num(r.breadth) === null ? "" : `<span class="cot-breadth" role="meter" aria-valuemin="0" aria-valuemax="100" aria-valuenow="${Math.round(num(r.breadth) * 100)}" aria-label="breadth ${escapeHtml(breadth)}"><span style="width:${Math.round(Math.max(0, Math.min(1, num(r.breadth))) * 100)}%"></span></span>`}</a>
     <a class="cot-regime-cell cot-regime-link" href="#/cotrader/BTC" title="Open BTC"><span class="cot-kicker">BTC</span>${stateChip(r.btc_state || null)}</a>
     <div class="cot-regime-cell"><span class="cot-kicker">Next daily close</span>
@@ -211,7 +211,7 @@ export function renderDecisionCard(coin, { analysis = null, blockedReason = null
     </div>
     <div class="cot-sub"><div class="cot-sub-head"><h3>How much</h3></div>${renderSizing(coin)}</div>
     <div class="cot-sub"><div class="cot-sub-head"><h3>How</h3></div>${renderHowNotes(coin)}</div>
-    <div class="cot-sub">${renderAiCard(analysis, { blockedReason, lastAi: coin.last_ai, base: coin.base, pricingFallback })}</div>
+    <div class="cot-sub">${renderAiCard(analysis, { blockedReason, lastAi: coin.last_ai, base: coin.base, pricingFallback, narrator: coin.narrator })}</div>
     <p class="cot-disclaimer small">${escapeHtml(DISCLAIMER)}</p>
   </section>`;
 }
@@ -319,7 +319,8 @@ export function renderDetailHead(coin, holding = null) {
       <div><h1>${escapeHtml(base)} <span class="muted small">${escapeHtml(coin.symbol || "")}</span></h1>
         <div class="cot-detail-price"><strong data-motion-key="cot:${escapeHtml(base)}:price">${escapeHtml(fmtPrice(coin.price))}</strong> ${pctChange(coin.change_24h)} <span class="muted small">24h</span></div>
         ${held}</div>
-      <div class="cot-detail-action">${actionBadge(action.type)}${stateChip(coin.state)}</div>
+      <div class="cot-detail-action">${verdictPill(verdictOf(coin), { size: "lg" })}
+        <span class="cot-cell-sub" lang="th">${escapeHtml(verdictOf(coin)?.detail || "")}</span></div>
     </div>
   </div>`;
 }
@@ -419,7 +420,7 @@ function renderDetailPage(root, api, base) {
   function paintDecision() {
     const d = state.detail;
     if (!d) return;
-    const stored = latestAnalysis(d.analyses, "luna");
+    const stored = latestAnalysis(d.analyses, ["claude", "luna"]);
     const pick = state.analysis && (!stored || Date.parse(state.analysis.as_of) >= Date.parse(stored.as_of)) ? state.analysis : stored;
     q("[data-cot-decision]").innerHTML = renderDecisionCard(d, { analysis: pick, blockedReason: state.blockedReason, pricingFallback: Boolean(d.ai?.pricing_is_fallback) });
     return pick;

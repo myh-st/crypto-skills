@@ -32,7 +32,18 @@ from typing import Any, Callable
 
 from .ai_cost import validate_budget_config
 from .market_catalog import GateSpotMarketDataProvider, SPOT_DATA_ORIGIN, _num
-from .paper_ai import AIProviderError, jev_score_unit
+from .paper_ai import (
+    AIProviderError,
+    SPOT_REVIEW_RESPONSE_SCHEMA,
+    build_spot_briefing_input,
+    build_spot_review_input,
+    jev_score_unit,
+    parse_spot_briefing,
+    parse_spot_review,
+    spot_briefing_instructions,
+    spot_briefing_response_schema,
+    spot_review_instructions,
+)
 from .paper_contracts import PaperTradingError, iso_utc
 from .paper_market import MarketDataError
 
@@ -86,6 +97,14 @@ COTRADER_BUDGET_DEFAULTS: dict[str, Any] = {
     "gpt_max_output_tokens": 4000,
     "jev_max_output_tokens": 1000,
 }
+# Who writes the daily narration (briefing + per-coin reviews):
+#   "luna"            the paid Responses provider, triggered by the scheduler and on demand;
+#   "claude_routine"  the user's own scheduled Claude routine reads GET /api/cotrader/routine/context and
+#                     publishes validated JSON to POST /api/cotrader/routine/publish (no per-call API cost).
+NARRATORS = ("luna", "claude_routine")
+NARRATION_SOURCES = ("claude", "luna")  # sources the UI treats as the narrative AI, newest first
+ROUTINE_SCHEMA_VERSION = "cotrader-routine.v1"
+LUNA_OFF_REASON = "luna_off: the Claude routine writes the analysis once a day"
 BUDGET_OVERRIDE_FIELDS = ("daily_usd", "experiment_usd", "gpt_max_output_tokens", "jev_max_output_tokens")
 LUNA_CALL_TYPES = ("gpt_spot_review", "gpt_spot_briefing")
 JEV_CALL_TYPE = "jev_spot"
@@ -669,7 +688,8 @@ def scorecard_rows(samples: list[dict[str, Any]], horizons: tuple[int, ...] = SC
 
     order = [("jev", "agree"), ("jev", "caution"), ("jev", "disagree"), ("jev", "reversal_risk_low"),
              ("jev", "reversal_risk_mid"), ("jev", "reversal_risk_high"), ("luna", "agree"), ("luna", "caution"),
-             ("luna", "disagree")]
+             ("luna", "disagree"), ("claude", "agree"), ("claude", "caution"),
+             ("claude", "disagree")]
     rows = []
     for source, stance in order:
         bucket = [sample for sample in samples if sample["source"] == source and sample["stance"] == stance]
@@ -839,11 +859,12 @@ class SpotCoTrader:
             "sizing_method": self._setting("sizing_method", "equal_weight"),
             "universe": self.universe(),
             "jev_scoring": bool(self._setting("jev_scoring", True)),
+            "narrator": self.narrator(),
             "ai_budget": {**{key: budget[key] for key in BUDGET_OVERRIDE_FIELDS}, "overridden": sorted(overrides)},
         }
 
     def update_settings(self, body: dict[str, Any]) -> dict[str, Any]:
-        allowed = {"cotrader_capital_usdt", "sizing_method", "universe", "jev_scoring", "ai_budget"}
+        allowed = {"cotrader_capital_usdt", "sizing_method", "universe", "jev_scoring", "ai_budget", "narrator"}
         unknown = set(body) - allowed
         if unknown:
             raise PaperTradingError("unsupported co-trader settings: " + ", ".join(sorted(unknown)))
@@ -867,6 +888,10 @@ class SpotCoTrader:
             if len(bases) != len(value):
                 raise PaperTradingError("universe must not repeat a coin")
             updates["universe"] = bases
+        if "narrator" in body:
+            if body["narrator"] not in NARRATORS:
+                raise PaperTradingError("narrator must be luna or claude_routine")
+            updates["narrator"] = body["narrator"]
         if "jev_scoring" in body:
             if not isinstance(body["jev_scoring"], bool):
                 raise PaperTradingError("jev_scoring must be boolean")
@@ -1119,6 +1144,21 @@ class SpotCoTrader:
         )
         return rows[0] if rows else None
 
+    def _latest_narration(self, coin: str) -> dict[str, Any] | None:
+        """Newest successful narrative analysis for a coin (Claude routine or Luna)."""
+
+        marks = ",".join("?" for _ in NARRATION_SOURCES)
+        rows = self._analysis_rows(
+            f"SELECT * FROM cotrader_analyses WHERE coin=? AND source IN ({marks}) AND status='ok' "
+            "ORDER BY as_of DESC, rowid DESC LIMIT 1",
+            (coin, *NARRATION_SOURCES),
+        )
+        return rows[0] if rows else None
+
+    def narrator(self) -> str:
+        value = self._setting("narrator", "luna")
+        return value if value in NARRATORS else "luna"
+
     @staticmethod
     def _jev_view(row: dict[str, Any] | None) -> dict[str, Any] | None:
         if row is None:
@@ -1335,6 +1375,8 @@ class SpotCoTrader:
         if trigger not in {"state_change", "manual", "jev_disagree"}:
             raise PaperTradingError("review trigger is unsupported")
         base = self.require_coin(value)
+        if self.narrator() == "claude_routine":  # Luna is off: nothing is called or recorded
+            return {"analysis": None, "blocked_reason": LUNA_OFF_REASON, "cached": False}
         with self._ai_lock:
             now = self.now()
             day = now.date().isoformat()
@@ -1409,6 +1451,10 @@ class SpotCoTrader:
 
     def daily_briefing(self, now: datetime | None = None) -> dict[str, Any]:
         now = (now or self.now()).astimezone(timezone.utc)
+        if self.narrator() == "claude_routine":
+            latest = self._latest_ok(MARKET_COIN, "claude")
+            return {"briefing": self._briefing_view(latest), "blocked_reason": None if latest else "routine_pending",
+                    "cached": True}
         day = now.date().isoformat()
         key = f"daily:{day}"
         with self._ai_lock:
@@ -1527,14 +1573,16 @@ class SpotCoTrader:
         budget = self.budget(config)
         status = self.store.cost_ledger.budget_status(LEDGER_SCOPE, budget)
         day_start = iso_utc(now.replace(hour=0, minute=0, second=0, microsecond=0))
-        _, _, problem = self._provider("luna", config, budget)
+        narrator = self.narrator()
+        # With the Claude routine narrating, only Jev is a paid provider here.
+        _, _, problem = self._provider("jev" if narrator == "claude_routine" else "luna", config, budget)
         blocked = problem
         if blocked is None and status["exhausted"]:
             blocked = "DAILY_BUDGET" if (status["utilization_today"] or 0) >= 1 else "EXPERIMENT_BUDGET"
         if blocked is None:
             last = self._analysis_rows(
-                "SELECT status, reason FROM cotrader_analyses WHERE source='luna' AND as_of>=? ORDER BY as_of DESC, rowid DESC LIMIT 1",
-                (day_start,),
+                "SELECT status, reason FROM cotrader_analyses WHERE source=? AND as_of>=? ORDER BY as_of DESC, rowid DESC LIMIT 1",
+                ("jev" if narrator == "claude_routine" else "luna", day_start),
             )
             if last and last[0]["status"] != "ok":
                 blocked = last[0]["reason"]
@@ -1552,7 +1600,121 @@ class SpotCoTrader:
             "jev_spent_usd": _r(spend["jev"], 6),
             "luna_spent_usd": _r(spend["luna"], 6),
             "pricing_is_fallback": self._price_is_fallback(config),
+            "narrator": narrator,
+            "routine": self.routine_status(),
         }
+
+    # ------------------------------------------------------------ Claude routine (narration without API cost)
+    def routine_status(self) -> dict[str, Any]:
+        rows = self._analysis_rows(
+            "SELECT as_of, model, ref_close_ts FROM cotrader_analyses WHERE source='claude' AND status='ok' "
+            "ORDER BY as_of DESC, rowid DESC LIMIT 1", (),
+        )
+        last = rows[0] if rows else None
+        return {"last_published_at": last["as_of"] if last else None, "model": last["model"] if last else None}
+
+    def routine_context(self, now: datetime | None = None) -> dict[str, Any]:
+        """Everything the scheduled Claude routine needs for today's narration, grounded in closed bars.
+
+        The same typed inputs, instructions and JSON contracts as the Luna path, plus each coin's ladder
+        state, so the routine and Luna are directly comparable. Read-only; nothing is billed."""
+
+        now = (now or self.now()).astimezone(timezone.utc)
+        facts_all = self._all_facts(now)
+        known = {base: facts for base, facts in facts_all.items() if facts["state"] is not None}
+        if not known:
+            raise PaperTradingError("market data unavailable: no closed daily bars yet")
+        regime = self._regime(facts_all)
+        views, _, _ = self._views(now)
+        cutoff = max(facts["last"]["close_ts"] for facts in known.values())
+        coins: dict[str, Any] = {}
+        briefing_coins = []
+        for base, facts in known.items():
+            last = facts["last"]
+            if last["close_ts"] != cutoff:
+                continue  # stale coin: never narrate data older than the common close
+            review_input = build_spot_review_input(self._review_context(base, facts, regime))
+            ladder = views.get(base, {}).get("ladder")
+            coins[base] = {**review_input, "ladder": ladder}
+            briefing_coins.append({
+                "coin": base, "state": facts["state"], "state_since": facts["state_since"],
+                "days_in_state": facts["days_in_state"], "changed_today": facts["changed_today"],
+                "ret_60d": _r(last["ret_60d"], 5), "dist_sma100": _r(last["dist_sma100"], 5),
+                "vol_20d": _r(last["vol_20d"], 5), "trend_line_next": _r(last["trend_line_next"], 8),
+                "rule": facts["backtest"]["stats"], "jev": self._jev_view(self._latest_ok(base, "jev")),
+                "recent_closes": [float(f"{row['c']:.6g}") for row in facts["rows"][-14:]],
+            })
+        briefing_input = build_spot_briefing_input({"data_cutoff": _iso(cutoff), "regime": regime, "coins": briefing_coins})
+        return {
+            "schema_version": ROUTINE_SCHEMA_VERSION,
+            "data_cutoff": _iso(cutoff),
+            "narrator": self.narrator(),
+            "skill": "skills/crypto-market-trading-analysis (SKILL.md; references/technical-analysis.md, point-in-time.md)",
+            "instructions": {"review": spot_review_instructions(), "briefing": spot_briefing_instructions()},
+            "output_contract": {
+                "review": SPOT_REVIEW_RESPONSE_SCHEMA,
+                "briefing": spot_briefing_response_schema(sorted(coins)),
+            },
+            "briefing_input": briefing_input,
+            "coins": coins,
+            "publish": {
+                "method": "POST",
+                "path": "/api/cotrader/routine/publish",
+                "body": {"model": "<the model you are>", "data_cutoff": _iso(cutoff),
+                         "briefing": "<briefing JSON>", "reviews": {"<BASE>": "<review JSON>"}},
+            },
+        }
+
+    def publish_routine(self, body: dict[str, Any]) -> dict[str, Any]:
+        """Store the Claude routine's narration after strict validation (same parsers as Luna).
+
+        Idempotent per close: re-publishing the same close replaces that close's routine rows."""
+
+        if not isinstance(body, dict) or set(body) - {"model", "data_cutoff", "briefing", "reviews"}:
+            raise PaperTradingError("publish accepts model, data_cutoff, briefing and reviews only")
+        model = body.get("model")
+        if not isinstance(model, str) or not re.fullmatch(r"[A-Za-z0-9 ._:/()-]{1,80}", model):
+            raise PaperTradingError("model must be a short model name")
+        context = self.routine_context()
+        if body.get("data_cutoff") != context["data_cutoff"]:
+            raise PaperTradingError(
+                f"data_cutoff must be the current close {context['data_cutoff']}; fetch a fresh context and retry")
+        coins = sorted(context["coins"])
+        try:
+            briefing = parse_spot_briefing(body.get("briefing"), coins)
+        except AIProviderError as exc:
+            raise PaperTradingError(f"briefing rejected: {exc}") from None
+        reviews_in = body.get("reviews") or {}
+        if not isinstance(reviews_in, dict):
+            raise PaperTradingError("reviews must be an object keyed by coin")
+        unknown = sorted(set(reviews_in) - set(coins))
+        if unknown:
+            raise PaperTradingError("reviews for coins outside today's context: " + ", ".join(unknown))
+        reviews: dict[str, dict[str, Any]] = {}
+        for base, review in reviews_in.items():
+            try:
+                reviews[base] = parse_spot_review(review)
+            except AIProviderError as exc:
+                raise PaperTradingError(f"review for {base} rejected: {exc}") from None
+        cutoff = context["data_cutoff"]
+        cutoff_ts = int(datetime.fromisoformat(cutoff.replace("Z", "+00:00")).timestamp())
+        facts_all = self._all_facts(self.now())
+        with self._ai_lock:
+            with self.store.transaction() as db:
+                db.execute("DELETE FROM cotrader_analyses WHERE source='claude' AND trigger_key LIKE ?",
+                           (f"claude:%:{cutoff}",))
+            common = {"source": "claude", "trigger": "routine", "model": model, "cost_usd": 0.0,
+                      "cost_status": "subscription"}
+            self._record(coin=MARKET_COIN, trigger_key=f"claude:{MARKET_COIN}:{cutoff}", rule_state=None,
+                         call_id=f"ctr-{uuid.uuid4().hex[:16]}", status="ok", stance=briefing["stance_market"],
+                         payload=briefing, ref_close=None, ref_close_ts=None, **common)
+            for base, review in reviews.items():
+                last = facts_all[base]["last"]
+                self._record(coin=base, trigger_key=f"claude:{base}:{cutoff}", rule_state=facts_all[base]["state"],
+                             call_id=f"ctr-{uuid.uuid4().hex[:16]}", status="ok", stance=review["stance"],
+                             conviction=review["conviction"], payload=review, ref_close=last["close"],
+                             ref_close_ts=cutoff_ts, **common)
+        return {"published": {"data_cutoff": cutoff, "briefing": True, "reviews": sorted(reviews), "model": model}}
 
     def scorecard(self) -> dict[str, Any]:
         rows = self._analysis_rows(
@@ -1570,7 +1732,7 @@ class SpotCoTrader:
                     bucket = "reversal_risk_high" if risk >= 0.75 else "reversal_risk_low" if risk <= 0.25 else "reversal_risk_mid"
                     latest[("jev", "reversal", row["coin"], row["ref_close_ts"])] = {**row, "stance": bucket}
             else:
-                latest[("luna", "stance", row["coin"], row["ref_close_ts"])] = row
+                latest[(row["source"], "stance", row["coin"], row["ref_close_ts"])] = row
         by_coin: dict[str, dict[int, dict[str, Any]]] = {}
         samples = []
         for sample in latest.values():
@@ -1589,7 +1751,7 @@ class SpotCoTrader:
             samples.append(item)
         table = scorecard_rows(samples)
         spreads = []
-        for source in ("jev", "luna"):
+        for source in ("jev", "luna", "claude"):
             agree = next(row for row in table if row["source"] == source and row["stance"] == "agree")
             disagree = next(row for row in table if row["source"] == source and row["stance"] == "disagree")
             spreads.append({"source": source, **{
@@ -1681,7 +1843,7 @@ class SpotCoTrader:
                     "exit_below": _r(trend, 10) if ladder_state != "OUT" else None,
                 },
             }
-        last_luna = self._latest_ok(base, "luna")
+        last_luna = self._latest_narration(base)
         event = facts["event"]
         return {
             "symbol": f"{base}_USDT",
@@ -1786,6 +1948,7 @@ class SpotCoTrader:
             "periods": periods,
             "equity": facts["backtest"]["equity"],
             "analyses": [self.analysis_view(row) for row in analyses],
+            "narrator": self.narrator(),
             "journal": self.journal(base),
             "trend_line_series": [[row["close_ts"], _r(row["trend_line_next"], 10)] for row in span
                                   if row["trend_line_next"] is not None],
@@ -1819,7 +1982,7 @@ class SpotCoTrader:
         if not isinstance(note, str) or len(note) > 500:
             raise PaperTradingError("note must be text of at most 500 characters")
         facts = self._coin_facts(base, self.now())
-        last_luna = self._latest_ok(base, "luna")
+        last_luna = self._latest_narration(base)
         entry_id = f"j-{uuid.uuid4().hex[:12]}"
         with self.store.transaction() as db:
             db.execute(

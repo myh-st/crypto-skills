@@ -278,6 +278,35 @@
         },
         "pricing_is_fallback": {
           "type": "boolean"
+        },
+        "narrator": {
+          "type": "string",
+          "enum": [
+            "luna",
+            "claude_routine"
+          ]
+        },
+        "routine": {
+          "type": "object",
+          "required": [
+            "last_published_at",
+            "model"
+          ],
+          "properties": {
+            "last_published_at": {
+              "type": [
+                "string",
+                "null"
+              ]
+            },
+            "model": {
+              "type": [
+                "string",
+                "null"
+              ]
+            }
+          },
+          "additionalProperties": false
         }
       },
       "additionalProperties": false
@@ -391,7 +420,8 @@
             "state_change",
             "daily",
             "manual",
-            "jev_disagree"
+            "jev_disagree",
+            "routine"
           ]
         },
         "stance": {
@@ -1109,7 +1139,8 @@
           "type": "string",
           "enum": [
             "jev",
-            "luna"
+            "luna",
+            "claude"
           ]
         },
         "as_of": {
@@ -1122,7 +1153,8 @@
             "state_change",
             "daily",
             "manual",
-            "jev_disagree"
+            "jev_disagree",
+            "routine"
           ]
         },
         "state": {
@@ -2104,6 +2136,13 @@
             },
             "additionalProperties": false
           }
+        },
+        "narrator": {
+          "type": "string",
+          "enum": [
+            "luna",
+            "claude_routine"
+          ]
         }
       },
       "additionalProperties": false
@@ -2156,7 +2195,8 @@
                 "type": "string",
                 "enum": [
                   "jev",
-                  "luna"
+                  "luna",
+                  "claude"
                 ]
               },
               "stance": {
@@ -2224,7 +2264,8 @@
                 "type": "string",
                 "enum": [
                   "jev",
-                  "luna"
+                  "luna",
+                  "claude"
                 ]
               },
               "agree_minus_disagree_7d": {

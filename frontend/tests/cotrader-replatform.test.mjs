@@ -95,25 +95,46 @@ test("watchlist helpers normalise symbols, render rows safely and explain warnin
 });
 
 // ---------------------------------------------------------------- MYH layout: coin list + icons
-import { nextLevel, renderCoinTable, sortCoins } from "../modules/components/cotraderTable.js";
+import { nextLevel, renderCoinTable, sortCoins, verdictOf, verdictPill } from "../modules/components/cotraderTable.js";
 import { ICON_NAMES, icon } from "../modules/components/icons.js";
 
-test("coin list: fresh actions first, next level is the nearest change, rows are links and escaped", () => {
+test("coin list: exits then buys first, next level is the nearest change, rows are links and escaped", () => {
   const coins = [
     coin("OUTC", "OUT", "HOLD", { price: 10, add: 11 }),
     coin("FULLC", "FULL", "HOLD", { price: 100, trim: 90, exit: 70 }),
     coin("NEWC", "STARTER", "BUY_STARTER", { fresh: true, price: 5, add: 5.5, exit: 4 }),
+    coin("EXITC", "OUT", "SELL_ALL", { fresh: true, price: 3 }),
   ];
-  assert.deepEqual(sortCoins(coins).map((c) => c.base), ["NEWC", "FULLC", "OUTC"]);
+  assert.deepEqual(sortCoins(coins).map((c) => c.base), ["EXITC", "NEWC", "FULLC", "OUTC"]);
   assert.deepEqual(nextLevel(coins[1]).kind, "trim");
   assert.equal(nextLevel(coins[0]).kind, "add");
   assert.ok(Math.abs(nextLevel(coins[2]).move - 0.1) < 1e-9); // add at +10% is nearer than exit at -20%
   const html = renderCoinTable(coins);
-  assert.match(html, /href="#\/cotrader\/NEWC"[^]*Today: BUY STARTER/);
+  assert.match(html, /href="#\/cotrader\/NEWC"[^]*cot-verdict--buy[^]*เริ่มซื้อ/);
+  assert.match(html, /href="#\/cotrader\/EXITC"[^]*cot-verdict--sell[^]*ขายออก/);
   assert.match(html, /Trim below[^]*90\.00/);
   assert.match(html, /No Jev score yet/);
   assert.doesNotMatch(renderCoinTable([coin(HOSTILE, "FULL")]), /<img/);
   assert.match(renderCoinTable([]), /No coins yet/);
+});
+
+test("verdict: plain Thai buy / add / trim / sell / hold / wait, with a near-level warning", () => {
+  const v = (c) => verdictOf(c);
+  assert.equal(v(coin("A", "FULL", "ADD", { fresh: true })).th, "ซื้อเพิ่ม");
+  assert.equal(v(coin("A", "STARTER", "TRIM", { fresh: true })).th, "ลดครึ่ง");
+  assert.equal(v(coin("A", "OUT", "SELL_ALL", { fresh: true })).th, "ขายออก");
+  assert.equal(v(coin("A", "STARTER", "BUY_STARTER", { fresh: true })).th, "เริ่มซื้อ");
+  const hold = v(coin("A", "FULL", "HOLD", { price: 100, trim: 80 }));
+  assert.equal(hold.th, "ถือต่อ");
+  assert.equal(hold.near, false);
+  const nearTrim = v(coin("A", "FULL", "HOLD", { price: 100, trim: 98 }));
+  assert.equal(nearTrim.near, true);
+  assert.match(nearTrim.detail, /ใกล้จุดลด \(-2\.0%\)/);
+  const wait = v({ ...coin("A", "OUT"), trend_line_next: 10.2, price: 10 });
+  assert.equal(wait.th, "รอก่อน");
+  assert.match(wait.detail, /ใกล้สัญญาณซื้อ/);
+  assert.equal(verdictOf({ base: "X" }), null);
+  assert.match(verdictPill(hold), /cot-verdict--hold[^>]*lang="th"><span aria-hidden="true">■<\/span> ถือต่อ/);
 });
 
 test("icons are one SVG family, decorative unless labelled", () => {
@@ -127,19 +148,21 @@ import { filterCoins, normaliseView, renderCoinFilters } from "../modules/compon
 import { hashQuery } from "../modules/router.js";
 import { renderJournalList, renderTradesTable } from "../modules/views/cotrader.js";
 
-test("coin filters: counts, active chip in the URL, clear link and an empty state", () => {
-  const coins = [coin("A", "FULL"), coin("B", "STARTER"), coin("C", "OUT"), coin("D", "FULL", "ADD", { fresh: true })];
-  assert.deepEqual(filterCoins(coins, "in").map((c) => c.base), ["A", "B", "D"]);
-  assert.deepEqual(filterCoins(coins, "actions").map((c) => c.base), ["D"]);
+test("coin filters: Thai verdict groups with counts, active chip in the URL, clear link and an empty state", () => {
+  const coins = [coin("A", "FULL"), coin("B", "STARTER"), coin("C", "OUT"), coin("D", "FULL", "ADD", { fresh: true }), coin("E", "STARTER", "TRIM", { fresh: true })];
+  assert.deepEqual(filterCoins(coins, "hold").map((c) => c.base), ["A", "B"]);
+  assert.deepEqual(filterCoins(coins, "buy").map((c) => c.base), ["D"]);
+  assert.deepEqual(filterCoins(coins, "sell").map((c) => c.base), ["E"]);
+  assert.deepEqual(filterCoins(coins, "wait").map((c) => c.base), ["C"]);
   assert.equal(normaliseView("bogus"), "all");
-  const chips = renderCoinFilters(coins, "full");
-  assert.match(chips, /href="#\/cotrader\?view=full" aria-current="true">Full <span class="cot-chip-n">2</);
-  assert.match(chips, /href="#\/cotrader">All <span class="cot-chip-n">4</);
-  const table = renderCoinTable(coins, { view: "out" });
-  assert.match(table, /Showing 1 of 4 coins · Cash <a href="#\/cotrader">Clear filter<\/a>/);
+  const chips = renderCoinFilters(coins, "buy");
+  assert.match(chips, /class="cot-chip cot-chip--buy is-active" href="#\/cotrader\?view=buy" lang="th" aria-current="true">ซื้อ \/ ซื้อเพิ่ม <span class="cot-chip-n">1</);
+  assert.match(chips, /href="#\/cotrader" lang="th">ทั้งหมด <span class="cot-chip-n">5</);
+  const table = renderCoinTable(coins, { view: "wait" });
+  assert.match(table, /แสดง 1 จาก 5 เหรียญ · รอก่อน <a href="#\/cotrader">ล้างตัวกรอง<\/a>/);
   assert.doesNotMatch(table, /data-cot-coin="A"/);
-  assert.match(renderCoinTable([coin("A", "FULL")], { view: "out" }), /No coins match “Cash” right now/);
-  assert.equal(hashQuery("#/cotrader?view=in").get("view"), "in");
+  assert.match(renderCoinTable([coin("A", "FULL")], { view: "sell" }), /ตอนนี้ไม่มีเหรียญในกลุ่ม “ลด \/ ขายออก”/);
+  assert.equal(hashQuery("#/cotrader?view=hold").get("view"), "hold");
   assert.equal(hashQuery("#/cotrader").get("view"), null);
 });
 

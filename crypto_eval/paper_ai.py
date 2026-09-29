@@ -1425,6 +1425,40 @@ def spot_briefing_response_schema(coins: list[str]) -> dict[str, Any]:
     }
 
 
+def spot_review_instructions() -> str:
+    """Per-coin review instructions, shared by Luna and the Claude co-trader routine."""
+
+    return (
+        "You are a research-only crypto spot analyst helping a non-expert who places spot trades "
+        "manually. Apply the crypto-market-trading-analysis discipline supplied below. A deterministic "
+        "daily trend rule already decided the coin's state; you never change it. Say whether you agree "
+        "with the rule's current state (agree, caution or disagree), with low, medium or high "
+        "conviction, which is NOT a calibrated probability. Use only the supplied closed daily candles "
+        "and statistics: never use later data, browse, call tools, or request or reveal credentials. "
+        "Separate observed facts from interpretation and give both bull and bear points. "
+        + _THAI_STYLE
+        + f"summary_th must be at most {SPOT_REVIEW_SUMMARY_MAX} characters. This is decision support, "
+        "not investment advice: never size a position. Return the required JSON only."
+    )
+
+
+def spot_briefing_instructions() -> str:
+    """Daily market briefing instructions, shared by Luna and the Claude co-trader routine."""
+
+    return (
+        "You are a research-only crypto spot analyst writing a short daily market briefing for a "
+        "non-expert who places spot trades manually. Apply the crypto-market-trading-analysis "
+        "discipline supplied below. A deterministic daily trend rule already decided each coin's state "
+        "and Jev supplied structured scores; ground the briefing in them and never change a rule state. "
+        "Use only the supplied closed daily data: never use later data, browse, call tools, or request "
+        "or reveal credentials. Classify the market as risk_on, mixed or risk_off. "
+        + _THAI_STYLE
+        + f"summary_th must be at most {SPOT_BRIEFING_SUMMARY_MAX} characters; at most 5 highlights, "
+        "each a coin from the supplied list with a one-sentence Thai note. This is decision support, "
+        "not investment advice. Return the required JSON only."
+    )
+
+
 def load_spot_skill_context(root: Path | None = None) -> str:
     """A compact extract of the crypto-market-trading-analysis skill for daily spot reviews.
 
@@ -1862,18 +1896,7 @@ class ResponsesAdapter:
 
     def spot_review_payload(self, context: dict[str, Any]) -> tuple[dict[str, Any], str, dict[str, Any]]:
         user_input = build_spot_review_input(context)
-        instructions = (
-            "You are a research-only crypto spot analyst helping a non-expert who places spot trades "
-            "manually. Apply the crypto-market-trading-analysis discipline supplied below. A deterministic "
-            "daily trend rule already decided the coin's state; you never change it. Say whether you agree "
-            "with the rule's current state (agree, caution or disagree), with low, medium or high "
-            "conviction, which is NOT a calibrated probability. Use only the supplied closed daily candles "
-            "and statistics: never use later data, browse, call tools, or request or reveal credentials. "
-            "Separate observed facts from interpretation and give both bull and bear points. "
-            + _THAI_STYLE
-            + f"summary_th must be at most {SPOT_REVIEW_SUMMARY_MAX} characters. This is decision support, "
-            "not investment advice: never size a position. Return the required JSON only."
-        )
+        instructions = spot_review_instructions()
         prompt = self._spot_prompt(
             instructions, user_input, "spot_cotrader_review", SPOT_REVIEW_RESPONSE_SCHEMA, "spot review call"
         )
@@ -1896,18 +1919,7 @@ class ResponsesAdapter:
     def spot_briefing_payload(self, context: dict[str, Any]) -> tuple[dict[str, Any], str, dict[str, Any]]:
         user_input = build_spot_briefing_input(context)
         coins = [coin["coin"] for coin in user_input["coins"]]
-        instructions = (
-            "You are a research-only crypto spot analyst writing a short daily market briefing for a "
-            "non-expert who places spot trades manually. Apply the crypto-market-trading-analysis "
-            "discipline supplied below. A deterministic daily trend rule already decided each coin's state "
-            "and Jev supplied structured scores; ground the briefing in them and never change a rule state. "
-            "Use only the supplied closed daily data: never use later data, browse, call tools, or request "
-            "or reveal credentials. Classify the market as risk_on, mixed or risk_off. "
-            + _THAI_STYLE
-            + f"summary_th must be at most {SPOT_BRIEFING_SUMMARY_MAX} characters; at most 5 highlights, "
-            "each a coin from the supplied list with a one-sentence Thai note. This is decision support, "
-            "not investment advice. Return the required JSON only."
-        )
+        instructions = spot_briefing_instructions()
         prompt = self._spot_prompt(
             instructions, user_input, "spot_cotrader_briefing", spot_briefing_response_schema(coins),
             "spot briefing call",

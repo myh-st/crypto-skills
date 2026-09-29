@@ -3376,3 +3376,27 @@ a, button, summary, [role="button"], .cot-row, .cot-chip, .cot-regime-link { cur
 @media (max-width: 480px) {
   body { font-size: 15px; }
 }
+.cot-source--claude { background: var(--color-caution-bg); color: var(--color-caution-text); }
+
+/* Verdict: what to do now, in plain Thai, readable at a glance (colour + icon + word) */
+.cot-verdict { display: inline-flex; align-items: center; gap: 6px; padding: 4px 12px; border-radius: 999px; font-weight: 700;
+  font-size: 14px; line-height: 1.3; border: 1px solid transparent; white-space: nowrap; }
+.cot-verdict--lg { font-size: 18px; padding: 8px 16px; }
+.cot-verdict--buy { background: var(--color-positive-text); color: #fff; }
+.cot-verdict--trim { background: var(--color-caution-bg); color: var(--color-caution-text); border-color: var(--color-caution-border); }
+.cot-verdict--sell { background: var(--color-negative-text); color: #fff; }
+.cot-verdict--hold { background: var(--color-accent-bg); color: var(--color-accent-dark); border-color: var(--color-accent-border); }
+.cot-verdict--wait { background: var(--color-neutral-bg); color: var(--color-text-muted); border-color: var(--color-border); }
+:root[data-theme="dark"] .cot-verdict--buy, :root[data-theme="dark"] .cot-verdict--sell { color: #0b1120; }
+.cot-near { color: var(--color-caution-text); font-weight: 600; }
+.cot-row--act.cot-row--buy { box-shadow: inset 4px 0 0 var(--color-positive-text); background: color-mix(in srgb, var(--color-positive-bg) 60%, transparent); }
+.cot-row--act.cot-row--sell { box-shadow: inset 4px 0 0 var(--color-negative-text); background: color-mix(in srgb, var(--color-negative-bg) 60%, transparent); }
+.cot-row--act.cot-row--trim { box-shadow: inset 4px 0 0 var(--color-caution-text); background: color-mix(in srgb, var(--color-caution-bg) 60%, transparent); }
+.cot-chip--buy { border-color: color-mix(in srgb, var(--color-positive-text) 45%, transparent); }
+.cot-chip--sell { border-color: color-mix(in srgb, var(--color-negative-text) 45%, transparent); }
+.cot-chip--buy .cot-chip-n { background: var(--color-positive-text); color: #fff; }
+.cot-chip--sell .cot-chip-n { background: var(--color-negative-text); color: #fff; }
+.cot-chip--near .cot-chip-n { background: var(--color-caution-bg); color: var(--color-caution-text); }
+.cot-detail-action { display: flex; flex-direction: column; align-items: flex-end; gap: 4px; }
+@media (max-width: 900px) { .cot-detail-action { align-items: flex-start; } }
+.cot-source--claude { background: var(--color-caution-bg); color: var(--color-caution-text); }
