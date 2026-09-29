@@ -44,7 +44,14 @@ After the phases below, development shifts to evidence gathering, PAPER operatio
 | 5 | `feature/experiment-promotion-gates` | MERGED (PR #7, `dfa18fc`) | `docs/experiment-promotion-gates.md`, `docs/paper-500-campaign-runbook.md`; 303 Python / 76 frontend tests; gate rehearsal of every status; browser QA; real-provider manifest + checkpoint acceptance PASS |
 | 6 | `feature/live-execution-gateway` | PLANNING_ONLY_LIVE_DISABLED | — |
 
-**Program state (2026-09-29): FEATURE DEVELOPMENT FROZEN — PAPER CAMPAIGN NEXT.** Phases 1–5
+**Priority change (2026-09-29): DAY-TRADE FUTURES IS FIRST PRIORITY.** The user moved the main
+focus to a PAPER futures day-trading engine that aims for net profit each day and can be judged
+in 2–3 weeks rather than 90 days. The goal, its stages and pass criteria are in
+`.goals/day-trade-futures/goal.md`. The campaign below continues in the background: EXP-001 and
+EXP-002 are running, and EXP-003 will be the day-trading experiment. Live execution stays
+disabled.
+
+**Previous program state (2026-09-29): FEATURE DEVELOPMENT FROZEN — PAPER CAMPAIGN NEXT.** Phases 1–5
 are merged. The next activity is the PAPER 500 USDT campaign in
 `docs/paper-500-campaign-runbook.md`. **LIVE EXECUTION NOT IMPLEMENTED / STILL DISABLED:**
 phase 6 stays `PLANNING_ONLY_LIVE_DISABLED` until a completed campaign passes the promotion gate

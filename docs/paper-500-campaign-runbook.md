@@ -171,6 +171,21 @@ as for EXP-001.
 - Backup: `python3 -m crypto_eval paper-backup --database ~/paper-exp002.sqlite3`
 - Checkpoint: `python3 -m crypto_eval paper-checkpoint --database ~/paper-exp002.sqlite3 --out reports/paper-500/exp002-<checkpoint>.json`
 
+## Automated checks
+
+Scheduled tasks in the Claude app (Scheduled sidebar) watch the running experiments. They run only
+while the app is open; a missed run fires on the next launch.
+
+- **`paper-campaign-health`:** runs at 09:00 and 21:00 Bangkok time. It runs
+  `python3 scripts/paper_campaign_status.py`, which is read-only and exits 0 for OK, 1 for WARN
+  and 2 for FAIL. It restarts a crashed launchd agent once. On 2026-10-06, 10-29, 11-28 and
+  12-28 it also writes the checkpoints for both experiments.
+- **`paper-campaign-weekly`:** runs on Fridays at 10:00. It posts a plain-language weekly
+  summary of all experiments.
+
+Run the same check by hand at any time: `python3 scripts/paper_campaign_status.py`. Add `--json`
+for machine-readable output.
+
 ## What does not happen during the campaign
 
 - No new feature branches beyond defect fixes (stop condition).

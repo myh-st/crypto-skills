@@ -80,12 +80,23 @@ The implementation baseline is `main` after Phase 5 (Experiment Promotion Gates,
 - continuous resilience (`docs/continuous-paper-resilience.md`);
 - experiment manifests, checkpoints and the promotion gate (`docs/experiment-promotion-gates.md`).
 
-**FEATURE DEVELOPMENT FROZEN — PAPER CAMPAIGN NEXT.** The canonical active activity is the PAPER 500 USDT campaign:
+**FIRST PRIORITY (set 2026-09-29): DAY-TRADE FUTURES.** The canonical active goal is:
 
-- `docs/paper-500-campaign-runbook.md`
-- `docs/development-train.md` (phase status, stop condition, live capital gate)
+- `.goals/day-trade-futures/goal.md`
+- `.goals/day-trade-futures/status.json`
 
-During the campaign, only correctness, safety, reliability, observability, experiment-methodology, or evidence-backed strategy defects are in scope. Do not start new feature branches. `feature/live-execution-gateway` stays `PLANNING_ONLY_LIVE_DISABLED`: do not implement it; a gate PASS never enables real execution.
+The goal is a PAPER futures day-trading engine that makes a net profit per day after fees,
+slippage and funding. Every position closes within 24h, and it trades long and short on BTC, ETH,
+NEAR, SEI, SUI, AVAX and ENA. It advances through gated stages: research → engine → runtime replay
+→ a short forward PAPER test (EXP-003, ≥14 days and ≥150 trades) → review. Day trading is the way
+the forward test shrinks from 90 days to 2–3 weeks.
+
+EXP-001 (15m breakout + AI, `:8765`) and EXP-002 (trend sleeves, `:8768`) keep running untouched
+as background evidence. Their operations are in `docs/paper-500-campaign-runbook.md`. Scheduled
+tasks check them twice a day with `scripts/paper_campaign_status.py`.
+
+`feature/live-execution-gateway` stays `PLANNING_ONLY_LIVE_DISABLED`: do not implement it. A gate
+PASS never enables real execution.
 
 CI and unit tests remain offline and fake-only. Real Gate money-moving writes remain blocked by design.
 
