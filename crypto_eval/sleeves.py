@@ -43,6 +43,11 @@ DEFAULT_SLEEVES: dict[str, Any] = {
     # Without it the best sleeve slowly owns the book and the diversification that gives the blend
     # its edge fades (4-year replay: Sharpe 1.17 never rebalanced vs 1.32 monthly).
     "capital_rebalance": "monthly",
+    # Scale a momentum sleeve's whole book to what its isolated margin can fund (see effective_gross_cap).
+    # Off by default: at 1x risk the book almost always fits, and the 4-year replay was better without it
+    # (Sharpe 1.44 vs 1.29). At 2x risk it stops the RiskEngine from squeezing whichever legs go last
+    # (98 -> 8 margin rejections, no one-sided long/short books; Sharpe 1.28 -> 1.33).
+    "margin_scaling": False,
 }
 
 
@@ -78,6 +83,8 @@ def validate_sleeves(value: Any) -> dict[str, Any]:
     for name, item, low, high in checks:
         if isinstance(item, bool) or not isinstance(item, (int, float)) or not math.isfinite(float(item)) or not low <= float(item) <= high:
             raise PaperTradingError(f"sleeves.{name} must be between {low} and {high}")
+    if not isinstance(merged["margin_scaling"], bool):
+        raise PaperTradingError("sleeves.margin_scaling must be boolean")
     if merged["capital_rebalance"] not in {"monthly", "off"}:
         raise PaperTradingError("sleeves.capital_rebalance must be monthly or off")
     if 2 * int(merged["xsmom"]["k"]) > len(universe):
@@ -234,6 +241,21 @@ CREATE TABLE IF NOT EXISTS sleeve_trails(
     updated_at TEXT NOT NULL
 );
 """
+
+
+MARGIN_USE = 0.99  # scale only when the book cannot be funded at all (1% left for fees)
+
+
+def effective_gross_cap(sleeves: dict[str, Any], sleeve: str) -> float:
+    """Gross exposure (sum of |weight|, as a multiple of the sleeve's equity) the sleeve can actually carry.
+
+    Isolated margin needs notional / leverage per position, so gross above leverage x equity cannot be
+    funded. If the target book were larger, the RiskEngine would shrink whichever legs happen to go last,
+    which can leave a long/short sleeve one-sided. Capping here scales every leg evenly instead."""
+
+    if not sleeves.get("margin_scaling"):
+        return float(sleeves["gross_cap"])
+    return min(float(sleeves["gross_cap"]), MARGIN_USE * int(sleeves[sleeve]["leverage"]))
 
 
 def capital_cohorts(config: dict[str, Any]) -> list[str]:
@@ -627,7 +649,7 @@ class SleeveEngine:
             for sleeve, fn in (("tsmom", tsmom_weights), ("xsmom", xsmom_weights)):
                 if not sleeves[sleeve]["enabled"] or not due[sleeve]:
                     continue
-                targets = fn(closes, day, sleeves[sleeve], float(sleeves["gross_cap"]))
+                targets = fn(closes, day, sleeves[sleeve], effective_gross_cap(sleeves, sleeve))
                 if not entries_allowed:
                     # Halted/paused: only reductions (flatten to what is already held, never add).
                     targets = {}
