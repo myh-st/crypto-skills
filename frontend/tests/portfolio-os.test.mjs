@@ -606,4 +606,8 @@ test("positions name the owning sleeve so a long and a short on one coin read cl
   assert.match(html, />TS</);
   assert.match(html, />XS</);
   assert.equal(sleeveTag("primary"), "");
+  assert.match(html, /Engine managed/);                       // sleeve positions are never labelled "AI managed"
+  assert.doesNotMatch(html, /AI managed/);
+  const breakout = renderUnifiedPositions([{ ...base, side: "long", cohort: "primary" }]);
+  assert.doesNotMatch(breakout, /Engine managed/);
 });

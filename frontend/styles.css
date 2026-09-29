@@ -2780,3 +2780,4 @@ body.drawer-open { overflow: hidden; }
 .gate-pass .gate-mark { background: var(--color-positive-bg); color: var(--color-positive-text); }
 .gate-fail .gate-mark { background: var(--color-negative-bg); color: var(--color-negative-text); }
 .gate-unknown .gate-mark { background: var(--color-neutral-bg); color: var(--color-neutral-text); }
+.mode-badge--engine { background: var(--color-neutral-bg); color: var(--color-neutral-text); }
