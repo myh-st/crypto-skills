@@ -120,9 +120,25 @@ Real-money execution stays disabled; this engine only writes PAPER orders and fi
   "catastrophe_stop_vol_mult": 3.0,
   "catastrophe_stop_max_pct": 0.4,
   "history_bars": 450,
-  "capital_rebalance": "monthly"
+  "capital_rebalance": "monthly",
+  "margin_scaling": false
 }
 ```
+
+`margin_scaling` is opt-in and off by default.
+- **What it does:** it scales a momentum sleeve's whole book to what its isolated margin can fund, so the RiskEngine never squeezes whichever legs happen to go last. Squeezing those legs could leave a long/short sleeve one-sided. The fundable gross is `0.99 / ((1 + slippage) x (1 / leverage + taker fee))`, taken from the experiment's own cost settings.
+- **Measured on the 4-year runtime replay:**
+  - At 1x risk (EXP-002) it made results worse (Sharpe 1.44 without it, 1.29 with it), so it stays off there.
+  - At 2x risk (EXP-002x, `margin_scaling: true`) it cut margin rejections from 98 to 8, and Sharpe rose from 1.28 to 1.33 (+64.5% to +67.9%/yr).
+
+Known limitation: `_rebalance` opens and closes legs in universe order within one pass. In theory, a
+newly selected early symbol can be sized while a deselected later symbol still holds margin. A
+two-pass variant (all closes first, then opens) fixed that in a synthetic test but made both
+replays worse:
+- 1x: Sharpe 1.44 to 1.36;
+- 2x: Sharpe 1.28 to 1.18, with more margin rejections.
+
+So it was not adopted. The cause is still open for research.
 
 The per-sleeve `risk` and `vol_target` values scale each sleeve to about 2.1% daily volatility,
 so the blend lands near 1.2–1.4% per day. `validate_sleeves` rejects unknown fields and

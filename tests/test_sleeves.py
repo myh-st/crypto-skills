@@ -82,12 +82,16 @@ class SignalTests(unittest.TestCase):
         with self.assertRaises(PaperTradingError):
             validate_sleeves({"margin_scaling": "yes"})
         sleeves = validate_sleeves({"xsmom": {"vol_target": 0.057}, "margin_scaling": True})    # the 2x experiment
-        self.assertAlmostEqual(effective_gross_cap(sleeves, "xsmom"), 1.98)   # 0.99 x leverage 2
+        default_costs = {"taker_fee_rate": 0.0005, "slippage_bps": 2.0}
+        self.assertAlmostEqual(effective_gross_cap(sleeves, "xsmom", default_costs), 0.99 / (1.0002 * (0.5 + 0.0005)))   # ~1.978
+        # extreme but valid cost settings shrink the fundable book instead of leaving later legs unfunded
+        harsh = {"taker_fee_rate": 0.02, "slippage_bps": 500.0}
+        self.assertAlmostEqual(effective_gross_cap(sleeves, "xsmom", harsh), 0.99 / (1.05 * (0.5 + 0.02)))                 # ~1.813
         self.assertAlmostEqual(effective_gross_cap(validate_sleeves({"xsmom": {"leverage": 5}, "margin_scaling": True}), "xsmom"), 3.0)
         days = list(range(100))
         closes = {f"S{i}USDT": {d: 100 * (1 + 0.002 * (i - 3)) ** d * (1 + 0.01 * math.sin(d + i)) for d in days} for i in range(7)}
         w = xsmom_weights(closes, 99, sleeves["xsmom"], effective_gross_cap(sleeves, "xsmom"))
-        self.assertLessEqual(sum(abs(v) for v in w.values()), 1.98 + 1e-9)
+        self.assertLessEqual(sum(abs(v) for v in w.values()), 1.98 + 1e-9)   # default costs
         longs, shorts = [v for v in w.values() if v > 0], [v for v in w.values() if v < 0]
         self.assertEqual((len(longs), len(shorts)), (2, 2))                  # scaled evenly, never one-sided
 
