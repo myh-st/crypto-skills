@@ -499,3 +499,32 @@ class SleevesEngineLookaheadTests(unittest.TestCase):
 
 if __name__ == "__main__":
     unittest.main()
+
+
+class ReplanFeatureWarmupTests(unittest.TestCase):
+    """The re-plan path computes features with the same stored history window as the 15m cycle."""
+
+    def test_replan_features_use_the_stored_history_window(self):
+        import tempfile
+        from pathlib import Path
+        from unittest import mock
+
+        from crypto_eval.paper_market import FixtureFuturesMarketDataProvider
+        from crypto_eval.paper_runtime import PaperRuntime, PaperStore
+
+        store = PaperStore(Path(tempfile.mkdtemp()) / "r.sqlite3")
+        self.addCleanup(store.close)
+        runtime = PaperRuntime(store, market_provider=FixtureFuturesMarketDataProvider())
+        marker = {"15m": [], "1h": [], "4h": []}
+        seen = {}
+        real = __import__("crypto_eval.paper_runtime", fromlist=["compute_features"]).compute_features
+
+        def spy(snapshot, **kwargs):
+            seen.update(kwargs)
+            return real(snapshot, **kwargs)
+
+        with mock.patch.object(runtime, "_feature_history", return_value=marker) as history, \
+             mock.patch("crypto_eval.paper_runtime.compute_features", side_effect=spy):
+            runtime.portfolio._features_for("perp", {"symbol": store.experiment()["config"]["symbols"][0]})
+        history.assert_called_once()
+        self.assertIs(seen.get("historical_bars"), marker)

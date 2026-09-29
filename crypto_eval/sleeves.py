@@ -76,6 +76,13 @@ def validate_sleeves(value: Any) -> dict[str, Any]:
     for name, item, low, high in checks:
         if isinstance(item, bool) or not isinstance(item, (int, float)) or not math.isfinite(float(item)) or not low <= float(item) <= high:
             raise PaperTradingError(f"sleeves.{name} must be between {low} and {high}")
+    days_covered = int(merged["history_bars"]) * 4 // 24
+    for key in ("tsmom", "xsmom"):
+        if merged[key]["enabled"]:
+            needed = max(int(merged[key]["look_days"]), int(merged[key]["vol_days"])) + 2
+            if days_covered < needed:
+                raise PaperTradingError(f"sleeves.history_bars ({merged['history_bars']} x 4h = {days_covered} days) must cover "
+                                        f"{key} look_days/vol_days + 2 = {needed} days")
     if merged["capital_rebalance"] not in {"monthly", "off"}:
         raise PaperTradingError("sleeves.capital_rebalance must be monthly or off")
     if 2 * int(merged["xsmom"]["k"]) > len(universe):

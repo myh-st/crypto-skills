@@ -82,7 +82,8 @@ class SignalTests(unittest.TestCase):
     def test_config_validation(self):
         self.assertEqual(validate_sleeves({})["universe"], DEFAULT_SLEEVES["universe"])
         for bad in ({"universe": ["BTCUSDT"]}, {"donchian": {"risk": 0.5}}, {"xsmom": {"k": 5}}, {"nope": 1}, {"leverage": 3},
-                    {"tsmom": {"leverage": 9}}, {"donchian": {"nope": 1}}):
+                    {"tsmom": {"leverage": 9}}, {"donchian": {"nope": 1}},
+                    {"history_bars": 200}):   # 200 x 4h = 33 days cannot cover a 60-day lookback
             with self.assertRaises(PaperTradingError):
                 validate_sleeves(bad)
         config = validate_experiment_config({**default_experiment_config(), "strategy_engine": "sleeves_v1"})
