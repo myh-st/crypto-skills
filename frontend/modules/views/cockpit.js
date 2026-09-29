@@ -33,10 +33,11 @@ function markVisit(timestamp) {
 }
 
 export function nextScanAt(experiment, now = new Date()) {
-  const delay = Number(experiment?.config?.schedule_delay_seconds ?? 60);
-  const slot = 15 * 60 * 1000;
-  const next = Math.floor(now.getTime() / slot) * slot + slot + delay * 1000;
-  return new Date(next).toISOString();
+  // The trend-sleeves engine decides on 4h closes; the breakout engine on 15m closes.
+  const delay = Number(experiment?.config?.schedule_delay_seconds ?? 60) * 1000;
+  const slot = (experiment?.config?.strategy_engine === "sleeves_v1" ? 4 * 60 : 15) * 60 * 1000;
+  const boundary = Math.floor(now.getTime() / slot) * slot;
+  return new Date(now.getTime() < boundary + delay ? boundary + delay : boundary + slot + delay).toISOString();
 }
 
 export function renderAutomation(experiment, automation) {

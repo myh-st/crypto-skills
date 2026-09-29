@@ -4,6 +4,8 @@
 
 export const PRIMARY_NAV = [
   { route: "overview", label: "Overview", icon: "◧" },
+  { route: "today", label: "Today", icon: "☀" },
+  { route: "experiments", label: "Experiments", icon: "⚗" },
   { route: "portfolio", label: "Portfolio", icon: "◔" },
   { route: "trade", label: "Trade", icon: "⇅" },
   { route: "activity", label: "Activity", icon: "≡" },
@@ -13,6 +15,7 @@ export const PRIMARY_NAV = [
 ];
 
 export const RESEARCH_NAV = [
+  { route: "strategy-search", label: "Strategy Search", icon: "⌖" },
   { route: "new-analysis", label: "New Analysis", icon: "＋" },
   { route: "runs", label: "Runs", icon: "▤" },
   { route: "decisions", label: "Decisions", icon: "✓" },

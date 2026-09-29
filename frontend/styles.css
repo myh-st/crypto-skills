@@ -2618,3 +2618,110 @@ body.drawer-open { overflow: hidden; }
   .demo-topbar { height: auto; min-height: var(--topbar-height); flex-wrap: wrap; line-height: 1.35; padding: 6px 64px 6px 16px; }
   .app-shell { min-height: 100vh; }
 }
+
+/* ---- Day-trading views: Today, Experiments, Strategy Search (charts are inline SVG/CSS) ---- */
+.pos-text { color: var(--color-positive-text); }
+.neg-text { color: var(--color-negative-text); }
+.warn-text { color: var(--color-caution-text); }
+.page-header { gap: 12px; flex-wrap: wrap; }
+.auto-refresh { display: inline-flex; align-items: center; gap: 6px; flex-wrap: wrap; }
+.auto-refresh-dot { width: 8px; height: 8px; border-radius: 50%; background: var(--color-positive-text); opacity: .75; }
+.auto-refresh--busy .auto-refresh-dot { animation: ar-pulse 1s ease-in-out infinite; }
+.auto-refresh--stale .auto-refresh-dot { background: var(--color-caution-text); }
+.auto-refresh--error .auto-refresh-dot { background: var(--color-negative-text); }
+.auto-refresh--error [data-auto-refresh-text] { color: var(--color-negative-text); }
+@keyframes ar-pulse { 50% { opacity: .2; } }
+@media (prefers-reduced-motion: reduce) { .auto-refresh--busy .auto-refresh-dot { animation: none; } }
+
+.today-hero { display: grid; gap: 14px; }
+.today-kpis { display: grid; grid-template-columns: repeat(auto-fit, minmax(150px, 1fr)); gap: 10px; }
+.today-kpi { display: grid; gap: 2px; padding: 10px 12px; border: 1px solid var(--color-border); border-radius: 10px; background: var(--color-surface); }
+.today-kpi--pos { background: var(--color-positive-bg); border-color: transparent; }
+.today-kpi--neg { background: var(--color-negative-bg); border-color: transparent; }
+.today-kpi-label { font-size: 11px; text-transform: uppercase; letter-spacing: .05em; color: var(--color-text-muted); }
+.today-kpi-value { font-size: 22px; font-variant-numeric: tabular-nums; }
+.today-limit { display: grid; gap: 6px; }
+.today-limit-head { display: flex; justify-content: space-between; gap: 8px; flex-wrap: wrap; font-size: 13px; }
+
+.gauge { height: 10px; border-radius: 5px; background: var(--color-neutral-bg); overflow: hidden; }
+.gauge-fill { display: block; height: 100%; border-radius: 5px; background: var(--color-positive-text); transition: width .4s ease; }
+.gauge--warn .gauge-fill { background: var(--color-caution-text); }
+.gauge--stop .gauge-fill { background: var(--color-negative-text); }
+
+.chart { margin: 0; }
+.chart--line svg { width: 100%; height: 160px; display: block; }
+.chart-line { fill: none; stroke-width: 2; }
+.chart--up .chart-line, .chart--up .chart-dot { stroke: var(--color-positive-text); fill: var(--color-positive-text); }
+.chart--up .chart-line { fill: none; }
+.chart--down .chart-line, .chart--down .chart-dot { stroke: var(--color-negative-text); fill: var(--color-negative-text); }
+.chart--down .chart-line { fill: none; }
+.chart--up .chart-area { fill: var(--color-positive-bg); }
+.chart--down .chart-area { fill: var(--color-negative-bg); }
+.chart-baseline { stroke: var(--color-text-muted); stroke-dasharray: 4 4; stroke-width: 1; vector-effect: non-scaling-stroke; opacity: .6; }
+.chart-axis { display: flex; justify-content: space-between; gap: 8px; margin-top: 4px; }
+.chart-empty { padding: 24px 0; text-align: center; }
+
+.cal-grid { display: flex; gap: 3px; overflow-x: auto; padding-bottom: 4px; }
+.cal-week { display: grid; grid-template-rows: repeat(7, 14px); gap: 3px; }
+.cal-cell { display: inline-block; width: 14px; height: 14px; border-radius: 3px; background: var(--color-neutral-bg); }
+.cal-cell--pad { background: transparent; }
+.cal-cell--none { background: var(--color-neutral-bg); opacity: .5; }
+.cal-cell--today { outline: 2px solid var(--color-accent); outline-offset: 1px; }
+.cal-cell--pos.cal-l1 { background: color-mix(in srgb, var(--color-positive-text) 25%, transparent); }
+.cal-cell--pos.cal-l2 { background: color-mix(in srgb, var(--color-positive-text) 45%, transparent); }
+.cal-cell--pos.cal-l3 { background: color-mix(in srgb, var(--color-positive-text) 70%, transparent); }
+.cal-cell--pos.cal-l4 { background: var(--color-positive-text); }
+.cal-cell--neg.cal-l1 { background: color-mix(in srgb, var(--color-negative-text) 25%, transparent); }
+.cal-cell--neg.cal-l2 { background: color-mix(in srgb, var(--color-negative-text) 45%, transparent); }
+.cal-cell--neg.cal-l3 { background: color-mix(in srgb, var(--color-negative-text) 70%, transparent); }
+.cal-cell--neg.cal-l4 { background: var(--color-negative-text); }
+.cal-legend { display: inline-flex; gap: 2px; vertical-align: middle; }
+.cal-legend .cal-cell { width: 10px; height: 10px; }
+
+.bar-list { display: grid; gap: 6px; }
+.bar-row { display: grid; grid-template-columns: minmax(90px, 30%) 1fr minmax(64px, auto); align-items: center; gap: 8px; font-size: 13px; }
+.bar-label { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.bar-track { position: relative; height: 12px; border-radius: 6px; background: var(--color-neutral-bg); }
+.bar-list--signed .bar-track::after { content: ""; position: absolute; left: 50%; top: -2px; bottom: -2px; width: 1px; background: var(--color-text-muted); opacity: .5; }
+.bar-fill { position: absolute; top: 0; bottom: 0; border-radius: 6px; }
+.bar-fill--pos { background: var(--color-positive-text); }
+.bar-fill--neg { background: var(--color-negative-text); }
+.bar-value { text-align: right; font-variant-numeric: tabular-nums; white-space: nowrap; }
+
+.heat-grid { border-collapse: separate; border-spacing: 3px; width: 100%; font-size: 12px; }
+.heat-grid th { font-weight: 600; color: var(--color-text-muted); text-align: left; white-space: nowrap; padding: 4px 6px; }
+.heat-grid td { text-align: center; padding: 8px 6px; border-radius: 6px; white-space: nowrap; font-variant-numeric: tabular-nums; }
+.heat-pos { background: color-mix(in srgb, var(--color-positive-text) calc(var(--a) * 100%), transparent); }
+.heat-neg { background: color-mix(in srgb, var(--color-negative-text) calc(var(--a) * 100%), transparent); }
+.heat-bad { background: var(--color-neutral-bg); color: var(--color-text-muted); text-decoration: line-through; }
+.heat-na { color: var(--color-text-muted); }
+
+.range-bar { position: relative; display: inline-block; width: 160px; max-width: 100%; height: 12px; border-radius: 6px; background: var(--color-neutral-bg); vertical-align: middle; }
+.range-zero { position: absolute; left: 50%; top: -2px; bottom: -2px; width: 1px; background: var(--color-text-muted); }
+.range-span { position: absolute; top: 3px; bottom: 3px; border-radius: 3px; background: color-mix(in srgb, var(--color-accent) 35%, transparent); }
+.range-mid { position: absolute; top: 0; bottom: 0; width: 3px; margin-left: -1px; border-radius: 2px; }
+.range-mid--pos { background: var(--color-positive-text); }
+.range-mid--neg { background: var(--color-negative-text); }
+
+.verdict { border-left: 4px solid var(--color-border); }
+.verdict--pos { border-left-color: var(--color-positive-text); background: var(--color-positive-bg); }
+.verdict--warn { border-left-color: var(--color-caution-text); background: var(--color-caution-bg); }
+.verdict--neg { border-left-color: var(--color-negative-text); background: var(--color-negative-bg); }
+.lab-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(320px, 1fr)); gap: 12px; }
+
+.exp-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(340px, 1fr)); gap: 12px; }
+.exp-card { display: grid; gap: 12px; align-content: start; }
+.exp-card-head { display: flex; justify-content: space-between; align-items: flex-start; gap: 8px; flex-wrap: wrap; }
+.exp-card-head h2 { margin: 0; }
+.exp-pills { display: flex; gap: 6px; align-items: center; flex-wrap: wrap; }
+.exp-numbers { display: grid; grid-template-columns: repeat(2, 1fr); gap: 10px; }
+.exp-numbers > div { display: grid; gap: 2px; }
+.exp-numbers small { font-size: 11px; text-transform: uppercase; letter-spacing: .05em; color: var(--color-text-muted); }
+.exp-numbers strong { font-size: 18px; font-variant-numeric: tabular-nums; }
+.exp-progress { display: grid; gap: 8px; }
+.exp-progress label { display: grid; gap: 4px; }
+@media (max-width: 600px) {
+  .today-kpi-value { font-size: 18px; }
+  .exp-grid, .lab-grid { grid-template-columns: 1fr; }
+  .bar-row { grid-template-columns: minmax(70px, 34%) 1fr auto; }
+}

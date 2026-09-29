@@ -38,6 +38,15 @@ export function createPaperApi(fetcher = globalThis.fetch) {
   }
 
   return Object.freeze({
+    async today() {
+      return (await request("/today")).json();
+    },
+    async experiments() {
+      return (await request("/experiments")).json();
+    },
+    async strategySearch() {
+      return (await request("/strategy-search")).json();
+    },
     async campaign() {
       return (await request("/campaign")).json();
     },

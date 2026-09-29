@@ -36,12 +36,14 @@ export function renderKpiStrip(portfolio) {
       )}
       ${tile("Drawdown", escapeHtml(pct(-(paper.drawdown?.current || 0))), `max ${pct(-(paper.drawdown?.max || 0))}`, { id: "drawdown" })}
       ${tile("Open risk", escapeHtml(usdtPlain(paper.open_risk_usdt)), paper.open_risk_pct === null ? "" : `${pct(paper.open_risk_pct)} of equity at stops`, { id: "risk" })}
-      ${tile(
-        "AI spend today",
-        escapeHtml(aiSpend === null ? "—" : `$${aiSpend.toFixed(4)}`),
-        remaining === null ? "no daily limit" : `$${remaining.toFixed(2)} left${budget.exhausted ? " · EXHAUSTED" : ""}`,
-        { id: "ai" },
-      )}
+      ${budget.ai_in_use === false
+        ? tile("AI", "Not used", "rule-based engine · no paid AI calls", { id: "ai" })
+        : tile(
+          "AI spend today",
+          escapeHtml(aiSpend === null ? "—" : `$${aiSpend.toFixed(4)}`),
+          remaining === null ? "no daily limit" : `$${remaining.toFixed(2)} left${budget.exhausted ? " · EXHAUSTED" : ""}`,
+          { id: "ai" },
+        )}
     </div>`;
 }
 

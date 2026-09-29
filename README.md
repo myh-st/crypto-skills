@@ -32,6 +32,8 @@ That's it. There is nothing to install: Python uses only the standard library an
 
 | | |
 |---|---|
+| **Today (day trading).** Today's P&L and trades, how much of the daily loss limit is used, the intraday equity curve, a calendar of green and red days, the next decision time, and whether AI is used. Auto-refreshes every 15s. **Experiments** shows every running PAPER experiment side by side. | ![Today](docs/images/today.jpg) |
+| **Strategy Search.** The day-trade futures research as charts: a pass/fail verdict from walk-forward testing, the easiest coins, strategy × timeframe, a leverage × risk grid, stress scenarios, Monte Carlo odds, and a Binance-vs-Gate price check. It shows live progress while the search runs. | ![Strategy Search](docs/images/strategy-search.jpg) |
 | **Automation, kill switch, and system health.** Pause or stop automation. Raise the kill switch instantly; lowering it needs confirmation and a passing reconciliation. Health covers the scheduler, monitor, feed, database, storage, AI providers, budget, and reconciliation. | ![Automation and health](docs/images/automation-health.png) |
 | **Trade.** A live Gate chart (1m to 4h) with PAPER entries and exits, quote, spread, and funding. A server-sized ticket (Perp quantity is derived from risk and stop, never typed), plus the current AI plan with one-click re-plan intents. | ![Trade](docs/images/trade.png) |
 | **Position manager.** Protection edits, reduce/close, and authority (`AUTO_PAPER`, `RECOMMEND_ONLY`, `MANUAL_OVERRIDE`, `PAUSED`). Live safety status, the Spot lifecycle state, and the Core/Tactical split. | ![Position manager](docs/images/position-manager.png) |

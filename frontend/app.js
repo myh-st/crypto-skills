@@ -20,6 +20,9 @@ import * as evaluations from "./modules/views/evaluations.js";
 import * as dataSources from "./modules/views/dataSources.js";
 import * as settings from "./modules/views/settings.js";
 import * as paperTrading from "./modules/views/paperTrading.js";
+import * as today from "./modules/views/today.js";
+import * as experiments from "./modules/views/experiments.js";
+import * as strategySearch from "./modules/views/strategySearch.js";
 
 const store = createStore(buildSeedData());
 
@@ -38,6 +41,9 @@ const routeRenderers = {
   "data-sources": dataSources.render,
   settings: settings.render,
   "paper-trading": paperTrading.render,
+  today: today.render,
+  experiments: experiments.render,
+  "strategy-search": strategySearch.render,
 };
 
 const routeTables = Object.fromEntries(NAV_ITEMS.map(({ route }) => [route, true]));
