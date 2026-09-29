@@ -74,6 +74,7 @@ from .spot_lifecycle import LIFECYCLE_SCHEMA
 from .promotion import PROMOTION_SCHEMA
 from .sleeves import SLEEVE_SCHEMA, capital_cohorts, cohort_starting_balance
 from .holdings import HOLDINGS_SCHEMA
+from .spot_cotrader import COTRADER_SCHEMA
 from .resilience import (
     DB_SCHEMA_VERSION,
     RESILIENCE_SCHEMA,
@@ -844,6 +845,7 @@ class PaperStore:
         self._db.executescript(PROMOTION_SCHEMA)
         self._db.executescript(SLEEVE_SCHEMA)
         self._db.executescript(HOLDINGS_SCHEMA)
+        self._db.executescript(COTRADER_SCHEMA)
 
     def _migrate_schema(self) -> None:
         with self._lock:

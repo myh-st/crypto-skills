@@ -1,0 +1,2294 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "spot-cotrader.schema.json",
+  "title": "Spot AI Co-Trader overview (GET /api/cotrader)",
+  "description": "PAPER decision support. Signals use closed daily bars only; missing values are null, never zero. All *_pct, ret_*, dist_*, breadth, weight and rate values are fractions (0.12 = 12%). $defs.coin_detail is GET /api/cotrader/<BASE>; $defs.scorecard is GET /api/cotrader/scorecard.",
+  "type": "object",
+  "required": [
+    "schema_version",
+    "as_of",
+    "last_close",
+    "next_close",
+    "regime",
+    "briefing",
+    "ai",
+    "settings",
+    "coins",
+    "execution",
+    "disclaimer"
+  ],
+  "properties": {
+    "schema_version": {
+      "const": "spot-cotrader.v1"
+    },
+    "as_of": {
+      "type": "string",
+      "format": "date-time"
+    },
+    "last_close": {
+      "type": "string",
+      "format": "date-time"
+    },
+    "next_close": {
+      "type": "string",
+      "format": "date-time"
+    },
+    "regime": {
+      "$ref": "#/$defs/regime"
+    },
+    "briefing": {
+      "$ref": "#/$defs/briefing"
+    },
+    "ai": {
+      "$ref": "#/$defs/ai"
+    },
+    "settings": {
+      "$ref": "#/$defs/settings"
+    },
+    "coins": {
+      "type": "array",
+      "items": {
+        "$ref": "#/$defs/coin"
+      }
+    },
+    "execution": {
+      "type": "object",
+      "required": [
+        "decide_at",
+        "order_type",
+        "exit",
+        "fee_rate",
+        "slippage_bps",
+        "thin_liquidity"
+      ],
+      "properties": {
+        "decide_at": {
+          "type": "string"
+        },
+        "order_type": {
+          "type": "string"
+        },
+        "exit": {
+          "type": "string"
+        },
+        "fee_rate": {
+          "type": "number"
+        },
+        "slippage_bps": {
+          "type": "number"
+        },
+        "thin_liquidity": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          }
+        }
+      },
+      "additionalProperties": false
+    },
+    "disclaimer": {
+      "type": "string"
+    }
+  },
+  "additionalProperties": false,
+  "$defs": {
+    "regime": {
+      "type": "object",
+      "required": [
+        "label",
+        "breadth",
+        "hold",
+        "total",
+        "btc_state"
+      ],
+      "properties": {
+        "label": {
+          "type": [
+            "string",
+            "null"
+          ],
+          "enum": [
+            "RISK_ON",
+            "MIXED",
+            "RISK_OFF",
+            null
+          ]
+        },
+        "breadth": {
+          "type": [
+            "number",
+            "null"
+          ]
+        },
+        "hold": {
+          "type": "integer",
+          "minimum": 0
+        },
+        "total": {
+          "type": "integer",
+          "minimum": 0
+        },
+        "btc_state": {
+          "type": [
+            "string",
+            "null"
+          ],
+          "enum": [
+            "HOLD",
+            "CASH",
+            "WATCH",
+            null
+          ]
+        }
+      },
+      "additionalProperties": false
+    },
+    "briefing": {
+      "type": [
+        "object",
+        "null"
+      ],
+      "required": [
+        "as_of",
+        "stance_market",
+        "summary_th",
+        "highlights",
+        "model",
+        "cost_usd"
+      ],
+      "properties": {
+        "as_of": {
+          "type": "string",
+          "format": "date-time"
+        },
+        "stance_market": {
+          "type": "string",
+          "enum": [
+            "risk_on",
+            "mixed",
+            "risk_off"
+          ]
+        },
+        "summary_th": {
+          "type": "string"
+        },
+        "highlights": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "required": [
+              "coin",
+              "note"
+            ],
+            "properties": {
+              "coin": {
+                "type": "string"
+              },
+              "note": {
+                "type": "string"
+              }
+            },
+            "additionalProperties": false
+          },
+          "maxItems": 5
+        },
+        "model": {
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "cost_usd": {
+          "type": [
+            "number",
+            "null"
+          ]
+        }
+      },
+      "additionalProperties": false
+    },
+    "ai": {
+      "type": "object",
+      "required": [
+        "enabled",
+        "spent_today_usd",
+        "daily_cap_usd",
+        "spent_total_usd",
+        "total_cap_usd",
+        "blocked_reason",
+        "jev_calls_today",
+        "luna_calls_today",
+        "jev_spent_usd",
+        "luna_spent_usd",
+        "pricing_is_fallback"
+      ],
+      "properties": {
+        "enabled": {
+          "type": "boolean"
+        },
+        "spent_today_usd": {
+          "type": [
+            "number",
+            "null"
+          ]
+        },
+        "daily_cap_usd": {
+          "type": [
+            "number",
+            "null"
+          ]
+        },
+        "spent_total_usd": {
+          "type": [
+            "number",
+            "null"
+          ]
+        },
+        "total_cap_usd": {
+          "type": [
+            "number",
+            "null"
+          ]
+        },
+        "blocked_reason": {
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "jev_calls_today": {
+          "type": "integer",
+          "minimum": 0
+        },
+        "luna_calls_today": {
+          "type": "integer",
+          "minimum": 0
+        },
+        "jev_spent_usd": {
+          "type": [
+            "number",
+            "null"
+          ]
+        },
+        "luna_spent_usd": {
+          "type": [
+            "number",
+            "null"
+          ]
+        },
+        "pricing_is_fallback": {
+          "type": "boolean"
+        }
+      },
+      "additionalProperties": false
+    },
+    "settings": {
+      "type": "object",
+      "required": [
+        "cotrader_capital_usdt",
+        "capital_source",
+        "sizing_method"
+      ],
+      "properties": {
+        "cotrader_capital_usdt": {
+          "type": [
+            "number",
+            "null"
+          ]
+        },
+        "capital_source": {
+          "type": [
+            "string",
+            "null"
+          ],
+          "enum": [
+            "user",
+            "holdings",
+            null
+          ]
+        },
+        "sizing_method": {
+          "type": "string",
+          "enum": [
+            "equal_weight",
+            "inverse_vol"
+          ]
+        }
+      },
+      "additionalProperties": false
+    },
+    "rule_stats": {
+      "type": [
+        "object",
+        "null"
+      ],
+      "required": [
+        "cagr",
+        "max_dd",
+        "time_in_market",
+        "switches",
+        "bh_cagr",
+        "bh_max_dd"
+      ],
+      "properties": {
+        "cagr": {
+          "type": [
+            "number",
+            "null"
+          ]
+        },
+        "max_dd": {
+          "type": [
+            "number",
+            "null"
+          ]
+        },
+        "time_in_market": {
+          "type": [
+            "number",
+            "null"
+          ]
+        },
+        "switches": {
+          "type": "integer",
+          "minimum": 0
+        },
+        "bh_cagr": {
+          "type": [
+            "number",
+            "null"
+          ]
+        },
+        "bh_max_dd": {
+          "type": [
+            "number",
+            "null"
+          ]
+        }
+      },
+      "additionalProperties": false
+    },
+    "last_ai": {
+      "type": [
+        "object",
+        "null"
+      ],
+      "required": [
+        "as_of",
+        "trigger",
+        "stance",
+        "conviction",
+        "summary_th"
+      ],
+      "properties": {
+        "as_of": {
+          "type": "string",
+          "format": "date-time"
+        },
+        "trigger": {
+          "type": "string",
+          "enum": [
+            "state_change",
+            "daily",
+            "manual",
+            "jev_disagree"
+          ]
+        },
+        "stance": {
+          "type": [
+            "string",
+            "null"
+          ],
+          "enum": [
+            "agree",
+            "caution",
+            "disagree",
+            null
+          ]
+        },
+        "conviction": {
+          "type": [
+            "string",
+            "null"
+          ],
+          "enum": [
+            "low",
+            "medium",
+            "high",
+            null
+          ]
+        },
+        "summary_th": {
+          "type": [
+            "string",
+            "null"
+          ]
+        }
+      },
+      "additionalProperties": false
+    },
+    "event": {
+      "type": [
+        "object",
+        "null"
+      ],
+      "required": [
+        "from",
+        "to",
+        "at"
+      ],
+      "properties": {
+        "from": {
+          "type": "string",
+          "enum": [
+            "HOLD",
+            "CASH",
+            "WATCH"
+          ]
+        },
+        "to": {
+          "type": "string",
+          "enum": [
+            "HOLD",
+            "CASH",
+            "WATCH"
+          ]
+        },
+        "at": {
+          "type": "string",
+          "format": "date-time"
+        }
+      },
+      "additionalProperties": false
+    },
+    "action": {
+      "type": [
+        "object",
+        "null"
+      ],
+      "required": [
+        "type",
+        "text",
+        "fresh",
+        "trigger"
+      ],
+      "properties": {
+        "type": {
+          "type": "string",
+          "enum": [
+            "BUY",
+            "HOLD",
+            "IN",
+            "SELL",
+            "WAIT",
+            "OUT"
+          ]
+        },
+        "text": {
+          "type": "string"
+        },
+        "fresh": {
+          "type": "boolean"
+        },
+        "trigger": {
+          "type": "object",
+          "required": [
+            "kind",
+            "price",
+            "distance_pct"
+          ],
+          "properties": {
+            "kind": {
+              "type": "string",
+              "enum": [
+                "close_above",
+                "close_below"
+              ]
+            },
+            "price": {
+              "type": [
+                "number",
+                "null"
+              ]
+            },
+            "distance_pct": {
+              "type": [
+                "number",
+                "null"
+              ]
+            }
+          },
+          "additionalProperties": false
+        }
+      },
+      "additionalProperties": false
+    },
+    "ladder": {
+      "type": [
+        "object",
+        "null"
+      ],
+      "required": [
+        "state",
+        "since",
+        "action"
+      ],
+      "properties": {
+        "state": {
+          "type": "string",
+          "enum": [
+            "OUT",
+            "STARTER",
+            "FULL"
+          ]
+        },
+        "since": {
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "action": {
+          "type": "object",
+          "required": [
+            "type",
+            "text",
+            "fresh",
+            "target_weight",
+            "capital_fraction",
+            "target_usdt",
+            "delta_usdt",
+            "delta_qty",
+            "add_above",
+            "trim_below",
+            "exit_below"
+          ],
+          "properties": {
+            "type": {
+              "type": "string",
+              "enum": [
+                "BUY_STARTER",
+                "ADD",
+                "TRIM",
+                "SELL_ALL",
+                "HOLD"
+              ]
+            },
+            "text": {
+              "type": "string"
+            },
+            "fresh": {
+              "type": "boolean"
+            },
+            "target_weight": {
+              "type": [
+                "number",
+                "null"
+              ]
+            },
+            "capital_fraction": {
+              "type": [
+                "number",
+                "null"
+              ]
+            },
+            "target_usdt": {
+              "type": [
+                "number",
+                "null"
+              ]
+            },
+            "delta_usdt": {
+              "type": [
+                "number",
+                "null"
+              ]
+            },
+            "delta_qty": {
+              "type": [
+                "number",
+                "null"
+              ]
+            },
+            "add_above": {
+              "type": [
+                "number",
+                "null"
+              ]
+            },
+            "trim_below": {
+              "type": [
+                "number",
+                "null"
+              ]
+            },
+            "exit_below": {
+              "type": [
+                "number",
+                "null"
+              ]
+            }
+          },
+          "additionalProperties": false
+        }
+      },
+      "additionalProperties": false
+    },
+    "sizing": {
+      "type": [
+        "object",
+        "null"
+      ],
+      "required": [
+        "method",
+        "weight",
+        "target_usdt",
+        "current_usdt",
+        "delta_usdt",
+        "delta_qty",
+        "risk_to_trend_line_usdt",
+        "scale_in"
+      ],
+      "properties": {
+        "method": {
+          "type": "string",
+          "enum": [
+            "equal_weight",
+            "inverse_vol"
+          ]
+        },
+        "weight": {
+          "type": [
+            "number",
+            "null"
+          ]
+        },
+        "target_usdt": {
+          "type": [
+            "number",
+            "null"
+          ]
+        },
+        "current_usdt": {
+          "type": [
+            "number",
+            "null"
+          ]
+        },
+        "delta_usdt": {
+          "type": [
+            "number",
+            "null"
+          ]
+        },
+        "delta_qty": {
+          "type": [
+            "number",
+            "null"
+          ]
+        },
+        "risk_to_trend_line_usdt": {
+          "type": [
+            "number",
+            "null"
+          ]
+        },
+        "scale_in": {
+          "type": [
+            "object",
+            "null"
+          ],
+          "required": [
+            "days",
+            "per_day_usdt"
+          ],
+          "properties": {
+            "days": {
+              "type": "integer",
+              "minimum": 0
+            },
+            "per_day_usdt": {
+              "type": [
+                "number",
+                "null"
+              ]
+            }
+          },
+          "additionalProperties": false
+        }
+      },
+      "additionalProperties": false
+    },
+    "jev": {
+      "type": [
+        "object",
+        "null"
+      ],
+      "required": [
+        "as_of",
+        "trend_regime",
+        "trend_strength",
+        "reversal_risk",
+        "rule_agreement",
+        "entry_timing",
+        "key_risk"
+      ],
+      "properties": {
+        "as_of": {
+          "type": "string",
+          "format": "date-time"
+        },
+        "trend_regime": {
+          "type": "string",
+          "enum": [
+            "uptrend",
+            "downtrend",
+            "range",
+            "unstable"
+          ]
+        },
+        "trend_strength": {
+          "type": [
+            "number",
+            "null"
+          ]
+        },
+        "reversal_risk": {
+          "type": [
+            "number",
+            "null"
+          ]
+        },
+        "rule_agreement": {
+          "type": "string",
+          "enum": [
+            "agree",
+            "caution",
+            "disagree"
+          ]
+        },
+        "entry_timing": {
+          "type": "string",
+          "enum": [
+            "good_now",
+            "wait_pullback",
+            "extended_late",
+            "not_applicable"
+          ]
+        },
+        "key_risk": {
+          "type": "string",
+          "enum": [
+            "overextended",
+            "weakening_momentum",
+            "high_volatility",
+            "market_risk_off",
+            "none"
+          ]
+        }
+      },
+      "additionalProperties": false
+    },
+    "jev_answers": {
+      "type": "object",
+      "required": [
+        "trend_regime",
+        "trend_strength",
+        "reversal_risk",
+        "rule_agreement",
+        "entry_timing",
+        "key_risk"
+      ],
+      "properties": {
+        "trend_regime": {
+          "type": "string",
+          "enum": [
+            "uptrend",
+            "downtrend",
+            "range",
+            "unstable"
+          ]
+        },
+        "trend_strength": {
+          "type": [
+            "number",
+            "null"
+          ]
+        },
+        "reversal_risk": {
+          "type": [
+            "number",
+            "null"
+          ]
+        },
+        "rule_agreement": {
+          "type": "string",
+          "enum": [
+            "agree",
+            "caution",
+            "disagree"
+          ]
+        },
+        "entry_timing": {
+          "type": "string",
+          "enum": [
+            "good_now",
+            "wait_pullback",
+            "extended_late",
+            "not_applicable"
+          ]
+        },
+        "key_risk": {
+          "type": "string",
+          "enum": [
+            "overextended",
+            "weakening_momentum",
+            "high_volatility",
+            "market_risk_off",
+            "none"
+          ]
+        }
+      },
+      "additionalProperties": false
+    },
+    "cdc": {
+      "type": [
+        "object",
+        "null"
+      ],
+      "required": [
+        "zone",
+        "since"
+      ],
+      "properties": {
+        "zone": {
+          "type": "string",
+          "enum": [
+            "green",
+            "blue",
+            "yellow",
+            "red"
+          ]
+        },
+        "since": {
+          "type": [
+            "string",
+            "null"
+          ]
+        }
+      },
+      "additionalProperties": false
+    },
+    "coin": {
+      "type": "object",
+      "required": [
+        "symbol",
+        "base",
+        "price",
+        "change_24h",
+        "state",
+        "state_since",
+        "days_in_state",
+        "changed_today",
+        "ret_60d",
+        "dist_sma100",
+        "vol_20d",
+        "rule",
+        "spark",
+        "last_ai",
+        "event",
+        "trend_line_next",
+        "distance_to_trend_line",
+        "action",
+        "sizing",
+        "held",
+        "ladder_state",
+        "ladder",
+        "cdc",
+        "jev",
+        "data_through",
+        "unavailable_reason"
+      ],
+      "properties": {
+        "symbol": {
+          "type": "string"
+        },
+        "base": {
+          "type": "string"
+        },
+        "price": {
+          "type": [
+            "number",
+            "null"
+          ]
+        },
+        "change_24h": {
+          "type": [
+            "number",
+            "null"
+          ]
+        },
+        "state": {
+          "type": [
+            "string",
+            "null"
+          ],
+          "enum": [
+            "HOLD",
+            "CASH",
+            "WATCH",
+            null
+          ]
+        },
+        "state_since": {
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "days_in_state": {
+          "type": [
+            "integer",
+            "null"
+          ]
+        },
+        "changed_today": {
+          "type": "boolean"
+        },
+        "ret_60d": {
+          "type": [
+            "number",
+            "null"
+          ]
+        },
+        "dist_sma100": {
+          "type": [
+            "number",
+            "null"
+          ]
+        },
+        "vol_20d": {
+          "type": [
+            "number",
+            "null"
+          ]
+        },
+        "rule": {
+          "$ref": "#/$defs/rule_stats"
+        },
+        "spark": {
+          "type": "array",
+          "items": {
+            "type": "array",
+            "items": {
+              "type": "number"
+            },
+            "minItems": 2,
+            "maxItems": 2
+          },
+          "maxItems": 90
+        },
+        "last_ai": {
+          "$ref": "#/$defs/last_ai"
+        },
+        "event": {
+          "$ref": "#/$defs/event"
+        },
+        "trend_line_next": {
+          "type": [
+            "number",
+            "null"
+          ]
+        },
+        "distance_to_trend_line": {
+          "type": [
+            "number",
+            "null"
+          ]
+        },
+        "action": {
+          "$ref": "#/$defs/action"
+        },
+        "sizing": {
+          "$ref": "#/$defs/sizing"
+        },
+        "held": {
+          "type": [
+            "boolean",
+            "null"
+          ]
+        },
+        "ladder_state": {
+          "type": [
+            "string",
+            "null"
+          ],
+          "enum": [
+            "OUT",
+            "STARTER",
+            "FULL",
+            null
+          ]
+        },
+        "ladder": {
+          "$ref": "#/$defs/ladder"
+        },
+        "cdc": {
+          "$ref": "#/$defs/cdc"
+        },
+        "jev": {
+          "$ref": "#/$defs/jev"
+        },
+        "data_through": {
+          "type": [
+            "string",
+            "null"
+          ],
+          "format": "date-time"
+        },
+        "unavailable_reason": {
+          "type": [
+            "string",
+            "null"
+          ]
+        }
+      },
+      "additionalProperties": false
+    },
+    "key_levels": {
+      "type": "object",
+      "required": [
+        "support",
+        "resistance",
+        "invalidation"
+      ],
+      "properties": {
+        "support": {
+          "type": "array",
+          "items": {
+            "type": "number"
+          }
+        },
+        "resistance": {
+          "type": "array",
+          "items": {
+            "type": "number"
+          }
+        },
+        "invalidation": {
+          "type": [
+            "number",
+            "null"
+          ]
+        }
+      },
+      "additionalProperties": false
+    },
+    "analysis": {
+      "type": "object",
+      "required": [
+        "analysis_id",
+        "coin",
+        "source",
+        "as_of",
+        "trigger",
+        "state",
+        "stance",
+        "conviction",
+        "model",
+        "cost_usd"
+      ],
+      "properties": {
+        "analysis_id": {
+          "type": "string"
+        },
+        "coin": {
+          "type": "string"
+        },
+        "source": {
+          "type": "string",
+          "enum": [
+            "jev",
+            "luna"
+          ]
+        },
+        "as_of": {
+          "type": "string",
+          "format": "date-time"
+        },
+        "trigger": {
+          "type": "string",
+          "enum": [
+            "state_change",
+            "daily",
+            "manual",
+            "jev_disagree"
+          ]
+        },
+        "state": {
+          "type": [
+            "string",
+            "null"
+          ],
+          "enum": [
+            "HOLD",
+            "CASH",
+            "WATCH",
+            null
+          ]
+        },
+        "stance": {
+          "type": [
+            "string",
+            "null"
+          ],
+          "enum": [
+            "agree",
+            "caution",
+            "disagree",
+            null
+          ]
+        },
+        "conviction": {
+          "type": [
+            "string",
+            "null"
+          ],
+          "enum": [
+            "low",
+            "medium",
+            "high",
+            null
+          ]
+        },
+        "model": {
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "cost_usd": {
+          "type": [
+            "number",
+            "null"
+          ]
+        },
+        "summary_th": {
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "bull_points": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          }
+        },
+        "bear_points": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          }
+        },
+        "key_levels": {
+          "$ref": "#/$defs/key_levels"
+        },
+        "risks": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          }
+        },
+        "change_my_mind": {
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "answers": {
+          "$ref": "#/$defs/jev_answers"
+        }
+      },
+      "additionalProperties": false
+    },
+    "journal_entry": {
+      "type": "object",
+      "required": [
+        "id",
+        "at",
+        "coin",
+        "action",
+        "price",
+        "amount_usdt",
+        "note",
+        "rule_state",
+        "ai_stance",
+        "price_now",
+        "change_since",
+        "rule_agreed"
+      ],
+      "properties": {
+        "id": {
+          "type": "string"
+        },
+        "at": {
+          "type": "string",
+          "format": "date-time"
+        },
+        "coin": {
+          "type": "string"
+        },
+        "action": {
+          "type": "string",
+          "enum": [
+            "buy",
+            "sell",
+            "hold",
+            "skip"
+          ]
+        },
+        "price": {
+          "type": [
+            "number",
+            "null"
+          ]
+        },
+        "amount_usdt": {
+          "type": [
+            "number",
+            "null"
+          ]
+        },
+        "note": {
+          "type": "string"
+        },
+        "rule_state": {
+          "type": [
+            "string",
+            "null"
+          ],
+          "enum": [
+            "HOLD",
+            "CASH",
+            "WATCH",
+            null
+          ]
+        },
+        "ai_stance": {
+          "type": [
+            "string",
+            "null"
+          ],
+          "enum": [
+            "agree",
+            "caution",
+            "disagree",
+            null
+          ]
+        },
+        "price_now": {
+          "type": [
+            "number",
+            "null"
+          ]
+        },
+        "change_since": {
+          "type": [
+            "number",
+            "null"
+          ]
+        },
+        "rule_agreed": {
+          "type": [
+            "boolean",
+            "null"
+          ]
+        }
+      },
+      "additionalProperties": false
+    },
+    "trade": {
+      "type": "object",
+      "required": [
+        "entry_at",
+        "entry_t",
+        "entry_price",
+        "exit_at",
+        "exit_t",
+        "exit_price",
+        "return_pct",
+        "days"
+      ],
+      "properties": {
+        "entry_at": {
+          "type": "string",
+          "format": "date-time"
+        },
+        "entry_t": {
+          "type": "integer",
+          "minimum": 0
+        },
+        "entry_price": {
+          "type": "number"
+        },
+        "exit_at": {
+          "type": [
+            "string",
+            "null"
+          ],
+          "format": "date-time"
+        },
+        "exit_t": {
+          "type": [
+            "integer",
+            "null"
+          ]
+        },
+        "exit_price": {
+          "type": [
+            "number",
+            "null"
+          ]
+        },
+        "return_pct": {
+          "type": [
+            "number",
+            "null"
+          ]
+        },
+        "days": {
+          "type": "integer",
+          "minimum": 0
+        }
+      },
+      "additionalProperties": false
+    },
+    "ladder_transition": {
+      "type": "object",
+      "required": [
+        "at",
+        "t",
+        "from",
+        "to",
+        "action",
+        "code",
+        "close"
+      ],
+      "properties": {
+        "at": {
+          "type": "string",
+          "format": "date-time"
+        },
+        "t": {
+          "type": "integer",
+          "minimum": 0
+        },
+        "from": {
+          "type": "string",
+          "enum": [
+            "OUT",
+            "STARTER",
+            "FULL"
+          ]
+        },
+        "to": {
+          "type": "string",
+          "enum": [
+            "OUT",
+            "STARTER",
+            "FULL"
+          ]
+        },
+        "action": {
+          "type": "string",
+          "enum": [
+            "BUY_STARTER",
+            "ADD",
+            "TRIM",
+            "SELL_ALL"
+          ]
+        },
+        "code": {
+          "type": "string",
+          "enum": [
+            "B",
+            "A",
+            "T",
+            "S"
+          ]
+        },
+        "close": {
+          "type": "number"
+        }
+      },
+      "additionalProperties": false
+    },
+    "evidence": {
+      "type": "object",
+      "required": [
+        "label",
+        "bars",
+        "from",
+        "to",
+        "fee_per_side",
+        "insufficient_history",
+        "ladder",
+        "rule",
+        "cdc_1d",
+        "buy_hold",
+        "verdict"
+      ],
+      "properties": {
+        "label": {
+          "type": "string"
+        },
+        "bars": {
+          "type": "integer",
+          "minimum": 0
+        },
+        "from": {
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "to": {
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "fee_per_side": {
+          "type": "number"
+        },
+        "insufficient_history": {
+          "type": "boolean"
+        },
+        "ladder": {
+          "type": [
+            "object",
+            "null"
+          ],
+          "required": [
+            "trades",
+            "win_rate",
+            "avg_win_pct",
+            "avg_loss_pct",
+            "total_return_pct",
+            "max_dd_pct",
+            "sharpe",
+            "time_in_market_pct"
+          ],
+          "properties": {
+            "trades": {
+              "type": "integer",
+              "minimum": 0
+            },
+            "win_rate": {
+              "type": [
+                "number",
+                "null"
+              ]
+            },
+            "avg_win_pct": {
+              "type": [
+                "number",
+                "null"
+              ]
+            },
+            "avg_loss_pct": {
+              "type": [
+                "number",
+                "null"
+              ]
+            },
+            "total_return_pct": {
+              "type": [
+                "number",
+                "null"
+              ]
+            },
+            "max_dd_pct": {
+              "type": [
+                "number",
+                "null"
+              ]
+            },
+            "sharpe": {
+              "type": [
+                "number",
+                "null"
+              ]
+            },
+            "time_in_market_pct": {
+              "type": [
+                "number",
+                "null"
+              ]
+            }
+          },
+          "additionalProperties": false
+        },
+        "rule": {
+          "type": [
+            "object",
+            "null"
+          ],
+          "required": [
+            "trades",
+            "win_rate",
+            "avg_win_pct",
+            "avg_loss_pct",
+            "total_return_pct",
+            "max_dd_pct",
+            "sharpe",
+            "time_in_market_pct"
+          ],
+          "properties": {
+            "trades": {
+              "type": "integer",
+              "minimum": 0
+            },
+            "win_rate": {
+              "type": [
+                "number",
+                "null"
+              ]
+            },
+            "avg_win_pct": {
+              "type": [
+                "number",
+                "null"
+              ]
+            },
+            "avg_loss_pct": {
+              "type": [
+                "number",
+                "null"
+              ]
+            },
+            "total_return_pct": {
+              "type": [
+                "number",
+                "null"
+              ]
+            },
+            "max_dd_pct": {
+              "type": [
+                "number",
+                "null"
+              ]
+            },
+            "sharpe": {
+              "type": [
+                "number",
+                "null"
+              ]
+            },
+            "time_in_market_pct": {
+              "type": [
+                "number",
+                "null"
+              ]
+            }
+          },
+          "additionalProperties": false
+        },
+        "cdc_1d": {
+          "type": [
+            "object",
+            "null"
+          ],
+          "required": [
+            "trades",
+            "win_rate",
+            "avg_win_pct",
+            "avg_loss_pct",
+            "total_return_pct",
+            "max_dd_pct",
+            "sharpe",
+            "time_in_market_pct"
+          ],
+          "properties": {
+            "trades": {
+              "type": "integer",
+              "minimum": 0
+            },
+            "win_rate": {
+              "type": [
+                "number",
+                "null"
+              ]
+            },
+            "avg_win_pct": {
+              "type": [
+                "number",
+                "null"
+              ]
+            },
+            "avg_loss_pct": {
+              "type": [
+                "number",
+                "null"
+              ]
+            },
+            "total_return_pct": {
+              "type": [
+                "number",
+                "null"
+              ]
+            },
+            "max_dd_pct": {
+              "type": [
+                "number",
+                "null"
+              ]
+            },
+            "sharpe": {
+              "type": [
+                "number",
+                "null"
+              ]
+            },
+            "time_in_market_pct": {
+              "type": [
+                "number",
+                "null"
+              ]
+            }
+          },
+          "additionalProperties": false
+        },
+        "buy_hold": {
+          "type": [
+            "object",
+            "null"
+          ],
+          "required": [
+            "trades",
+            "win_rate",
+            "avg_win_pct",
+            "avg_loss_pct",
+            "total_return_pct",
+            "max_dd_pct",
+            "sharpe",
+            "time_in_market_pct"
+          ],
+          "properties": {
+            "trades": {
+              "type": "integer",
+              "minimum": 0
+            },
+            "win_rate": {
+              "type": [
+                "number",
+                "null"
+              ]
+            },
+            "avg_win_pct": {
+              "type": [
+                "number",
+                "null"
+              ]
+            },
+            "avg_loss_pct": {
+              "type": [
+                "number",
+                "null"
+              ]
+            },
+            "total_return_pct": {
+              "type": [
+                "number",
+                "null"
+              ]
+            },
+            "max_dd_pct": {
+              "type": [
+                "number",
+                "null"
+              ]
+            },
+            "sharpe": {
+              "type": [
+                "number",
+                "null"
+              ]
+            },
+            "time_in_market_pct": {
+              "type": [
+                "number",
+                "null"
+              ]
+            }
+          },
+          "additionalProperties": false
+        },
+        "verdict": {
+          "type": [
+            "object",
+            "null"
+          ],
+          "required": [
+            "best_sharpe"
+          ],
+          "properties": {
+            "best_sharpe": {
+              "type": "string",
+              "enum": [
+                "ladder",
+                "rule",
+                "cdc_1d",
+                "buy_hold"
+              ]
+            }
+          },
+          "additionalProperties": false
+        }
+      },
+      "additionalProperties": false
+    },
+    "coin_detail": {
+      "type": "object",
+      "required": [
+        "symbol",
+        "base",
+        "price",
+        "change_24h",
+        "state",
+        "state_since",
+        "days_in_state",
+        "changed_today",
+        "ret_60d",
+        "dist_sma100",
+        "vol_20d",
+        "rule",
+        "spark",
+        "last_ai",
+        "event",
+        "trend_line_next",
+        "distance_to_trend_line",
+        "action",
+        "sizing",
+        "held",
+        "ladder_state",
+        "ladder",
+        "cdc",
+        "jev",
+        "data_through",
+        "unavailable_reason",
+        "candles",
+        "sma100",
+        "periods",
+        "equity",
+        "analyses",
+        "journal",
+        "trend_line_series",
+        "trades",
+        "ladder_transitions",
+        "cdc_series",
+        "evidence",
+        "events"
+      ],
+      "properties": {
+        "symbol": {
+          "type": "string"
+        },
+        "base": {
+          "type": "string"
+        },
+        "price": {
+          "type": [
+            "number",
+            "null"
+          ]
+        },
+        "change_24h": {
+          "type": [
+            "number",
+            "null"
+          ]
+        },
+        "state": {
+          "type": [
+            "string",
+            "null"
+          ],
+          "enum": [
+            "HOLD",
+            "CASH",
+            "WATCH",
+            null
+          ]
+        },
+        "state_since": {
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "days_in_state": {
+          "type": [
+            "integer",
+            "null"
+          ]
+        },
+        "changed_today": {
+          "type": "boolean"
+        },
+        "ret_60d": {
+          "type": [
+            "number",
+            "null"
+          ]
+        },
+        "dist_sma100": {
+          "type": [
+            "number",
+            "null"
+          ]
+        },
+        "vol_20d": {
+          "type": [
+            "number",
+            "null"
+          ]
+        },
+        "rule": {
+          "$ref": "#/$defs/rule_stats"
+        },
+        "spark": {
+          "type": "array",
+          "items": {
+            "type": "array",
+            "items": {
+              "type": "number"
+            },
+            "minItems": 2,
+            "maxItems": 2
+          },
+          "maxItems": 90
+        },
+        "last_ai": {
+          "$ref": "#/$defs/last_ai"
+        },
+        "event": {
+          "$ref": "#/$defs/event"
+        },
+        "trend_line_next": {
+          "type": [
+            "number",
+            "null"
+          ]
+        },
+        "distance_to_trend_line": {
+          "type": [
+            "number",
+            "null"
+          ]
+        },
+        "action": {
+          "$ref": "#/$defs/action"
+        },
+        "sizing": {
+          "$ref": "#/$defs/sizing"
+        },
+        "held": {
+          "type": [
+            "boolean",
+            "null"
+          ]
+        },
+        "ladder_state": {
+          "type": [
+            "string",
+            "null"
+          ],
+          "enum": [
+            "OUT",
+            "STARTER",
+            "FULL",
+            null
+          ]
+        },
+        "ladder": {
+          "$ref": "#/$defs/ladder"
+        },
+        "cdc": {
+          "$ref": "#/$defs/cdc"
+        },
+        "jev": {
+          "$ref": "#/$defs/jev"
+        },
+        "data_through": {
+          "type": [
+            "string",
+            "null"
+          ],
+          "format": "date-time"
+        },
+        "unavailable_reason": {
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "candles": {
+          "type": "array",
+          "items": {
+            "type": "array",
+            "items": {
+              "type": "number"
+            },
+            "minItems": 6,
+            "maxItems": 6
+          },
+          "maxItems": 400
+        },
+        "sma100": {
+          "type": "array",
+          "items": {
+            "type": "array",
+            "items": {
+              "type": "number"
+            },
+            "minItems": 2,
+            "maxItems": 2
+          }
+        },
+        "periods": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "required": [
+              "from",
+              "to",
+              "state"
+            ],
+            "properties": {
+              "from": {
+                "type": "string"
+              },
+              "to": {
+                "type": "string"
+              },
+              "state": {
+                "type": "string",
+                "enum": [
+                  "HOLD",
+                  "CASH",
+                  "WATCH"
+                ]
+              }
+            },
+            "additionalProperties": false
+          }
+        },
+        "equity": {
+          "type": "object",
+          "required": [
+            "rule",
+            "buy_hold"
+          ],
+          "properties": {
+            "rule": {
+              "type": "array",
+              "items": {
+                "type": "array",
+                "items": {
+                  "type": "number"
+                },
+                "minItems": 2,
+                "maxItems": 2
+              }
+            },
+            "buy_hold": {
+              "type": "array",
+              "items": {
+                "type": "array",
+                "items": {
+                  "type": "number"
+                },
+                "minItems": 2,
+                "maxItems": 2
+              }
+            }
+          },
+          "additionalProperties": false
+        },
+        "analyses": {
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/analysis"
+          }
+        },
+        "journal": {
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/journal_entry"
+          }
+        },
+        "trend_line_series": {
+          "type": "array",
+          "items": {
+            "type": "array",
+            "items": {
+              "type": "number"
+            },
+            "minItems": 2,
+            "maxItems": 2
+          }
+        },
+        "trades": {
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/trade"
+          }
+        },
+        "ladder_transitions": {
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/ladder_transition"
+          }
+        },
+        "cdc_series": {
+          "type": "array",
+          "items": {
+            "type": "array",
+            "minItems": 2,
+            "maxItems": 2
+          }
+        },
+        "evidence": {
+          "$ref": "#/$defs/evidence"
+        },
+        "events": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "required": [
+              "coin",
+              "from",
+              "to",
+              "at",
+              "close"
+            ],
+            "properties": {
+              "coin": {
+                "type": "string"
+              },
+              "from": {
+                "type": "string",
+                "enum": [
+                  "HOLD",
+                  "CASH",
+                  "WATCH"
+                ]
+              },
+              "to": {
+                "type": "string",
+                "enum": [
+                  "HOLD",
+                  "CASH",
+                  "WATCH"
+                ]
+              },
+              "at": {
+                "type": "string",
+                "format": "date-time"
+              },
+              "close": {
+                "type": "number"
+              }
+            },
+            "additionalProperties": false
+          }
+        }
+      },
+      "additionalProperties": false
+    },
+    "scorecard": {
+      "type": "object",
+      "required": [
+        "as_of",
+        "horizons",
+        "min_samples",
+        "rows",
+        "spreads",
+        "cost",
+        "note_pricing_fallback"
+      ],
+      "properties": {
+        "as_of": {
+          "type": "string",
+          "format": "date-time"
+        },
+        "horizons": {
+          "type": "array",
+          "items": {
+            "type": "integer",
+            "minimum": 0
+          }
+        },
+        "min_samples": {
+          "type": "integer",
+          "minimum": 0
+        },
+        "rows": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "required": [
+              "source",
+              "stance",
+              "n_7d",
+              "avg_ret_7d",
+              "hit_7d",
+              "rule_same_7d",
+              "n_30d",
+              "avg_ret_30d",
+              "hit_30d",
+              "rule_same_30d"
+            ],
+            "properties": {
+              "source": {
+                "type": "string",
+                "enum": [
+                  "jev",
+                  "luna"
+                ]
+              },
+              "stance": {
+                "type": "string"
+              },
+              "n_7d": {
+                "type": "integer",
+                "minimum": 0
+              },
+              "avg_ret_7d": {
+                "type": [
+                  "number",
+                  "null"
+                ]
+              },
+              "hit_7d": {
+                "type": [
+                  "number",
+                  "null"
+                ]
+              },
+              "rule_same_7d": {
+                "type": [
+                  "number",
+                  "null"
+                ]
+              },
+              "n_30d": {
+                "type": "integer",
+                "minimum": 0
+              },
+              "avg_ret_30d": {
+                "type": [
+                  "number",
+                  "null"
+                ]
+              },
+              "hit_30d": {
+                "type": [
+                  "number",
+                  "null"
+                ]
+              },
+              "rule_same_30d": {
+                "type": [
+                  "number",
+                  "null"
+                ]
+              }
+            },
+            "additionalProperties": false
+          }
+        },
+        "spreads": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "required": [
+              "source",
+              "agree_minus_disagree_7d",
+              "agree_minus_disagree_30d"
+            ],
+            "properties": {
+              "source": {
+                "type": "string",
+                "enum": [
+                  "jev",
+                  "luna"
+                ]
+              },
+              "agree_minus_disagree_7d": {
+                "type": [
+                  "number",
+                  "null"
+                ]
+              },
+              "agree_minus_disagree_30d": {
+                "type": [
+                  "number",
+                  "null"
+                ]
+              }
+            },
+            "additionalProperties": false
+          }
+        },
+        "cost": {
+          "type": "object",
+          "required": [
+            "jev_usd",
+            "luna_usd",
+            "calls"
+          ],
+          "properties": {
+            "jev_usd": {
+              "type": [
+                "number",
+                "null"
+              ]
+            },
+            "luna_usd": {
+              "type": [
+                "number",
+                "null"
+              ]
+            },
+            "calls": {
+              "type": "object",
+              "required": [
+                "jev",
+                "luna"
+              ],
+              "properties": {
+                "jev": {
+                  "type": "integer",
+                  "minimum": 0
+                },
+                "luna": {
+                  "type": "integer",
+                  "minimum": 0
+                }
+              },
+              "additionalProperties": false
+            }
+          },
+          "additionalProperties": false
+        },
+        "note_pricing_fallback": {
+          "type": "boolean"
+        }
+      },
+      "additionalProperties": false
+    }
+  }
+}
