@@ -121,3 +121,40 @@ test("icons are one SVG family, decorative unless labelled", () => {
   assert.match(icon("refresh", { label: "Refresh" }), /role="img" aria-label="Refresh"/);
   assert.equal(icon("nope"), "");
 });
+
+// ---------------------------------------------------------------- ui-ux-pro-max: drill-down, bounded lists
+import { filterCoins, normaliseView, renderCoinFilters } from "../modules/components/cotraderTable.js";
+import { hashQuery } from "../modules/router.js";
+import { renderJournalList, renderTradesTable } from "../modules/views/cotrader.js";
+
+test("coin filters: counts, active chip in the URL, clear link and an empty state", () => {
+  const coins = [coin("A", "FULL"), coin("B", "STARTER"), coin("C", "OUT"), coin("D", "FULL", "ADD", { fresh: true })];
+  assert.deepEqual(filterCoins(coins, "in").map((c) => c.base), ["A", "B", "D"]);
+  assert.deepEqual(filterCoins(coins, "actions").map((c) => c.base), ["D"]);
+  assert.equal(normaliseView("bogus"), "all");
+  const chips = renderCoinFilters(coins, "full");
+  assert.match(chips, /href="#\/cotrader\?view=full" aria-current="true">Full <span class="cot-chip-n">2</);
+  assert.match(chips, /href="#\/cotrader">All <span class="cot-chip-n">4</);
+  const table = renderCoinTable(coins, { view: "out" });
+  assert.match(table, /Showing 1 of 4 coins · Cash <a href="#\/cotrader">Clear filter<\/a>/);
+  assert.doesNotMatch(table, /data-cot-coin="A"/);
+  assert.match(renderCoinTable([coin("A", "FULL")], { view: "out" }), /No coins match “Cash” right now/);
+  assert.equal(hashQuery("#/cotrader?view=in").get("view"), "in");
+  assert.equal(hashQuery("#/cotrader").get("view"), null);
+});
+
+test("next-steps items link to their coin", () => {
+  const html = renderNextStepsTh({ coins: [coin("NEAR", "FULL", "ADD", { fresh: true, price: 5, trim: 4.9 })] });
+  assert.match(html, /<a href="#\/cotrader\/NEAR">เติม NEAR/);
+  assert.match(html, /<a href="#\/cotrader\/NEAR">NEAR: ถ้าปิดวันต่ำกว่า/);
+});
+
+test("long ledgers are bounded with a show-all control", () => {
+  const trades = Array.from({ length: 13 }, (_, i) => ({ entry_at: 1780012800 + i * 86400, entry_price: 1, exit_at: 1780012800 + (i + 1) * 86400, exit_price: 1.1, return_pct: 0.1, days: 1 }));
+  const html = renderTradesTable(trades);
+  assert.equal((html.match(/cot-extra/g) || []).length, 3);
+  assert.match(html, /data-cot-expand="trades" data-label="Show all 13 trades" aria-expanded="false">Show all 13 trades/);
+  assert.doesNotMatch(renderTradesTable(trades.slice(0, 5)), /data-cot-expand/);
+  const journal = Array.from({ length: 7 }, (_, i) => ({ id: `j${i}`, at: `2026-09-${10 + i}T00:00:00Z`, action: "hold" }));
+  assert.match(renderJournalList(journal), /Show all 7 decisions/);
+});

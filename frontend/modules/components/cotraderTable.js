@@ -64,12 +64,51 @@ export function renderCoinRow(coin) {
   </a></li>`;
 }
 
-export function renderCoinTable(coins) {
+// Filter views for the coin list; the active one lives in the URL (#/cotrader?view=full) so
+// refresh, back/forward and shared links keep it. Summary cards drill down into these views.
+export const COIN_VIEWS = [
+  { id: "all", label: "All", test: () => true },
+  { id: "actions", label: "Today's actions", test: (l) => Boolean(l?.fresh && l.action !== "HOLD") },
+  { id: "in", label: "In trend", test: (l) => l?.state === "FULL" || l?.state === "STARTER" },
+  { id: "full", label: "Full", test: (l) => l?.state === "FULL" },
+  { id: "starter", label: "Half", test: (l) => l?.state === "STARTER" },
+  { id: "out", label: "Cash", test: (l) => l?.state === "OUT" },
+];
+const VIEW_BY_ID = Object.fromEntries(COIN_VIEWS.map((v) => [v.id, v]));
+
+export function normaliseView(view) {
+  return VIEW_BY_ID[view] ? view : "all";
+}
+
+export function filterCoins(coins, view = "all") {
+  const v = VIEW_BY_ID[normaliseView(view)];
+  return (coins || []).filter((c) => v.test(ladderOf(c)));
+}
+
+/** Filter chips with counts; the active chip is marked and a clear link appears when filtered. */
+export function renderCoinFilters(coins, view = "all") {
+  const active = normaliseView(view);
+  const chips = COIN_VIEWS.map((v) => {
+    const n = filterCoins(coins, v.id).length;
+    const on = v.id === active;
+    const href = v.id === "all" ? "#/cotrader" : `#/cotrader?view=${v.id}`;
+    return `<a class="cot-chip${on ? " is-active" : ""}" href="${href}"${on ? ' aria-current="true"' : ""}>${escapeHtml(v.label)} <span class="cot-chip-n">${n}</span></a>`;
+  }).join("");
+  return `<nav class="cot-filters" aria-label="Filter coins">${chips}</nav>`;
+}
+
+export function renderCoinTable(coins, { view = "all" } = {}) {
   if (!coins?.length) return '<p class="muted">No coins yet. Add some in the Watchlist.</p>';
-  return `<div class="cot-table" role="region" aria-label="Coins">
+  const active = normaliseView(view);
+  const shown = filterCoins(coins, active);
+  const status = active === "all" ? "" : `<p class="cot-filter-status small" role="status">Showing ${shown.length} of ${coins.length} coins · ${escapeHtml(VIEW_BY_ID[active].label)} <a href="#/cotrader">Clear filter</a></p>`;
+  if (!shown.length) {
+    return `${renderCoinFilters(coins, active)}${status}<div class="cot-empty">No coins match “${escapeHtml(VIEW_BY_ID[active].label)}” right now. <a href="#/cotrader">Show all coins</a></div>`;
+  }
+  return `${renderCoinFilters(coins, active)}${status}<div class="cot-table" role="region" aria-label="Coins">
     <div class="cot-row cot-row--head" aria-hidden="true">
       <span>Coin</span><span>Price</span><span>Position</span><span>Next level</span><span>Jev (AI)</span><span></span>
     </div>
-    <ul class="cot-list">${sortCoins(coins).map(renderCoinRow).join("")}</ul>
+    <ul class="cot-list">${sortCoins(shown).map(renderCoinRow).join("")}</ul>
   </div>`;
 }

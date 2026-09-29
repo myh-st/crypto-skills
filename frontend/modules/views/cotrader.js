@@ -13,7 +13,7 @@ import { confirmAction } from "../components/confirmDialog.js";
 import { applyMotion, skeleton, startCountdowns } from "../components/motion.js";
 import { feedback, num, pnl } from "../components/ui.js";
 import {
-  DISCLAIMER, METHOD_LABELS, actionBadge, actionFor, cotSpark, fmtPct, fmtPrice, fmtQty, fmtUsdt, isFresh, isoDate,
+  DISCLAIMER, METHOD_LABELS, actionBadge, actionFor, cotSpark, extraClass, showAllButton, fmtPct, fmtPrice, fmtQty, fmtUsdt, isFresh, isoDate,
   marketStanceChip, pctChange, sizingLine, stanceChip, stateChip, triggerText, unavailableHtml,
 } from "../components/cotraderBits.js";
 import {
@@ -23,7 +23,8 @@ import { chartLevels, equitySummary, mountCotraderChart, mountEquityChart, price
 import { cdcChip, ladderLevels, renderEvidence, renderLadderDetail, renderLadderRow } from "../components/cotraderLadder.js";
 import { mountWatchlist, renderWatchlistShell } from "./cotraderWatchlist.js";
 import { renderNextStepsTh } from "../components/cotraderSummary.js";
-import { renderCoinTable } from "../components/cotraderTable.js";
+import { normaliseView, renderCoinTable } from "../components/cotraderTable.js";
+import { hashQuery } from "../router.js";
 import { icon } from "../components/icons.js";
 
 const REFRESH_MS = 60_000;
@@ -62,13 +63,13 @@ export function renderRegimeStrip(d) {
   return `<section class="cot-regime cot-regime--${label ? label.toLowerCase().replace("_", "-") : "none"}" aria-label="Market regime">
     <div class="cot-regime-cell cot-regime-main"><span class="cot-kicker">Regime</span>
       <strong class="cot-regime-label"><span aria-hidden="true">${REGIME_GLYPH[label] || "?"}</span> ${escapeHtml(label ? label.replace("_", "-") : "unknown")}</strong></div>
-    <div class="cot-regime-cell"><span class="cot-kicker">Breadth</span><strong>${escapeHtml(breadth)}</strong>
-      ${num(r.breadth) === null ? "" : `<span class="cot-breadth" role="meter" aria-valuemin="0" aria-valuemax="100" aria-valuenow="${Math.round(num(r.breadth) * 100)}" aria-label="breadth ${escapeHtml(breadth)}"><span style="width:${Math.round(Math.max(0, Math.min(1, num(r.breadth))) * 100)}%"></span></span>`}</div>
-    <div class="cot-regime-cell"><span class="cot-kicker">BTC</span>${stateChip(r.btc_state || null)}</div>
+    <a class="cot-regime-cell cot-regime-link" href="#/cotrader?view=in" title="Show the coins in trend"><span class="cot-kicker">Breadth</span><strong>${escapeHtml(breadth)}</strong>
+      ${num(r.breadth) === null ? "" : `<span class="cot-breadth" role="meter" aria-valuemin="0" aria-valuemax="100" aria-valuenow="${Math.round(num(r.breadth) * 100)}" aria-label="breadth ${escapeHtml(breadth)}"><span style="width:${Math.round(Math.max(0, Math.min(1, num(r.breadth))) * 100)}%"></span></span>`}</a>
+    <a class="cot-regime-cell cot-regime-link" href="#/cotrader/BTC" title="Open BTC"><span class="cot-kicker">BTC</span>${stateChip(r.btc_state || null)}</a>
     <div class="cot-regime-cell"><span class="cot-kicker">Next daily close</span>
       <strong>${d?.next_close ? `<span data-countdown="${escapeHtml(d.next_close)}">${escapeHtml(relativeTime(d.next_close))}</span>` : "—"}</strong>
       <small>00:00 UTC = 07:00 Bangkok</small></div>
-    <div class="cot-regime-cell"><span class="cot-kicker">AI budget</span>${aiHtml}${split}</div>
+    <a class="cot-regime-cell cot-regime-link" href="#/settings" title="AI providers, prices and budgets"><span class="cot-kicker">AI budget</span>${aiHtml}${split}</a>
   </section>
 `;
 }
@@ -128,15 +129,15 @@ export function renderCoinGrid(coins) {
   return `<div class="cot-grid">${sorted.map(renderCoinCard).join("")}</div>`;
 }
 
-export function renderCotraderOverview(d, { scorecard = null, scorecardError = null } = {}) {
+export function renderCotraderOverview(d, { scorecard = null, scorecardError = null, view = "all" } = {}) {
   if (!d) return skeleton(5);
   // One primary surface (what to do next), then the scannable coin list; context and the AI
   // scorecard follow, the scorecard behind a disclosure until it has enough samples to matter.
   return `
     ${renderNextStepsTh(d)}
-    <section class="cot-section">
+    <section class="cot-section" id="coins" data-cot-coins>
       <div class="section-heading"><h2>Coins</h2><span class="muted small">daily close ${escapeHtml(isoDate(d.last_close))}</span></div>
-      ${renderCoinTable(d.coins)}
+      ${renderCoinTable(d.coins, { view })}
     </section>
     ${renderRegimeStrip(d)}
     ${renderBriefing(d.briefing)}
@@ -230,10 +231,10 @@ const JOURNAL_LABEL = { buy: "I bought", sell: "I sold", hold: "I held", skip: "
 export function renderJournalList(entries) {
   const list = [...(entries || [])].sort((a, b) => (Date.parse(b.at) || 0) - (Date.parse(a.at) || 0));
   if (!list.length) return '<p class="muted small">No decisions journaled yet. Record what you actually did to compare your discretion with the rule.</p>';
-  return `<ul class="cot-journal">${list.map((e) => {
+  return `<div class="cot-bounded" data-cot-bounded="journal"><ul class="cot-journal">${list.map((e, index) => {
     const agreed = ruleAgreed(e);
     const priced = num(e.price) !== null;
-    return `<li class="cot-journal-row">
+    return `<li class="cot-journal-row${extraClass(index, 5)}">
       <div class="cot-journal-head"><strong>${escapeHtml(JOURNAL_LABEL[e.action] || e.action)}</strong>
         <span class="muted small">${escapeHtml(isoDate(e.at))}</span>
         ${e.rule_state ? stateChip(e.rule_state, { withText: false }) : ""}
@@ -243,7 +244,7 @@ export function renderJournalList(entries) {
         · ${priced && num(e.price_now) !== null ? `now ${escapeHtml(fmtPrice(e.price_now))} ${pctChange(e.change_since)} since` : '<span class="muted">no outcome (no entry price)</span>'}</div>
       ${e.note ? `<p class="small cot-journal-note">${escapeHtml(e.note)}</p>` : ""}
     </li>`;
-  }).join("")}</ul>`;
+  }).join("")}</ul>${showAllButton(list.length, 5, "journal", "decisions")}</div>`;
 }
 
 export function renderJournalForm(base, price = null) {
@@ -288,11 +289,12 @@ export function renderTradesTable(trades) {
   const closed = list.filter((t) => num(t.return_pct) !== null);
   const wins = closed.filter((t) => num(t.return_pct) > 0).length;
   return `<p class="small muted">${list.length} trades · ${closed.length ? `${wins}/${closed.length} winners` : "none closed"} · decided on daily closes, fees included by the backend</p>
-    <div class="table-scroll"><table class="data-table cot-trades">
+    <div class="cot-bounded" data-cot-bounded="trades"><div class="table-scroll"><table class="data-table cot-trades">
       <thead><tr><th scope="col">Entry</th><th scope="col">Entry price</th><th scope="col">Exit</th><th scope="col">Exit price</th><th scope="col">Return</th><th scope="col">Days</th></tr></thead>
-      <tbody>${list.map((t) => {
+      <tbody>${list.map((t, index) => {
         const open = t.exit_at === null || t.exit_at === undefined;
-        return `<tr${open ? ' class="cot-trade--open"' : ""}>
+        const cls = `${open ? "cot-trade--open" : ""}${extraClass(index, 10)}`.trim();
+        return `<tr${cls ? ` class="${cls}"` : ""}>
           <td><span aria-hidden="true" class="pos-text">▲</span> ${escapeHtml(isoDate(t.entry_at))}</td>
           <td class="num">${escapeHtml(fmtPrice(t.entry_price))}</td>
           <td>${open ? '<span class="cot-open-tag">open</span>' : `<span aria-hidden="true" class="neg-text">▼</span> ${escapeHtml(isoDate(t.exit_at))}`}</td>
@@ -301,7 +303,7 @@ export function renderTradesTable(trades) {
           <td class="num">${escapeHtml(num(t.days) ?? "—")}</td>
         </tr>`;
       }).join("")}</tbody>
-    </table></div>`;
+    </table></div>${showAllButton(list.length, 10, "trades", "trades")}</div>`;
 }
 
 export function renderDetailHead(coin, holding = null) {
@@ -339,17 +341,33 @@ function renderOverviewPage(root, api) {
   const view = root.firstElementChild;
   const body = view.querySelector("[data-cot-body]");
   let loaded = false;
+  let lastHtml = "";
+  const coinView = normaliseView(hashQuery().get("view"));
   return startAutoRefresh(view, async () => {
     const [cot, card] = await Promise.allSettled([api.cotrader(), api.cotraderScorecard()]);
     if (cot.status === "rejected") {
       if (!loaded) body.innerHTML = unavailableHtml(cot.reason);
       throw cot.reason;
     }
-    loaded = true;
-    body.innerHTML = renderCotraderOverview(cot.value, {
+    const html = renderCotraderOverview(cot.value, {
       scorecard: card.status === "fulfilled" ? card.value : null,
       scorecardError: card.status === "rejected" ? card.reason?.message || "request failed" : null,
+      view: coinView,
     });
+    const first = !loaded;
+    loaded = true;
+    if (html === lastHtml) return; // nothing changed: keep the DOM, focus and scroll untouched
+    lastHtml = html;
+    // Polling must not disrupt the reader: keep keyboard focus and the open scorecard disclosure.
+    const focusedCoin = document.activeElement?.closest?.("[data-cot-coin]")?.dataset.cotCoin || null;
+    const focusedChip = document.activeElement?.closest?.(".cot-chip")?.getAttribute("href") || null;
+    const scorecardOpen = body.querySelector("details.cot-scorecard")?.open || false;
+    body.innerHTML = html;
+    if (scorecardOpen) body.querySelector("details.cot-scorecard")?.setAttribute("open", "");
+    if (focusedCoin) body.querySelector(`[data-cot-coin="${CSS.escape(focusedCoin)}"]`)?.focus({ preventScroll: true });
+    else if (focusedChip) body.querySelector(`.cot-chip[href="${CSS.escape(focusedChip)}"]`)?.focus({ preventScroll: true });
+    // A drill-down (e.g. Breadth -> ?view=in) lands on the filtered list, not the top of the page.
+    if (first && coinView !== "all") body.querySelector("[data-cot-coins]")?.scrollIntoView({ block: "start" });
     applyMotion(view);
     startCountdowns();
   }, { intervalMs: REFRESH_MS });
@@ -396,7 +414,7 @@ function renderDetailPage(root, api, base) {
     </div>`);
   const view = root.firstElementChild;
   const q = (sel) => view.querySelector(sel);
-  const state = { detail: null, holding: null, analysis: null, blockedReason: null, chart: null, equity: null, formShown: false, asking: false, disposed: false };
+  const state = { detail: null, holding: null, analysis: null, blockedReason: null, chart: null, equity: null, formShown: false, asking: false, disposed: false, expanded: new Set() };
 
   function paintDecision() {
     const d = state.detail;
@@ -424,6 +442,7 @@ function renderDetailPage(root, api, base) {
     q("[data-cot-trades]").innerHTML = renderTradesTable(d.trades);
     q("[data-cot-evidence]").innerHTML = renderEvidence(d.evidence);
     q("[data-cot-journal]").innerHTML = renderJournalList(d.journal);
+    applyExpanded();
     if (!state.formShown) {
       q("[data-cot-journal-form-host]").innerHTML = renderJournalForm(base, d.price);
       state.formShown = true;
@@ -486,7 +505,34 @@ function renderDetailPage(root, api, base) {
     }
   }
 
+  function applyExpanded() {
+    for (const key of state.expanded) {
+      const box = view.querySelector(`[data-cot-bounded="${key}"]`);
+      box?.classList.add("is-expanded");
+      const btn = box?.querySelector("[data-cot-expand]");
+      if (btn) {
+        btn.setAttribute("aria-expanded", "true");
+        btn.textContent = "Show fewer";
+      }
+    }
+  }
+
   async function onClick(event) {
+    const more = event.target.closest("[data-cot-expand]");
+    if (more) {
+      const key = more.dataset.cotExpand;
+      if (state.expanded.has(key)) {
+        state.expanded.delete(key);
+        const box = view.querySelector(`[data-cot-bounded="${key}"]`);
+        box?.classList.remove("is-expanded");
+        more.setAttribute("aria-expanded", "false");
+        more.textContent = more.dataset.label || "Show all";
+      } else {
+        state.expanded.add(key);
+        applyExpanded();
+      }
+      return;
+    }
     const button = event.target.closest("[data-cot-ask]");
     if (button) await ask(button);
   }
@@ -522,7 +568,7 @@ function renderDetailPage(root, api, base) {
 }
 
 export function render(root, ctx = {}, api = paperApi) {
-  const param = ctx.params?.[0] ? decodeURIComponent(ctx.params[0]) : "";
+  const param = ctx.params?.[0] ? decodeURIComponent(ctx.params[0]).split("?")[0] : "";
   if (param === "watchlist" || param === "holdings") return renderWatchlistPage(root, api);
   if (param && /^[A-Za-z0-9]{1,20}$/.test(param)) return renderDetailPage(root, api, param.toUpperCase());
   return renderOverviewPage(root, api);
