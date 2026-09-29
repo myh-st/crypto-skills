@@ -183,6 +183,11 @@ def _parser() -> argparse.ArgumentParser:
         action="store_true",
         help="do not connect the backend-owned Gate public futures WebSocket",
     )
+    paper.add_argument(
+        "--cotrader",
+        action="store_true",
+        help="enable the Spot AI Co-Trader (decision support; public Gate spot data; no exchange writes)",
+    )
 
     real = commands.add_parser(
         "real-integration-check",
@@ -481,6 +486,7 @@ def _dispatch(args: argparse.Namespace) -> int:
             port=args.port,
             database=args.database,
             live_stream=not args.no_live_stream,
+            cotrader=args.cotrader,
         )
     if args.command == "real-integration-check":
         from .paper_server import default_database_path

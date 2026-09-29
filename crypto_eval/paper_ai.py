@@ -5,6 +5,7 @@ from __future__ import annotations
 import json
 import math
 import os
+import re
 import socket
 import time
 import urllib.error
@@ -294,6 +295,77 @@ def build_jev_questions(*, include_open_interest: bool, include_spread: bool) ->
     return questions
 
 
+SPOT_QUESTION_SCHEMA_VERSION = "jev-spot-questions.v1"
+
+
+def build_spot_jev_questions() -> dict[str, dict[str, Any]]:
+    """Spot co-trader daily screen: typed answers about one coin's closed daily bars."""
+
+    return {
+        "trend_regime": {
+            "type": "choice",
+            "instructions": "Classify the coin's daily trend regime from the closed daily closes supplied.",
+            "criteria": {
+                "uptrend": "Rising daily structure",
+                "downtrend": "Falling daily structure",
+                "range": "Sideways or range-bound daily structure",
+                "unstable": "Conflicting or unusually unstable daily structure",
+            },
+        },
+        "trend_strength": {
+            "type": "score",
+            "instructions": "Rate the strength of the current daily trend, not a probability of profit.",
+            "criteria": ["very weak", "weak", "moderate", "strong", "very strong"],
+        },
+        "reversal_risk": {
+            "type": "score",
+            "instructions": "Rate the risk that the current daily trend reverses soon, from the observed data only.",
+            "criteria": ["very low", "low", "moderate", "high", "very high"],
+        },
+        "rule_agreement": {
+            "type": "choice",
+            "instructions": "Say whether the evidence supports the deterministic rule state supplied in state.rule.state.",
+            "criteria": {
+                "agree": "The evidence supports the rule state",
+                "caution": "The evidence partly conflicts with the rule state",
+                "disagree": "The evidence contradicts the rule state",
+            },
+        },
+        "entry_timing": {
+            "type": "choice",
+            "instructions": "For a spot buyer following the rule, judge the timing of a new entry now.",
+            "criteria": {
+                "good_now": "A new entry now is reasonable",
+                "wait_pullback": "Better to wait for a pullback",
+                "extended_late": "The move looks extended; entering now is late",
+                "not_applicable": "The rule does not hold this coin",
+            },
+        },
+        "key_risk": {
+            "type": "choice",
+            "instructions": "Pick the single most important observed risk.",
+            "criteria": {
+                "overextended": "Price is stretched far from its averages",
+                "weakening_momentum": "Momentum is fading",
+                "high_volatility": "Daily volatility is unusually high",
+                "market_risk_off": "The broad market regime is risk-off",
+                "none": "No dominant risk is observed",
+            },
+        },
+    }
+
+
+def jev_score_unit(answer: dict[str, Any] | None, levels: int = 5) -> float | None:
+    """Map a parsed Jev Score (0..levels-1) to 0..1; anything else is unavailable, not zero."""
+
+    if not isinstance(answer, dict) or answer.get("type") != "score":
+        return None
+    value = answer.get("value")
+    if isinstance(value, bool) or not isinstance(value, (int, float)) or not math.isfinite(float(value)):
+        return None
+    return max(0.0, min(1.0, float(value) / (levels - 1)))
+
+
 def jev_state(
     snapshot: MarketSnapshot,
     features: dict[str, Any],
@@ -551,6 +623,48 @@ class JevAdapter:
         vector["provider_request_id"] = meta.get("provider_request_id")
         return vector
 
+    def evaluate_questions(
+        self,
+        state: dict[str, Any],
+        questions: dict[str, dict[str, Any]],
+        *,
+        question_schema_version: str,
+    ) -> dict[str, Any]:
+        """One atomic typed request for a caller-built, point-in-time-safe state."""
+
+        payload = {"state": state, "model": self.provider["model"], "questions": questions}
+        headers = self._headers()
+        meta: dict[str, Any] = {}
+        self.last_call = meta
+        started = time.perf_counter()
+        response = _safe_post(
+            self._transport,
+            _type_safe_url(self.provider.get("base_url", TYPE_SAFE_DEFAULT_URL)),
+            headers,
+            payload,
+            float(self.provider.get("timeout_seconds", 20)),
+            "TypeSafe Jev",
+            meta,
+        )
+        latency = (time.perf_counter() - started) * 1000
+        meta["latency_ms"] = latency
+        meta["raw_usage"] = response.get("usage")
+        vector = parse_jev_response(
+            response,
+            questions,
+            snapshot_hash=digest(state),
+            question_schema_version=question_schema_version,
+            latency_ms=latency,
+            observed_at=self._clock(),
+        )
+        vector["provider_request_id"] = meta.get("provider_request_id")
+        return vector
+
+    def evaluate_spot(self, state: dict[str, Any]) -> dict[str, Any]:
+        return self.evaluate_questions(
+            state, build_spot_jev_questions(), question_schema_version=SPOT_QUESTION_SCHEMA_VERSION
+        )
+
     def test_connection(self) -> dict[str, Any]:
         questions = {
             "connection_noul": {
@@ -728,6 +842,77 @@ class FixtureJevProvider:
             snapshot_hash=jev_state(snapshot, features, portfolio)["snapshot_hash"],
             latency_ms=0,
             observed_at=parse_utc(snapshot.as_of, "snapshot.as_of"),
+        )
+
+    def evaluate_spot(self, state: dict[str, Any]) -> dict[str, Any]:
+        """Deterministic spot screen derived from the supplied rule state and closed-bar statistics."""
+
+        questions = build_spot_jev_questions()
+        rule_state = (state.get("rule") or {}).get("state")
+        ret = state.get("ret_60d") if isinstance(state.get("ret_60d"), (int, float)) else 0.0
+        dist = state.get("dist_sma100") if isinstance(state.get("dist_sma100"), (int, float)) else 0.0
+        vol = state.get("vol_20d") if isinstance(state.get("vol_20d"), (int, float)) else 0.0
+        regime_label = (state.get("regime") or {}).get("label")
+        trend = {"HOLD": "uptrend", "CASH": "downtrend"}.get(rule_state, "range")
+        strength = float(min(4, max(0, int(abs(ret) / 0.1))))
+        reversal = float(min(4, max(0, int(abs(dist) / 0.1))))
+        if rule_state == "WATCH":
+            agreement = "caution"
+        elif reversal >= 3:
+            agreement = "disagree"
+        else:
+            agreement = "agree"
+        if rule_state != "HOLD":
+            timing = "not_applicable"
+        elif dist > 0.2:
+            timing = "extended_late"
+        elif dist > 0.08:
+            timing = "wait_pullback"
+        else:
+            timing = "good_now"
+        if dist > 0.2:
+            risk = "overextended"
+        elif vol > 0.06:
+            risk = "high_volatility"
+        elif regime_label == "RISK_OFF":
+            risk = "market_risk_off"
+        elif rule_state == "WATCH":
+            risk = "weakening_momentum"
+        else:
+            risk = "none"
+
+        def choice(question_id: str, value: str) -> dict[str, Any]:
+            keys = list(questions[question_id]["criteria"])
+            rest = (1.0 - 0.7) / (len(keys) - 1)
+            return {"type": "choice", "choice": value, "confidence": 0.7,
+                    "probabilities": {key: (0.7 if key == value else rest) for key in keys}}
+
+        def score(question_id: str, value: float) -> dict[str, Any]:
+            criteria = questions[question_id]["criteria"]
+            return {"type": "score", "score": value, "confidence": 0.7,
+                    "probabilities": {str(i): (0.8 if i == int(value) else 0.05) for i in range(len(criteria))},
+                    "legend": {str(i): label for i, label in enumerate(criteria)}}
+
+        response = {
+            "model": self.model,
+            "answers": {
+                "trend_regime": choice("trend_regime", trend),
+                "trend_strength": score("trend_strength", strength),
+                "reversal_risk": score("reversal_risk", reversal),
+                "rule_agreement": choice("rule_agreement", agreement),
+                "entry_timing": choice("entry_timing", timing),
+                "key_risk": choice("key_risk", risk),
+            },
+            "usage": {"input_tokens": 0, "output_tokens": 0},
+        }
+        cutoff = state.get("data_cutoff")
+        return parse_jev_response(
+            response,
+            questions,
+            snapshot_hash=digest(state),
+            question_schema_version=SPOT_QUESTION_SCHEMA_VERSION,
+            latency_ms=0,
+            observed_at=parse_utc(cutoff, "state.data_cutoff") if isinstance(cutoff, str) else None,
         )
 
     def test_connection(self) -> dict[str, Any]:
@@ -1166,6 +1351,246 @@ def parse_replan(content: Any, context: dict[str, Any]) -> dict[str, Any]:
     }
 
 
+# ---------------------------------------------------------------------------
+# Spot co-trader reviews (advisory text; never changes the rule state or a position)
+# ---------------------------------------------------------------------------
+
+SPOT_STANCES = ("agree", "caution", "disagree")
+SPOT_CONVICTIONS = ("low", "medium", "high")
+MARKET_STANCES = ("risk_on", "mixed", "risk_off")
+SPOT_REVIEW_SUMMARY_MAX = 700
+SPOT_BRIEFING_SUMMARY_MAX = 900
+SPOT_TEXT_ITEM_MAX = 240
+_THAI_RE = re.compile("[฀-๿]")
+_TEXT_LIST = {"type": "array", "items": {"type": "string"}, "minItems": 1, "maxItems": 4}
+SPOT_REVIEW_RESPONSE_SCHEMA: dict[str, Any] = {
+    "type": "object",
+    "properties": {
+        "stance": {"type": "string", "enum": list(SPOT_STANCES)},
+        "conviction": {"type": "string", "enum": list(SPOT_CONVICTIONS)},
+        "summary_th": {"type": "string"},
+        "bull_points": _TEXT_LIST,
+        "bear_points": _TEXT_LIST,
+        "key_levels": {
+            "type": "object",
+            "properties": {
+                "support": {"type": "array", "items": {"type": "number"}, "maxItems": 5},
+                "resistance": {"type": "array", "items": {"type": "number"}, "maxItems": 5},
+                "invalidation": {"type": ["number", "null"]},
+            },
+            "required": ["support", "resistance", "invalidation"],
+            "additionalProperties": False,
+        },
+        "risks": _TEXT_LIST,
+        "change_my_mind": {"type": "string"},
+    },
+    "required": [
+        "stance", "conviction", "summary_th", "bull_points", "bear_points", "key_levels", "risks", "change_my_mind",
+    ],
+    "additionalProperties": False,
+}
+SPOT_SKILL_SECTIONS = (
+    "# 2. Core Operating Principles",
+    "# 21B. Evidence Ledger and Debate Discipline",
+    "# 30. Anti-Bias Rules for the AI",
+    "# 30A. Point-in-Time Integrity",
+    "# 30C. Backtest and Calibration Discipline",
+    "# 39. Safety and Epistemic Discipline",
+)
+_THAI_STYLE = (
+    "Write summary_th and every other text field in plain, simple Thai for a non-expert: short "
+    "sentences, no jargon (explain any technical term in a few words), no step-by-step reasoning. "
+)
+
+
+def spot_briefing_response_schema(coins: list[str]) -> dict[str, Any]:
+    return {
+        "type": "object",
+        "properties": {
+            "stance_market": {"type": "string", "enum": list(MARKET_STANCES)},
+            "summary_th": {"type": "string"},
+            "highlights": {
+                "type": "array",
+                "maxItems": 5,
+                "items": {
+                    "type": "object",
+                    "properties": {"coin": {"type": "string", "enum": list(coins)}, "note": {"type": "string"}},
+                    "required": ["coin", "note"],
+                    "additionalProperties": False,
+                },
+            },
+        },
+        "required": ["stance_market", "summary_th", "highlights"],
+        "additionalProperties": False,
+    }
+
+
+def load_spot_skill_context(root: Path | None = None) -> str:
+    """A compact extract of the crypto-market-trading-analysis skill for daily spot reviews.
+
+    The full bundle (~60 KB) would dominate the cost of a small daily review, so the spot co-trader
+    sends the discipline sections plus the technical-analysis and point-in-time references."""
+
+    repository_root = root or Path(__file__).resolve().parents[1]
+    skill_dir = repository_root / "skills/crypto-market-trading-analysis"
+    try:
+        text = (skill_dir / "SKILL.md").read_text(encoding="utf-8")
+        references = [
+            (skill_dir / "references" / name).read_text(encoding="utf-8")
+            for name in ("technical-analysis.md", "point-in-time.md")
+        ]
+    except OSError as exc:
+        raise AIProviderError("crypto trading skill context is unavailable") from exc
+    sections = re.split(r"(?m)^(?=# )", text)
+    chosen = [part.strip() for part in sections if part.startswith(SPOT_SKILL_SECTIONS)]
+    if len(chosen) != len(SPOT_SKILL_SECTIONS):
+        raise AIProviderError("crypto trading skill context is incomplete")
+    return "\n\n".join(["## SKILL.md (spot extract)", *chosen, *references])
+
+
+def _round_sig(value: Any, digits: int = 8) -> Any:
+    if isinstance(value, bool) or not isinstance(value, (int, float)) or not math.isfinite(float(value)):
+        return None
+    return float(f"{float(value):.{digits}g}")
+
+
+def build_spot_review_input(context: dict[str, Any]) -> dict[str, Any]:
+    """Safe, typed spot review input: one coin's closed daily bars, rule stats and the regime."""
+
+    rule = context.get("rule") or {}
+    result = {
+        "coin": context["coin"],
+        "symbol": context.get("symbol"),
+        "data_cutoff": context.get("data_cutoff"),
+        "rule_definition": (
+            "HOLD if the 60-day return > 0 and the daily close > its 100-day SMA; CASH if both are false; "
+            "otherwise WATCH (the rule holds nothing). Decided on the 00:00 UTC daily close."
+        ),
+        "rule_state": {
+            key: context.get(key)
+            for key in ("state", "state_since", "days_in_state", "ret_60d", "sma100", "dist_sma100", "vol_20d",
+                        "trend_line_next")
+        },
+        "rule_backtest": {
+            key: rule.get(key)
+            for key in ("cagr", "max_dd", "time_in_market", "switches", "bh_cagr", "bh_max_dd")
+        },
+        "market_regime": context.get("regime"),
+        "jev": context.get("jev"),
+        "user_holding": context.get("holding"),
+        "daily_candles_ohlcv": [
+            [int(row[0]), *(_round_sig(value) for value in row[1:6])]
+            for row in (context.get("candles") or [])[-120:]
+        ],
+        "instruction": (
+            "Review this coin for a spot holder. Use only the supplied closed daily candles and statistics. "
+            "Key levels must come from the supplied candles. Do not set quantities or position sizes."
+        ),
+    }
+    result["spot_review_input_hash"] = digest(result)
+    return result
+
+
+def build_spot_briefing_input(context: dict[str, Any]) -> dict[str, Any]:
+    coins = []
+    for coin in context.get("coins") or []:
+        coins.append({
+            key: coin.get(key)
+            for key in ("coin", "state", "state_since", "days_in_state", "changed_today", "ret_60d",
+                        "dist_sma100", "vol_20d", "trend_line_next", "rule", "jev", "recent_closes")
+        })
+    result = {
+        "data_cutoff": context.get("data_cutoff"),
+        "market_regime": context.get("regime"),
+        "coins": coins,
+        "instruction": (
+            "Write the daily market briefing for a spot holder of these coins, grounded in the rule states "
+            "and the Jev scores supplied. Highlight at most 5 coins that deserve attention today."
+        ),
+    }
+    result["spot_briefing_input_hash"] = digest(result)
+    return result
+
+
+def _text(value: Any, field: str, limit: int) -> str:
+    if not isinstance(value, str) or not value.strip():
+        raise AIProviderError(f"spot review {field} is invalid")
+    text = value.strip()
+    return text if len(text) <= limit else text[: limit - 1].rstrip() + "…"
+
+
+def _text_list(value: Any, field: str) -> list[str]:
+    if not isinstance(value, list) or not value:
+        raise AIProviderError(f"spot review {field} must contain 1 to 4 items")
+    return [_text(item, field, SPOT_TEXT_ITEM_MAX) for item in value[:4]]
+
+
+def _levels(value: Any, field: str) -> list[float]:
+    if not isinstance(value, list):
+        raise AIProviderError(f"spot review {field} levels are invalid")
+    result = []
+    for item in value[:5]:
+        if isinstance(item, bool) or not isinstance(item, (int, float)) or not math.isfinite(item) or item <= 0:
+            raise AIProviderError(f"spot review {field} level is invalid")
+        result.append(float(item))
+    return result
+
+
+def parse_spot_review(content: Any) -> dict[str, Any]:
+    """Validate a structured spot review; the Thai summary must actually be Thai."""
+
+    fields = set(SPOT_REVIEW_RESPONSE_SCHEMA["required"])
+    if not isinstance(content, dict) or set(content) != fields:
+        raise AIProviderError("spot review response has an unsupported shape")
+    if content["stance"] not in SPOT_STANCES or content["conviction"] not in SPOT_CONVICTIONS:
+        raise AIProviderError("spot review stance or conviction is invalid")
+    summary = _text(content["summary_th"], "summary_th", SPOT_REVIEW_SUMMARY_MAX)
+    if not _THAI_RE.search(summary):
+        raise AIProviderError("spot review summary_th is not Thai")
+    levels = content["key_levels"]
+    if not isinstance(levels, dict) or set(levels) != {"support", "resistance", "invalidation"}:
+        raise AIProviderError("spot review key levels have an unsupported shape")
+    invalidation = levels["invalidation"]
+    if invalidation is not None and (
+        isinstance(invalidation, bool) or not isinstance(invalidation, (int, float))
+        or not math.isfinite(invalidation) or invalidation <= 0
+    ):
+        raise AIProviderError("spot review invalidation level is invalid")
+    return {
+        "stance": content["stance"],
+        "conviction": content["conviction"],
+        "summary_th": summary,
+        "bull_points": _text_list(content["bull_points"], "bull_points"),
+        "bear_points": _text_list(content["bear_points"], "bear_points"),
+        "key_levels": {
+            "support": _levels(levels["support"], "support"),
+            "resistance": _levels(levels["resistance"], "resistance"),
+            "invalidation": None if invalidation is None else float(invalidation),
+        },
+        "risks": _text_list(content["risks"], "risks"),
+        "change_my_mind": _text(content["change_my_mind"], "change_my_mind", SPOT_TEXT_ITEM_MAX * 2),
+    }
+
+
+def parse_spot_briefing(content: Any, coins: list[str]) -> dict[str, Any]:
+    if not isinstance(content, dict) or set(content) != {"stance_market", "summary_th", "highlights"}:
+        raise AIProviderError("spot briefing response has an unsupported shape")
+    if content["stance_market"] not in MARKET_STANCES:
+        raise AIProviderError("spot briefing market stance is invalid")
+    summary = _text(content["summary_th"], "summary_th", SPOT_BRIEFING_SUMMARY_MAX)
+    if not _THAI_RE.search(summary):
+        raise AIProviderError("spot briefing summary_th is not Thai")
+    highlights = content["highlights"]
+    if not isinstance(highlights, list):
+        raise AIProviderError("spot briefing highlights are invalid")
+    parsed = []
+    for item in highlights[:5]:
+        if not isinstance(item, dict) or set(item) != {"coin", "note"} or item["coin"] not in coins:
+            raise AIProviderError("spot briefing highlight is invalid")
+        parsed.append({"coin": item["coin"], "note": _text(item["note"], "note", SPOT_TEXT_ITEM_MAX)})
+    return {"stance_market": content["stance_market"], "summary_th": summary, "highlights": parsed}
+
+
 REASONING_EFFORTS = {"low", "medium", "high", "max"}
 
 
@@ -1394,6 +1819,116 @@ class ResponsesAdapter:
             "real_external_call": True,
         }
 
+    def _spot_prompt(
+        self, instructions: str, user_input: dict[str, Any], name: str, schema: dict[str, Any], action: str
+    ) -> dict[str, Any]:
+        skill = self.skill_context if self.skill_context is not None else load_spot_skill_context()
+        prompt = {
+            "model": self.provider["model"],
+            "instructions": (
+                f"{instructions}\n<crypto-market-trading-analysis>\n{skill}\n</crypto-market-trading-analysis>"
+            ),
+            "input": json.dumps(user_input, sort_keys=True, separators=(",", ":"), allow_nan=False),
+            "text": {"format": {"type": "json_schema", "name": name, "strict": True, "schema": schema}},
+            "reasoning": {"effort": self._effort(action)},
+        }
+        if self.max_output_tokens is not None:
+            prompt["max_output_tokens"] = int(self.max_output_tokens)
+        return prompt
+
+    def _structured(self, prompt: dict[str, Any], label: str) -> tuple[Any, dict[str, Any], float]:
+        headers = self._headers()
+        meta: dict[str, Any] = {}
+        self.last_call = meta
+        started = time.perf_counter()
+        response = _safe_post(
+            self._transport,
+            _responses_url(self.provider),
+            headers,
+            prompt,
+            float(self.provider.get("timeout_seconds", 30)),
+            "Responses-compatible provider",
+            meta,
+        )
+        latency = (time.perf_counter() - started) * 1000
+        meta["latency_ms"] = latency
+        meta["raw_usage"] = response.get("usage")
+        meta.update(responses_metadata(response, prompt["reasoning"]["effort"]))
+        try:
+            content = json.loads(_response_text(response))
+        except (json.JSONDecodeError, TypeError):
+            raise AIProviderError(f"Responses-compatible provider returned malformed {label} JSON") from None
+        return content, {**meta, "usage": response.get("usage")}, latency
+
+    def spot_review_payload(self, context: dict[str, Any]) -> tuple[dict[str, Any], str, dict[str, Any]]:
+        user_input = build_spot_review_input(context)
+        instructions = (
+            "You are a research-only crypto spot analyst helping a non-expert who places spot trades "
+            "manually. Apply the crypto-market-trading-analysis discipline supplied below. A deterministic "
+            "daily trend rule already decided the coin's state; you never change it. Say whether you agree "
+            "with the rule's current state (agree, caution or disagree), with low, medium or high "
+            "conviction, which is NOT a calibrated probability. Use only the supplied closed daily candles "
+            "and statistics: never use later data, browse, call tools, or request or reveal credentials. "
+            "Separate observed facts from interpretation and give both bull and bear points. "
+            + _THAI_STYLE
+            + f"summary_th must be at most {SPOT_REVIEW_SUMMARY_MAX} characters. This is decision support, "
+            "not investment advice: never size a position. Return the required JSON only."
+        )
+        prompt = self._spot_prompt(
+            instructions, user_input, "spot_cotrader_review", SPOT_REVIEW_RESPONSE_SCHEMA, "spot review call"
+        )
+        return prompt, instructions, user_input
+
+    def generate_spot_review(self, context: dict[str, Any]) -> dict[str, Any]:
+        prompt, instructions, user_input = self.spot_review_payload(context)
+        content, meta, latency = self._structured(prompt, "spot review")
+        return {
+            "review": parse_spot_review(content),
+            "model": self.provider["model"],
+            "returned_model": meta.get("returned_model"),
+            "latency_ms": latency,
+            "usage": meta.get("usage"),
+            "prompt_hash": digest({"instructions": instructions, "input": user_input}),
+            "provider_response_id": meta.get("provider_response_id"),
+            "real_external_call": True,
+        }
+
+    def spot_briefing_payload(self, context: dict[str, Any]) -> tuple[dict[str, Any], str, dict[str, Any]]:
+        user_input = build_spot_briefing_input(context)
+        coins = [coin["coin"] for coin in user_input["coins"]]
+        instructions = (
+            "You are a research-only crypto spot analyst writing a short daily market briefing for a "
+            "non-expert who places spot trades manually. Apply the crypto-market-trading-analysis "
+            "discipline supplied below. A deterministic daily trend rule already decided each coin's state "
+            "and Jev supplied structured scores; ground the briefing in them and never change a rule state. "
+            "Use only the supplied closed daily data: never use later data, browse, call tools, or request "
+            "or reveal credentials. Classify the market as risk_on, mixed or risk_off. "
+            + _THAI_STYLE
+            + f"summary_th must be at most {SPOT_BRIEFING_SUMMARY_MAX} characters; at most 5 highlights, "
+            "each a coin from the supplied list with a one-sentence Thai note. This is decision support, "
+            "not investment advice. Return the required JSON only."
+        )
+        prompt = self._spot_prompt(
+            instructions, user_input, "spot_cotrader_briefing", spot_briefing_response_schema(coins),
+            "spot briefing call",
+        )
+        return prompt, instructions, user_input
+
+    def generate_spot_briefing(self, context: dict[str, Any]) -> dict[str, Any]:
+        prompt, instructions, user_input = self.spot_briefing_payload(context)
+        coins = [coin["coin"] for coin in user_input["coins"]]
+        content, meta, latency = self._structured(prompt, "spot briefing")
+        return {
+            "briefing": parse_spot_briefing(content, coins),
+            "model": self.provider["model"],
+            "returned_model": meta.get("returned_model"),
+            "latency_ms": latency,
+            "usage": meta.get("usage"),
+            "prompt_hash": digest({"instructions": instructions, "input": user_input}),
+            "provider_response_id": meta.get("provider_response_id"),
+            "real_external_call": True,
+        }
+
     def connection_payload(self) -> dict[str, Any]:
         payload = {
             "model": self.provider["model"],
@@ -1575,6 +2110,61 @@ class FixtureGPTProvider:
             "usage": {"input_tokens": 0, "output_tokens": 0},
             "latency_ms": 0,
             "prompt_hash": digest(build_replan_input(context)),
+            "fixture": True,
+        }
+
+    def generate_spot_review(self, context: dict[str, Any]) -> dict[str, Any]:
+        """Deterministic fixture review built from the rule state and the supplied candles (labeled as a fixture)."""
+
+        coin = context["coin"]
+        state = context.get("state")
+        dist = context.get("dist_sma100") if isinstance(context.get("dist_sma100"), (int, float)) else 0.0
+        ret = context.get("ret_60d") if isinstance(context.get("ret_60d"), (int, float)) else 0.0
+        candles = (context.get("candles") or [])[-20:]
+        state_th = {"HOLD": "อยู่ในเทรนด์", "CASH": "ถือเงินสด", "WATCH": "รอยืนยัน"}.get(state, "ยังไม่ทราบ")
+        sma = context.get("sma100")
+        content = {
+            "stance": "caution" if state == "WATCH" else "agree",
+            "conviction": "high" if abs(dist) > 0.1 else "medium" if abs(dist) > 0.03 else "low",
+            "summary_th": (
+                f"ข้อความทดสอบจาก fixture ไม่ใช่ AI จริง: กฎให้ {coin} อยู่ในสถานะ {state_th} "
+                f"ผลตอบแทน 60 วัน {ret:+.1%} และราคาห่างเส้นค่าเฉลี่ย 100 วัน {dist:+.1%}"
+            ),
+            "bull_points": [f"ผลตอบแทน 60 วัน {ret:+.1%}"],
+            "bear_points": [f"ความผันผวนรายวันประมาณ {float(context.get('vol_20d') or 0):.1%}"],
+            "key_levels": {
+                "support": [float(min(row[3] for row in candles))] if candles else [],
+                "resistance": [float(max(row[2] for row in candles))] if candles else [],
+                "invalidation": float(sma) if isinstance(sma, (int, float)) and sma > 0 else None,
+            },
+            "risks": ["ตลาดคริปโทผันผวนสูง"],
+            "change_my_mind": "ถ้าราคาปิดรายวันหลุดเส้นแนวโน้ม",
+        }
+        return {
+            "review": parse_spot_review(content),
+            "model": self.model,
+            "usage": {"input_tokens": 0, "output_tokens": 0},
+            "latency_ms": 0,
+            "prompt_hash": digest(build_spot_review_input(context)),
+            "fixture": True,
+        }
+
+    def generate_spot_briefing(self, context: dict[str, Any]) -> dict[str, Any]:
+        regime = (context.get("regime") or {}).get("label")
+        stance = {"RISK_ON": "risk_on", "RISK_OFF": "risk_off"}.get(regime, "mixed")
+        coins = [coin["coin"] for coin in context.get("coins") or []]
+        changed = [coin["coin"] for coin in context.get("coins") or [] if coin.get("changed_today")]
+        content = {
+            "stance_market": stance,
+            "summary_th": f"ข้อความทดสอบจาก fixture ไม่ใช่ AI จริง: ภาพรวมตลาดวันนี้ {stance} จาก {len(coins)} เหรียญ",
+            "highlights": [{"coin": coin, "note": "สถานะของกฎเปลี่ยนเมื่อปิดแท่งล่าสุด"} for coin in changed[:5]],
+        }
+        return {
+            "briefing": parse_spot_briefing(content, coins),
+            "model": self.model,
+            "usage": {"input_tokens": 0, "output_tokens": 0},
+            "latency_ms": 0,
+            "prompt_hash": digest(build_spot_briefing_input(context)),
             "fixture": True,
         }
 

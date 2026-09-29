@@ -27,6 +27,13 @@ from .portfolio_os import ConfirmationRequired
 from .resilience import InstanceLock
 from .secret_store import CredentialResolver, default_secret_store
 from .sleeves import stream_symbols
+from .spot_cotrader import (
+    CoTraderConfirmationRequired,
+    CoTraderNotFound,
+    CoTraderScheduler,
+    SpotCoTrader,
+    attach_cotrader,
+)
 
 
 REPOSITORY_ROOT = Path(__file__).resolve().parents[1]
@@ -66,6 +73,7 @@ class PaperHTTPServer(ThreadingHTTPServer):
     def __init__(self, address, handler, runtime: PaperRuntime, scheduler: PaperScheduler):
         self.runtime = runtime
         self.scheduler = scheduler
+        self.cotrader: SpotCoTrader | None = None  # set only by `paper-server --cotrader`
         self._chart_provider: GateUsdtFuturesMarketDataProvider | None = None
         if ":" in address[0]:
             self.address_family = socket.AF_INET6
@@ -177,6 +185,54 @@ class PaperRequestHandler(BaseHTTPRequestHandler):
             409,
             {"error": str(exc), "code": exc.code, "confirmation_required": True, "details": exc.details},
         )
+
+    # ---- Spot AI Co-Trader (decision support; no exchange write path exists) ----
+    def _cotrader_body(self) -> dict[str, Any]:
+        if self.headers.get("Content-Length", "0") in {"", "0"}:
+            return {}
+        return self._read_json()
+
+    def _cotrader_get(self, path: str) -> dict[str, Any] | None:
+        service = getattr(self.server, "cotrader", None)
+        if service is None or not (path == "/api/cotrader" or path.startswith("/api/cotrader/")):
+            return None
+        if path == "/api/cotrader":
+            return service.overview()
+        remainder = urllib.parse.unquote(path[len("/api/cotrader/") :]).strip("/")
+        if remainder == "scorecard":
+            return service.scorecard()
+        if remainder == "journal":
+            return {"journal": service.journal()}
+        if remainder == "settings":
+            return {"settings": service.settings_view()}
+        if not remainder or "/" in remainder:
+            return None
+        return service.coin_detail(remainder)
+
+    def _cotrader_post(self, path: str) -> tuple[int, dict[str, Any]] | None:
+        service = getattr(self.server, "cotrader", None)
+        if service is None or not path.startswith("/api/cotrader/"):
+            return None
+        remainder = urllib.parse.unquote(path[len("/api/cotrader/") :]).strip("/")
+        if remainder == "journal":
+            return 200, {"entry": service.add_journal(self._read_json())}
+        if remainder == "settings":
+            return 200, {"settings": service.update_settings(self._read_json())}
+        if remainder.endswith("/analyze") and remainder.count("/") == 1:
+            body = self._cotrader_body()
+            if set(body) - {"confirm"}:
+                raise PaperTradingError("analyze accepts only confirm")
+            confirm = body.get("confirm", False)
+            if not isinstance(confirm, bool):
+                raise PaperTradingError("confirm must be boolean")
+            try:
+                result = service.review(remainder.split("/", 1)[0], trigger="manual", confirm=confirm)
+            except CoTraderConfirmationRequired as exc:
+                return 409, {"confirmation_required": True, "reason": exc.reason}
+            if result["analysis"] is None:
+                return 200, {"analysis": None, "blocked_reason": result["blocked_reason"]}
+            return 200, {"analysis": result["analysis"]}
+        return None
 
     # ---- holdings (manual + READ-ONLY Gate spot sync; no exchange write path exists) ----
     def _holdings_post(self, path: str) -> dict[str, Any] | None:
@@ -780,6 +836,8 @@ class PaperRequestHandler(BaseHTTPRequestHandler):
             elif path == "/api/market/stream":
                 self._sse(query)
                 return
+            elif (payload := self._cotrader_get(path)) is not None:
+                self._send_json(200, payload)
             elif (payload := self._portfolio_get(path, query)) is not None:
                 self._send_json(200, payload)
             elif path == "/api/integration/latest":
@@ -798,6 +856,8 @@ class PaperRequestHandler(BaseHTTPRequestHandler):
                 return
             else:
                 self._safe_error(404, "resource not found")
+        except CoTraderNotFound as exc:
+            self._safe_error(404, str(exc))
         except PaperTradingError as exc:
             self._safe_error(400, str(exc))
         except (EvaluationError, OSError):
@@ -937,6 +997,10 @@ class PaperRequestHandler(BaseHTTPRequestHandler):
                     {"result": self.runtime.warm_up_market_history(profile=profile)},
                 )
                 return
+            cotrader = self._cotrader_post(path)
+            if cotrader is not None:
+                self._send_json(*cotrader)
+                return
             payload = self._holdings_post(path)
             if payload is None:
                 payload = self._portfolio_post(path)
@@ -946,6 +1010,8 @@ class PaperRequestHandler(BaseHTTPRequestHandler):
             self._safe_error(404, "resource not found")
         except ConfirmationRequired as exc:
             self._confirmation(exc)
+        except CoTraderNotFound as exc:
+            self._safe_error(404, str(exc))
         except PaperTradingError as exc:
             self._safe_error(400, str(exc))
         except (EvaluationError, OSError):
@@ -996,6 +1062,7 @@ def _parser() -> argparse.ArgumentParser:
     parser.add_argument("--port", type=int, default=DEFAULT_PORT)
     parser.add_argument("--database", type=Path, default=default_database_path())
     parser.add_argument("--no-live-stream", action="store_true", help="do not connect the Gate public WebSocket")
+    parser.add_argument("--cotrader", action="store_true", help="enable the Spot AI Co-Trader routes and its daily scheduler")
     return parser
 
 
@@ -1005,6 +1072,7 @@ def serve(
     port: int = DEFAULT_PORT,
     database: str | Path | None = None,
     live_stream: bool = True,
+    cotrader: bool = False,
 ) -> int:
     if host not in {"127.0.0.1", "::1"}:
         raise PaperTradingError("the local research server must bind to a loopback address")
@@ -1024,10 +1092,17 @@ def serve(
     scheduler = PaperScheduler(runtime)
     scheduler.resume_on_startup()
     server = PaperHTTPServer((host, port), PaperRequestHandler, runtime, scheduler)
+    cotrader_scheduler = None
+    if cotrader:
+        server.cotrader = attach_cotrader(runtime)
+        cotrader_scheduler = CoTraderScheduler(server.cotrader)
+        cotrader_scheduler.start()
     display_host = f"[{host}]" if ":" in host else host
     print(f"PAPER futures research console: http://{display_host}:{port}/")
     print("Execution mode is permanently PAPER; real-money order routes are not implemented.")
     print(f"Credential store: {resolver.store.backend}; Gate live stream: {'on' if stream else 'off'}")
+    if cotrader:
+        print("Spot AI Co-Trader: on (decision support only; no exchange write path)")
     def _terminate(_signum: int, _frame: Any) -> None:
         raise KeyboardInterrupt
 
@@ -1042,6 +1117,8 @@ def serve(
         # checkpoint WAL, then release the database and the instance lock.
         server.shutdown()
         server.server_close()
+        if cotrader_scheduler is not None:
+            cotrader_scheduler.shutdown()
         scheduler.shutdown()
         if stream is not None:
             stream.stop()
@@ -1054,7 +1131,8 @@ def main(argv: list[str] | None = None) -> int:
     args = _parser().parse_args(argv)
     try:
         return serve(
-            host=args.host, port=args.port, database=args.database, live_stream=not args.no_live_stream
+            host=args.host, port=args.port, database=args.database, live_stream=not args.no_live_stream,
+            cotrader=args.cotrader,
         )
     except PaperTradingError as exc:
         print(f"error: {exc}", file=sys.stderr)
