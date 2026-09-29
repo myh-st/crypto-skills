@@ -144,7 +144,12 @@ def diff_material(frozen: dict[str, Any], current: dict[str, Any], prefix: str =
             continue
         a, b = frozen[key], current[key]
         if isinstance(a, dict) and isinstance(b, dict):
+            # Defaults for a nested object: the field's own default when it is a dict, else the nested
+            # defaults declared under "__nested__" (e.g. sleeves: default None at top level, but its
+            # sub-fields have defaults of their own).
             nested = defaults.get(key)
+            if not isinstance(nested, dict):
+                nested = (defaults.get("__nested__") or {}).get(key)
             changes.extend(diff_material(a, b, f"{path}.", nested if isinstance(nested, dict) else None))
         elif a != b:
             changes.append(path)
@@ -156,8 +161,22 @@ def material_defaults() -> dict[str, Any]:
 
     from .paper_contracts import default_experiment_config
 
+    from .sleeves import validate_sleeves
+
     config = default_experiment_config()
-    return {"experiment_config": {k: v for k, v in config.items() if k not in OPERATIONAL_EXPERIMENT_FIELDS}}
+    section = {k: v for k, v in config.items() if k not in OPERATIONAL_EXPERIMENT_FIELDS}
+    # sleeves defaults to None, but a sleeves experiment's sub-fields (e.g. margin_scaling) have defaults too.
+    section["__nested__"] = {"sleeves": _nested_defaults(validate_sleeves({}))}
+    return {"experiment_config": section}
+
+
+def _nested_defaults(value: dict[str, Any]) -> dict[str, Any]:
+    out: dict[str, Any] = {}
+    for key, item in value.items():
+        out[key] = item
+        if isinstance(item, dict):
+            out.setdefault("__nested__", {})[key] = _nested_defaults(item)
+    return out
 
 
 PROMOTION_SCHEMA = """

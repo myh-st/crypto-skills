@@ -237,3 +237,23 @@ class SchemaEvolutionDriftTests(unittest.TestCase):
         self.assertEqual(diff_material({"c": {}}, {"c": {"budget": {"cap": 2.0, "mode": "block"}}}, added_defaults=defaults), ["c.budget"])
         # an added field with no known default is drift
         self.assertEqual(diff_material({"c": {}}, {"c": {"new": 0}}, added_defaults={"c": {}}), ["c.new"])
+
+
+class NestedSchemaEvolutionTests(unittest.TestCase):
+    def test_a_new_nested_sleeves_field_at_its_default_is_not_drift(self):
+        from crypto_eval.promotion import diff_material, material_defaults
+        from crypto_eval.sleeves import validate_sleeves
+
+        defaults = material_defaults()
+        now = validate_sleeves({})
+        frozen_sleeves = {k: v for k, v in now.items() if k != "margin_scaling"}          # frozen before the field existed
+        frozen = {"experiment_config": {"strategy_engine": "sleeves_v1", "sleeves": frozen_sleeves}}
+        current = {"experiment_config": {"strategy_engine": "sleeves_v1", "sleeves": now}}
+        self.assertEqual(diff_material(frozen, current, added_defaults=defaults), [])
+        on = {"experiment_config": {"strategy_engine": "sleeves_v1", "sleeves": {**now, "margin_scaling": True}}}
+        self.assertEqual(diff_material(frozen, on, added_defaults=defaults), ["experiment_config.sleeves.margin_scaling"])
+        # a real change inside sleeves is still drift
+        changed = {"experiment_config": {"strategy_engine": "sleeves_v1", "sleeves": {**now, "gross_cap": 2.0}}}
+        self.assertIn("experiment_config.sleeves.gross_cap", diff_material(frozen, changed, added_defaults=defaults))
+        # a breakout experiment frozen without any sleeves key, now sleeves=None, is not drift
+        self.assertEqual(diff_material({"experiment_config": {}}, {"experiment_config": {"sleeves": None}}, added_defaults=defaults), [])
