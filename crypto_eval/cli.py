@@ -210,6 +210,18 @@ def _parser() -> argparse.ArgumentParser:
     )
     portfolio_real.add_argument("--max-candles", type=int, default=1, help="closed 15m candles to scan (full loop)")
 
+    backup = commands.add_parser("paper-backup", help="consistent, verified, secret-free snapshot of the PAPER database")
+    backup.add_argument("--database", type=Path, help="PAPER SQLite path (default: the paper-server database)")
+    backup.add_argument("--out-dir", type=Path, help="backup directory (default: <database dir>/backups)")
+    restore = commands.add_parser("paper-restore", help="restore a verified backup (stop paper-server first)")
+    restore.add_argument("backup", type=Path, help="backup .sqlite3 file (its .json manifest must sit beside it)")
+    restore.add_argument("--database", type=Path, help="target PAPER SQLite path (default: the paper-server database)")
+    restore.add_argument("--force", action="store_true", help="keep the existing database aside as .pre-restore-* and restore")
+    soak = commands.add_parser("paper-soak", help="accelerated local soak with restarts, sleep gaps, and invariant checks (fixture data)")
+    soak.add_argument("--database", type=Path, required=True, help="fresh SQLite path for the soak (must not exist)")
+    soak.add_argument("--days", type=float, default=3.0)
+    soak.add_argument("--out", type=Path, help="report JSON path")
+
     setup = commands.add_parser(
         "paper-setup-real",
         help="store .env credentials in the OS credential store and configure real Jev/Foundry providers",
@@ -484,6 +496,36 @@ def _dispatch(args: argparse.Namespace) -> int:
         if args.full_loop:
             return run_full_loop_check(database=args.database, out=args.out, max_candles=max(1, min(args.max_candles, 96)))
         return run_portfolio_real_check(database=args.database, out=args.out)
+    if args.command == "paper-backup":
+        from .paper_runtime import PaperStore
+        from .paper_server import default_database_path
+        from .resilience import backup_database
+
+        database = args.database or default_database_path()
+        if not Path(database).exists():
+            raise EvaluationError(f"database not found: {database}")
+        store = PaperStore(database)
+        try:
+            manifest = backup_database(store, args.out_dir or Path(database).parent / "backups", label="cli")
+        finally:
+            store.close()
+        print(json.dumps(manifest, indent=2, sort_keys=True))
+        return 0
+    if args.command == "paper-restore":
+        from .paper_server import default_database_path
+        from .resilience import InstanceLock, restore_database
+
+        database = Path(args.database or default_database_path())
+        lock = InstanceLock(database).acquire()  # refuses while a paper-server holds the database
+        try:
+            print(json.dumps(restore_database(args.backup, database, force=args.force), indent=2, sort_keys=True))
+        finally:
+            lock.release()
+        return 0
+    if args.command == "paper-soak":
+        from .soak import main_soak
+
+        return main_soak(args.database, days=max(0.1, min(args.days, 120.0)), out=args.out)
     if args.command == "paper-setup-real":
         from .real_integration import setup_real
 
