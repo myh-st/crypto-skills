@@ -58,3 +58,37 @@ trades a day reaches 150–200 trades in about 14–21 days.
 - CI and unit tests stay offline and fake-only.
 - Secrets never reach SQLite, logs, prompts or exports.
 - Do not mutate a running experiment. A material change becomes a new version.
+
+## Research outcome (2026-09-29): gate NOT passed, EXP-003 not built
+
+Rounds 1–2 fail the stage-1 gate in every view. The rounds and their results:
+
+| Round | Scope | Out-of-sample result |
+|---|---|---|
+| 1 | 199,020 backtests: 8 families × 5m–4h × 30 coins; walk-forward K20 | Sharpe 1.01 (holdout 0.36). 6/9 gate criteria fail: PF 1.08, loses at 2× costs, DD 23% at 0.5% risk |
+| 2 | Honest maker fills (trade-through), 4h robust ensembles, Gate-liquidity universe, per-coin slippage | Best candidates Sharpe 0.72–0.74, t ≈ 0.9; pass 1–2 of 8 |
+
+Overfitting diagnostics:
+- PBO is about 0.44–0.50 in the comparable 4h space.
+- The Deflated Sharpe of the round-1 procedure is 0.22 with all 82 trials counted (bar: 0.95).
+- The best in-sample stream loses out of sample in 68% of CSCV splits.
+
+Why:
+- Sub-4h edges exist before costs but are smaller than taker fees.
+- Maker fills are adversely selected: filled trades lose and missed trades win.
+- Much of round 1's profit came from coins that are illiquid on Gate. Only 9 of 30 pass a Gate liquidity filter, and on those the walk-forward drops to Sharpe −0.06.
+
+A 2–3 week forward PAPER test cannot prove an edge. The minimum track record for Sharpe > 0 at 95% is about 440 days even at a true Sharpe of 1.5. Short forward tests are for engine fidelity, meaning PAPER matching a replay of the same bars, not for proving an edge.
+
+Evidence:
+- `reports/day-trade/report.md`
+- `reports/day-trade/round2/report.md` (with `PLAN.md` and `results.json`)
+- `reports/company/scout-report.md`
+
+All three are git-ignored research outputs.
+
+### What happens instead
+
+- **The aggressive track for fast growth on small capital is the evidence-backed trend engine at 2× risk.** EXP-002x runs the trend sleeves at 2× with `margin_scaling`, a 40% drawdown halt and a 15% daily loss pause. Its 4-year runtime replay gives Sharpe 1.33, +67.9%/yr and max DD 36.2%. EXP-002 (1×: Sharpe 1.44, +42.1%/yr, DD 18.4%) is its control.
+- **Any new day-trade hypothesis needs different information,** not new bar patterns. Candidates are funding/basis extremes, OI or liquidation reversals, cross-sectional ranking across the Gate-liquid coins, and Gate–Binance lead-lag.
+- Each hypothesis is pre-declared in a plan with a tiny trial count. It is judged on clean post-2026-07 data plus the forward PAPER stream, with the Deflated Sharpe and PBO reported.

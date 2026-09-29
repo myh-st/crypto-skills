@@ -4,14 +4,36 @@
   "set_at": "2026-09-29",
   "live_execution": "PLANNING_ONLY_LIVE_DISABLED",
   "stages": [
-    {"name": "research", "state": "IN_PROGRESS", "evidence": null},
-    {"name": "engine", "state": "PENDING", "evidence": null},
-    {"name": "runtime_replay", "state": "PENDING", "evidence": null},
-    {"name": "paper_short_test", "state": "PENDING", "evidence": null},
-    {"name": "review", "state": "PENDING", "evidence": null}
+    {
+      "name": "research",
+      "state": "FAILED_GATE",
+      "evidence": "reports/day-trade/report.md; reports/day-trade/round2/report.md (PBO~0.5, DSR 0.22, best OOS Sharpe 0.74)"
+    },
+    {
+      "name": "engine",
+      "state": "NOT_STARTED_BLOCKED_BY_RESEARCH_GATE",
+      "evidence": null
+    },
+    {
+      "name": "runtime_replay",
+      "state": "NOT_STARTED_BLOCKED_BY_RESEARCH_GATE",
+      "evidence": null
+    },
+    {
+      "name": "paper_short_test",
+      "state": "NOT_STARTED_BLOCKED_BY_RESEARCH_GATE",
+      "evidence": null
+    },
+    {
+      "name": "review",
+      "state": "NOT_STARTED_BLOCKED_BY_RESEARCH_GATE",
+      "evidence": null
+    }
   ],
   "background_experiments": {
     "EXP-001": "15m breakout + AI, running since 2026-09-29, http://127.0.0.1:8765",
-    "EXP-002": "trend sleeves, running since 2026-09-29, http://127.0.0.1:8768"
-  }
+    "EXP-002": "trend sleeves, running since 2026-09-29, http://127.0.0.1:8768",
+    "EXP-002x": "trend sleeves at 2x risk with margin_scaling, http://127.0.0.1:8770 (relaunched after the margin_scaling release)"
+  },
+  "decision_2026_09_29": "Do not build EXP-003 on bar-pattern day trading. Aggressive track = EXP-002x (trend sleeves 2x, port 8770). Next: pre-declared hypotheses on new information (funding/basis, OI/liquidations, cross-sectional, lead-lag)."
 }
