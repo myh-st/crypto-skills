@@ -1,0 +1,17 @@
+{
+  "goal": "day-trade-futures",
+  "priority": 1,
+  "set_at": "2026-09-29",
+  "live_execution": "PLANNING_ONLY_LIVE_DISABLED",
+  "stages": [
+    {"name": "research", "state": "IN_PROGRESS", "evidence": null},
+    {"name": "engine", "state": "PENDING", "evidence": null},
+    {"name": "runtime_replay", "state": "PENDING", "evidence": null},
+    {"name": "paper_short_test", "state": "PENDING", "evidence": null},
+    {"name": "review", "state": "PENDING", "evidence": null}
+  ],
+  "background_experiments": {
+    "EXP-001": "15m breakout + AI, running since 2026-09-29, http://127.0.0.1:8765",
+    "EXP-002": "trend sleeves, running since 2026-09-29, http://127.0.0.1:8768"
+  }
+}
