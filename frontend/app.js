@@ -56,9 +56,12 @@ const routeTables = Object.fromEntries(NAV_ITEMS.map(({ route }) => [route, true
 routeTables.runs = true;
 routeTables.position = true;
 
+let cotraderMode = false;
+
 async function detectPaperRuntime() {
   try {
     const health = await paperApi.health();
+    cotraderMode = health?.cotrader === true;
     return health?.service === "paper-futures" && health.execution_mode === "PAPER";
   } catch {
     return false;
@@ -69,7 +72,10 @@ async function main() {
   const [runtime, paperRuntime] = await Promise.all([runtimeService.initialize(), detectPaperRuntime()]);
   const runtimeBadge = document.getElementById("runtime-mode");
   const runtimeMessage = document.getElementById("runtime-message");
-  if (paperRuntime) {
+  if (paperRuntime && cotraderMode) {
+    runtimeBadge.textContent = "SPOT CO-TRADER";
+    runtimeMessage.textContent = "Decision support on the daily close · public Gate spot data · no orders are ever placed";
+  } else if (paperRuntime) {
     runtimeBadge.textContent = "PAPER";
     runtimeMessage.textContent = "PAPER execution · exchange data from the local backend · Gate live orders BLOCKED BY DESIGN · No real-money execution";
   } else if (runtime.mode === "live") {
@@ -125,14 +131,14 @@ async function main() {
   }
 
   function renderChrome() {
-    const navHtml = renderNav(currentRoute);
+    const navHtml = renderNav(currentRoute, { mode: cotraderMode ? "cotrader" : "lab", params: currentParams });
     sidebar.innerHTML = navHtml;
     mobileNav.innerHTML = navHtml;
   }
 
   const router = createRouter({
     routes: routeTables,
-    defaultRoute: "overview",
+    defaultRoute: cotraderMode ? "cotrader" : "overview",
     onRouteChange(route, params) {
       currentRoute = route;
       currentParams = params;
@@ -163,7 +169,7 @@ async function main() {
     }
   });
 
-  if (paperRuntime && typeof EventSource === "function") {
+  if (paperRuntime && !cotraderMode && typeof EventSource === "function") {
     // Runtime stream: attention counts for the nav badge and a nudge to refresh open views
     // when new journal events arrive. Prices are never announced to assistive technology.
     connectLive(paperApi.runtimeStreamUrl(), { onFrame: (payload) => {

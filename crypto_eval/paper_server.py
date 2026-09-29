@@ -218,6 +218,8 @@ class PaperRequestHandler(BaseHTTPRequestHandler):
             return 200, {"entry": service.add_journal(self._read_json())}
         if remainder == "settings":
             return 200, {"settings": service.update_settings(self._read_json())}
+        if remainder == "watchlist":
+            return 200, service.update_watchlist(self._read_json())
         if remainder.endswith("/analyze") and remainder.count("/") == 1:
             body = self._cotrader_body()
             if set(body) - {"confirm"}:
@@ -764,6 +766,7 @@ class PaperRequestHandler(BaseHTTPRequestHandler):
                         "service": "paper-futures",
                         "execution_mode": "PAPER",
                         "real_money_execution": False,
+                        "cotrader": getattr(self.server, "cotrader", None) is not None,
                     },
                 )
             elif path == "/api/experiment":

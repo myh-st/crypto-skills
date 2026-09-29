@@ -1174,3 +1174,142 @@ class EndpointTests(CoTraderCase):
 
 if __name__ == "__main__":
     unittest.main()
+
+
+# ---------------------------------------------------------------------------
+# watchlist (add / remove coins without any exchange key) and provider-setup retries
+# ---------------------------------------------------------------------------
+
+
+class VolumeSource(FakeSource):
+    """FakeSource whose tickers carry a 24h quote volume per base (default 50M USDT)."""
+
+    def __init__(self, series, volumes=None, **kwargs):
+        super().__init__(series, **kwargs)
+        self.volumes = volumes or {}
+
+    def tickers(self):
+        return {pair: {**row, "quote_volume": self.volumes.get(pair.split("_")[0], 50_000_000.0)}
+                for pair, row in super().tickers().items()}
+
+
+class WatchlistTests(CoTraderCase):
+    def make_with(self, extra: dict[str, list[dict]], volumes=None):
+        series = {**default_series(), **extra}
+        service = self.make(series)
+        # the default universe must not include the extra coins; the source lists them on "Gate"
+        self.source = VolumeSource(series, volumes)
+        service.source = self.source
+        return service
+
+    def test_add_listed_coin_fetches_history_and_reports_liquidity(self):
+        service = self.make_with({"SOL": candles_from(wave(500, 2.0))})
+        result = service.update_watchlist({"add": "sol_usdt"})
+        self.assertEqual(result["universe"][-1], "SOL")
+        added = result["added"]
+        self.assertEqual(added["base"], "SOL")
+        self.assertFalse(added["thin"])
+        self.assertTrue(added["history_ok"])
+        self.assertGreaterEqual(added["daily_bars"], 365)
+        self.assertIn("SOL", [coin["base"] for coin in service.overview()["coins"]])
+        self.assertEqual({pair for pair, _ in self.source.calls}, {"SOL_USDT"})  # only the new coin is fetched
+
+    def test_thin_or_short_history_coin_is_added_with_warnings(self):
+        service = self.make_with({"NEWC": candles_from(wave(90))}, volumes={"NEWC": 120_000.0})
+        added = service.update_watchlist({"add": "NEWC"})["added"]
+        self.assertTrue(added["thin"])
+        self.assertFalse(added["history_ok"])
+        self.assertEqual(added["quote_volume_24h_usdt"], 120000)
+
+    def test_unlisted_duplicate_stablecoin_and_full_list_are_refused(self):
+        service = self.make_with({})
+        with self.assertRaisesRegex(PaperTradingError, "not listed on Gate spot"):
+            service.update_watchlist({"add": "NOPE"})
+        with self.assertRaisesRegex(PaperTradingError, "already in the watchlist"):
+            service.update_watchlist({"add": "BTC"})
+        with self.assertRaisesRegex(PaperTradingError, "stablecoins"):
+            service.update_watchlist({"add": "USDC"})
+        with self.assertRaisesRegex(PaperTradingError, "exactly one"):
+            service.update_watchlist({"add": "SOL", "remove": "BTC"})
+        service.update_settings({"universe": [f"C{i}" for i in range(20)]})
+        with self.assertRaisesRegex(PaperTradingError, "at most 20"):
+            service.update_watchlist({"add": "BTC"})
+        self.assertEqual(len(service.universe()), 20)
+
+    def test_remove_keeps_at_least_one_coin(self):
+        service = self.make_with({})
+        self.assertEqual(service.update_watchlist({"remove": "SEI"})["removed"], "SEI")
+        self.assertNotIn("SEI", service.universe())
+        for base in service.universe()[:-1]:
+            service.update_watchlist({"remove": base})
+        with self.assertRaisesRegex(PaperTradingError, "at least one"):
+            service.update_watchlist({"remove": service.universe()[0]})
+
+    def test_listing_check_failure_does_not_change_the_watchlist(self):
+        service = self.make_with({"SOL": candles_from(wave(500))})
+
+        def broken():
+            raise OSError("network down")
+
+        self.source.tickers = broken
+        before = service.universe()
+        with self.assertRaisesRegex(PaperTradingError, "cannot check Gate spot listings"):
+            service.update_watchlist({"add": "SOL"})
+        self.assertEqual(service.universe(), before)
+
+
+class ProviderSetupRetryTests(CoTraderCase):
+    def test_provider_setup_block_is_retried_after_spacing_but_budget_block_is_final(self):
+        store = PaperStore(":memory:")
+        self.addCleanup(store.close)
+        clock = FixedClock(NOW)
+        runtime = PaperRuntime(store, clock=clock)  # fixture providers -> refused outside tests
+        service = SpotCoTrader(runtime, source=FakeSource(default_series()), clock=clock)
+        service.refresh()
+        self.assertTrue(service.jev_daily()["coins"]["BTC"].startswith("blocked:fixture_provider"))
+        # within the retry spacing: no new attempt row
+        rows = lambda: store._query("SELECT COUNT(*) AS n FROM cotrader_analyses WHERE coin='BTC' AND source='jev'")[0]["n"]
+        self.assertEqual(rows(), 1)
+        service.jev_daily()
+        self.assertEqual(rows(), 1)
+        # after the spacing the provider is tried again (still fixture here, so blocked again)
+        clock.now = NOW + timedelta(minutes=11)
+        service.jev_daily()
+        self.assertEqual(rows(), 2)
+
+    def test_allowed_attempt_ignores_setup_blocks_but_not_budget_blocks(self):
+        service = self.make()
+        key = "unit:key"
+        common = {"coin": "BTC", "source": "jev", "trigger": "daily", "trigger_key": key, "call_id": "c1"}
+        service._record(**common, status="blocked", reason="provider_unavailable")
+        allowed, _ = service._attempt_allowed(key, NOW + timedelta(hours=1))
+        self.assertTrue(allowed)
+        service._record(**{**common, "call_id": "c2"}, status="blocked", reason="DAILY_BUDGET")
+        allowed, existing = service._attempt_allowed(key, NOW + timedelta(hours=2))
+        self.assertFalse(allowed)
+        self.assertEqual(existing["reason"], "DAILY_BUDGET")
+
+
+class HealthFlagTests(CoTraderCase):
+    serve = EndpointTests.serve
+    call = EndpointTests.call
+
+    def test_health_reports_cotrader_mode_and_watchlist_endpoint(self):
+        self.make()
+        self.source = VolumeSource({**default_series(), "SOL": candles_from(wave(500))})
+        self.service.source = self.source
+        base_url = self.serve()
+        status, health, _ = self.call(base_url, "/api/health")
+        self.assertEqual(status, 200)
+        self.assertTrue(health["cotrader"])
+        status, body, _ = self.call(base_url, "/api/cotrader/watchlist", {"add": "SOL"})
+        self.assertEqual(status, 200, body)
+        self.assertEqual(body["added"]["base"], "SOL")
+        status, body, _ = self.call(base_url, "/api/cotrader/watchlist", {"add": "NOPE"})
+        self.assertEqual(status, 400)
+
+    def test_health_without_cotrader_flag(self):
+        self.make()
+        base_url = self.serve(cotrader=False)
+        _, health, _ = self.call(base_url, "/api/health")
+        self.assertFalse(health["cotrader"])

@@ -240,12 +240,12 @@ export function validateHolding(input) {
 export function renderCotraderSettingsForm(settings) {
   const s = settings || {};
   const capital = num(s.cotrader_capital_usdt);
-  const sourceText = s.capital_source === "user" ? "set by you" : s.capital_source === "holdings" ? "from your Holdings total (value + cash)" : "not set";
+  const sourceText = s.capital_source === "user" ? "set by you" : s.capital_source === "holdings" ? "from your Holdings total (value + cash)" : "not set — enter the USDT you use for spot";
   const method = s.sizing_method || "equal_weight";
   return `<form class="paper-form" data-cot-settings-form>
     <div class="paper-form-grid">
       <label class="ticket-field">Spot capital for the rule (USDT)
-        <input name="cotrader_capital_usdt" type="number" inputmode="decimal" step="any" min="0" value="${capital === null ? "" : escapeHtml(capital)}" placeholder="blank = use Holdings total" />
+        <input name="cotrader_capital_usdt" type="number" inputmode="decimal" step="any" min="0" value="${capital === null ? "" : escapeHtml(capital)}" placeholder="e.g. 1000" />
       </label>
       <label class="ticket-field">Sizing method
         <select name="sizing_method">${Object.entries(METHOD_LABELS).map(([value, label]) => `<option value="${value}" ${value === method ? "selected" : ""}>${escapeHtml(label)}</option>`).join("")}</select>
