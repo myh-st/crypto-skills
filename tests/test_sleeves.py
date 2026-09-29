@@ -301,6 +301,29 @@ class EngineTests(unittest.TestCase):
         self.assertAlmostEqual(float(self.store.wallet_summary("EXP-001", "primary")["starting_balance"]), 600.0)
 
 
+class Exp002SetupTests(unittest.TestCase):
+    """The committed EXP-002 setup helper produces a config and settings the server accepts."""
+
+    def test_setup_helper_builds_a_valid_sleeves_experiment(self):
+        import importlib.util
+
+        from crypto_eval.portfolio_store import default_portfolio_settings, validate_portfolio_settings
+
+        path = Path(__file__).resolve().parents[1] / "scripts" / "paper_exp002_setup.py"
+        spec = importlib.util.spec_from_file_location("paper_exp002_setup", path)
+        setup = importlib.util.module_from_spec(spec)
+        spec.loader.exec_module(setup)
+        config = validate_experiment_config(setup.experiment_config(default_experiment_config(), recorded_at=iso_utc(START)))
+        self.assertEqual((config["strategy_engine"], config["label"], config["starting_balance_usdt"]), ("sleeves_v1", "EXP-002", 500.0))
+        self.assertEqual(config["sleeves"]["universe"], DEFAULT_SLEEVES["universe"])
+        self.assertFalse(config["jev_enabled"] or config["gpt_escalation_enabled"])
+        self.assertEqual(config["ai_budget"]["limit_action"], "BLOCK_PAID_AI")
+        self.assertEqual(capital_cohorts(config), list(COHORTS.values()))
+        settings = validate_portfolio_settings(setup.portfolio_settings(default_portfolio_settings()))
+        self.assertFalse(settings["ai_spot"]["enabled"] or settings["review"]["enabled"])
+        self.assertEqual(settings["promotion"]["min_completed_trades"], 80)
+
+
 class StopDistanceCapTests(unittest.TestCase):
     def test_only_an_engine_risk_config_widens_the_stop_cap_and_never_past_45_percent(self):
         from crypto_eval.paper_contracts import INTENT_SCHEMA_VERSION, TradingIntent
