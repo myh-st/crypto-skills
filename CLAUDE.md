@@ -55,33 +55,28 @@ market snapshot (closed 15m bar + 1h/4h context)
 - Invariants to preserve: GPT can never set quantity or leverage, and it cannot override risk. Jev's `escalation_needed` cannot bypass the router. A risk rejection never creates an order or fill. A cycle key is unique per (experiment, symbol, closed candle), so retries return the stored cycle without calling Jev or GPT again. If one bar hits both stop and target, the stop wins. Missing data or unknown cost stays explicitly unavailable and is never zero-filled.
 - `ai_cost.py` holds the AI usage/cost ledger, the versioned price book, and budget guards (`BLOCK_PAID_AI`, `FALLBACK_QUANT`, `JEV_ONLY`, `PAUSE_NEW_ENTRIES`). Paid calls fail closed when their price is unknown.
 
-## Current live-integration baseline and canonical next phase
+## Current baseline and canonical active goal
 
-The real AI + live Gate integration from PR #2 is now an implementation baseline, not the active product goal:
+The current implementation baseline includes real Gate perpetual market data, backend SSE, real Jev / Azure Foundry integration, deterministic PAPER risk/execution, AI cost controls, read-only Gate account sync capability, and the Portfolio OS work that will be synced here after its active branch is completed.
 
-- `gate_market.py`: Gate perpetual REST warm-up
-- `gate_stream.py` and `ws_client.py`: public Gate WebSocket live stream and chart
-- `gate_account.py`: read-only account sync; `DisabledLiveExecutionAdapter` blocks every write
-- `secret_store.py`: macOS Keychain or Linux `secret-tool`; there is deliberately no plaintext backend
-- `real_integration.py`: real local acceptance; never substitutes fixtures for failed required real checks
-- `ai_cost.py`: versioned AI price book, usage ledger, and hard budget guard
+This branch is **planning-only until feature/ai-portfolio-trading-os is finished and pushed**.
 
-`docs/paper-futures-runtime.md` documents the implemented runtime baseline.
+Before implementation:
 
-The canonical active product goal for this branch is:
+- sync this branch onto the final Portfolio OS head;
+- run the complete baseline test suite;
+- inspect the final Spot, order, position-manager, authority-mode, re-plan and Portfolio Brain contracts;
+- preserve their behavior while adding deterministic crash/execution safety.
 
-- `.goals/ai-portfolio-trading-os/goal.md`
-- `.goals/ai-portfolio-trading-os/status.json`
-- `docs/ai-portfolio-trading-os-plan.md`
-- `docs/claude-opus-5-5-ai-portfolio-trading-os-prompt.md`
+The canonical active files for this branch are:
 
-This phase extends the platform into an AI Portfolio Trading OS: portfolio-first UX, Spot + Perpetual PAPER trading, exchange-backed instrument selection, full position/order management, explicit AI/manual authority modes, structured AI re-plan, Portfolio Brain, attention/activity, strategy tournament, and post-trade learning.
+- `.goals/crash-execution-safety/goal.md`
+- `.goals/crash-execution-safety/status.json`
+- `docs/crash-execution-safety-plan.md`
 
-Testing tiers remain:
+`docs/paper-futures-runtime.md` remains implementation-reference material, not the active goal.
 
-- **CI and unit tests** must use fakes or fixtures only. Never add real network calls to tests.
-- **Local acceptance** may use real public Gate market data and real configured Jev/Azure providers.
-- Real Gate money-moving writes remain blocked by design.
+CI and unit tests remain offline/fake-only. Real Gate money-moving writes remain blocked by design.
 
 ## Safety boundaries (enforced by design, keep them)
 
