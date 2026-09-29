@@ -4,6 +4,7 @@
 
 export const PRIMARY_NAV = [
   { route: "overview", label: "Overview", icon: "◧" },
+  { route: "cotrader", label: "Co-Trader", icon: "◎" },
   { route: "today", label: "Today", icon: "☀" },
   { route: "experiments", label: "Experiments", icon: "⚗" },
   { route: "portfolio", label: "Portfolio", icon: "◔" },

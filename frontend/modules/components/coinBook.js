@@ -30,6 +30,11 @@ export function coinBase(position) {
   return String(position.base || position.symbol || "").replace(/USDT$/, "").replace(/_USDT$/, "").toUpperCase();
 }
 
+/** The coin's brand-inspired colour (or a stable colour from its name), e.g. for allocation bars. */
+export function coinColor(base) {
+  return COINS[base]?.color || `hsl(${hue(String(base || ""))} 55% 42%)`;
+}
+
 export function coinIcon(base, { size = 28 } = {}) {
   const info = COINS[base] || { color: `hsl(${hue(base)} 55% 42%)`, glyph: base.slice(0, 3), name: base };
   const glyph = info.glyph.slice(0, 3);

@@ -2804,3 +2804,259 @@ body.drawer-open { overflow: hidden; }
 .coin-book-summary { margin: 0 0 8px; }
 .positions-detail summary { cursor: pointer; font-size: 13px; color: var(--color-text-muted); padding: 6px 0; }
 @media (max-width: 600px) { .coin-row { grid-template-columns: auto minmax(0, 1fr); } .coin-net { grid-column: 2; justify-items: start; text-align: left; } }
+
+/* ---- Spot AI Co-Trader ---- */
+.view--cotrader { --cot-buy: var(--color-positive-text); --cot-buy-bg: var(--color-positive-bg); --cot-sell: var(--color-negative-text); --cot-sell-bg: var(--color-negative-bg);
+  --cot-hold: #1d4ed8; --cot-hold-bg: #e8efff; --cot-wait: var(--color-neutral-text); --cot-wait-bg: var(--color-neutral-bg); --cot-warn: var(--color-caution-text); --cot-warn-bg: var(--color-caution-bg); }
+.cot-disclaimer { margin: 0 0 12px; padding: 6px 10px; border-radius: 6px; background: var(--color-caution-bg); color: var(--color-caution-text); font-size: 12px; }
+.cot-tabs { display: inline-flex; gap: 2px; margin: 0 0 10px; padding: 3px; border: 1px solid var(--color-border); border-radius: 999px; background: var(--color-surface); }
+.cot-tab { padding: 5px 14px; border-radius: 999px; color: var(--color-text); font-size: 13px; font-weight: 600; }
+.cot-tab:hover { text-decoration: none; background: var(--color-neutral-bg); }
+.cot-tab.is-active { background: var(--color-accent); color: #fff; }
+.cot-kicker { font-size: 10.5px; text-transform: uppercase; letter-spacing: .06em; color: var(--color-text-muted); }
+.cot-note { margin: 4px 0 10px; color: var(--color-caution-text); }
+.cot-chiprow { display: inline-flex; gap: 6px; align-items: center; flex-wrap: wrap; }
+.cot-thai { font-size: 14.5px; line-height: 1.65; margin: 6px 0 10px; white-space: pre-line; }
+
+/* regime strip */
+.cot-regime { display: grid; grid-template-columns: repeat(5, minmax(0, 1fr)); gap: 10px; padding: 12px 14px; margin-bottom: 12px; border: 1px solid var(--color-border); border-left: 5px solid var(--color-text-muted); border-radius: 10px; background: var(--color-surface); }
+.cot-regime--risk-on { border-left-color: var(--color-positive-text); }
+.cot-regime--mixed { border-left-color: var(--color-caution-text); }
+.cot-regime--risk-off { border-left-color: var(--color-negative-text); }
+.cot-regime-cell { display: grid; gap: 3px; align-content: start; min-width: 0; font-variant-numeric: tabular-nums; }
+.cot-regime-cell small { color: var(--color-text-muted); font-size: 11px; }
+.cot-regime-label { font-size: 20px; letter-spacing: .02em; }
+.cot-regime--risk-on .cot-regime-label { color: var(--color-positive-text); }
+.cot-regime--mixed .cot-regime-label { color: var(--color-caution-text); }
+.cot-regime--risk-off .cot-regime-label { color: var(--color-negative-text); }
+.cot-ai-split { display: flex; flex-wrap: wrap; gap: 4px; align-items: center; }
+
+/* briefing */
+.cot-highlights { display: flex; flex-wrap: wrap; gap: 6px; }
+.cot-hl { display: inline-flex; align-items: center; gap: 6px; padding: 4px 10px 4px 5px; border: 1px solid var(--color-border); border-radius: 999px; color: var(--color-text); font-size: 12.5px; max-width: 100%; }
+.cot-hl:hover { border-color: var(--color-accent); text-decoration: none; }
+
+/* badges and chips (every badge carries a text label and a glyph, never colour alone) */
+.cot-action { display: inline-flex; align-items: center; gap: 6px; border-radius: 8px; font-weight: 800; letter-spacing: .04em; white-space: nowrap; border: 2px solid transparent; }
+.cot-action--big { font-size: 22px; padding: 4px 14px; }
+.cot-action--small { font-size: 12px; padding: 1px 8px; }
+.cot-action--buy { background: var(--cot-buy); color: #fff; }
+.cot-action--sell { background: var(--cot-sell); color: #fff; }
+.cot-action--hold { background: var(--cot-hold-bg); color: var(--cot-hold); border-color: #c9d8fb; }
+.cot-action--wait { background: var(--cot-wait-bg); color: var(--cot-wait); border-color: var(--color-border); }
+.cot-state, .cot-stance, .cot-source, .cot-timing, .cot-src, .cot-ladder-state, .cot-ladder-action, .cot-cdc, .cot-agree, .cot-open-tag, .cot-fresh {
+  display: inline-flex; align-items: center; gap: 4px; border-radius: 6px; padding: 1px 7px; font-size: 11.5px; font-weight: 700; white-space: nowrap; border: 1px solid transparent; }
+.cot-state--hold { background: var(--cot-buy-bg); color: var(--cot-buy); }
+.cot-state--cash { background: var(--cot-sell-bg); color: var(--cot-sell); }
+.cot-state--watch { background: var(--cot-warn-bg); color: var(--cot-warn); }
+.cot-state--none { background: var(--color-neutral-bg); color: var(--color-text-muted); font-weight: 500; }
+.cot-stance--agree { background: var(--cot-buy-bg); color: var(--cot-buy); }
+.cot-stance--caution { background: var(--cot-warn-bg); color: var(--cot-warn); }
+.cot-stance--disagree { background: var(--cot-sell-bg); color: var(--cot-sell); }
+.cot-stance--none { background: var(--color-neutral-bg); color: var(--color-text-muted); font-weight: 500; }
+.cot-source { font-size: 10.5px; letter-spacing: .04em; padding: 0 6px; }
+.cot-source--jev { background: #f3e8ff; color: #6b21a8; }
+.cot-source--luna { background: #e0f2fe; color: #075985; }
+.cot-timing { background: var(--color-neutral-bg); color: var(--color-neutral-text); font-weight: 600; }
+.cot-timing--good_now { background: var(--cot-buy-bg); color: var(--cot-buy); }
+.cot-timing--extended_late { background: var(--cot-warn-bg); color: var(--cot-warn); }
+.cot-fresh { background: #fff4d6; color: #7a4d00; border-color: #f1d189; }
+.cot-fresh-dot { width: 8px; height: 8px; border-radius: 50%; background: #e08a00; animation: cot-pulse 1.4s ease-in-out infinite; }
+@keyframes cot-pulse { 0% { box-shadow: 0 0 0 0 rgba(224, 138, 0, .55); } 70% { box-shadow: 0 0 0 7px rgba(224, 138, 0, 0); } 100% { box-shadow: 0 0 0 0 rgba(224, 138, 0, 0); } }
+
+/* coin grid */
+.cot-section { margin-bottom: 16px; }
+.cot-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(290px, 1fr)); gap: 12px; }
+.cot-card { display: grid; gap: 8px; align-content: start; padding: 12px 14px; border: 1px solid var(--color-border); border-top: 4px solid var(--cot-wait); border-radius: 12px; background: var(--color-surface); color: var(--color-text); min-width: 0; transition: transform .18s ease, box-shadow .18s ease; }
+.cot-card:hover { text-decoration: none; transform: translateY(-2px); box-shadow: 0 6px 18px color-mix(in srgb, var(--color-text) 10%, transparent); }
+.cot-card--buy { border-top-color: var(--cot-buy); }
+.cot-card--sell { border-top-color: var(--cot-sell); }
+.cot-card--hold { border-top-color: var(--cot-hold); }
+.cot-card--fresh { box-shadow: 0 0 0 2px #f1d189; animation: cot-card-glow 2.4s ease-in-out infinite; }
+@keyframes cot-card-glow { 50% { box-shadow: 0 0 0 4px rgba(241, 209, 137, .55); } }
+.cot-card-head { display: grid; grid-template-columns: auto minmax(0, 1fr) auto; gap: 10px; align-items: center; }
+.cot-card-name { display: grid; min-width: 0; }
+.cot-card-name strong { font-size: 16px; }
+.cot-card-price { display: grid; justify-items: end; text-align: right; font-variant-numeric: tabular-nums; }
+.cot-card-price strong { font-size: 16px; }
+.cot-card-action { display: flex; gap: 10px; align-items: center; flex-wrap: wrap; }
+.cot-card-state { display: grid; gap: 4px; justify-items: start; }
+.cot-card-text { margin: 0; font-size: 13px; }
+.cot-trigger { margin: 0; font-size: 12.5px; color: var(--color-text); background: var(--color-neutral-bg); padding: 5px 8px; border-radius: 6px; font-variant-numeric: tabular-nums; }
+.cot-card-foot { display: flex; flex-wrap: wrap; gap: 4px 10px; align-items: center; color: var(--color-text-muted); font-variant-numeric: tabular-nums; }
+.cot-spark { display: block; width: 100%; height: 56px; }
+.cot-spark--empty { height: auto; padding: 8px 0; }
+.cot-spark-line { fill: none; stroke-width: 1.8; }
+.cot-spark--up .cot-spark-line { stroke: var(--color-positive-text); }
+.cot-spark--down .cot-spark-line { stroke: var(--color-negative-text); }
+.cot-spark--up .cot-spark-dot { fill: var(--color-positive-text); }
+.cot-spark--down .cot-spark-dot { fill: var(--color-negative-text); }
+.cot-spark-level { stroke: var(--color-accent); stroke-width: 1.2; stroke-dasharray: 5 4; opacity: .85; }
+
+/* Jev */
+.cot-jev { display: flex; flex-wrap: wrap; gap: 6px 10px; align-items: center; padding-top: 6px; border-top: 1px dashed var(--color-border); }
+.cot-jev--large { border-top: 0; padding-top: 0; gap: 10px 16px; }
+.cot-mini { display: inline-flex; align-items: center; gap: 5px; font-size: 11px; font-variant-numeric: tabular-nums; }
+.cot-mini-label { color: var(--color-text-muted); }
+.cot-mini-track { position: relative; width: 52px; height: 6px; border-radius: 3px; background: var(--color-neutral-bg); overflow: hidden; }
+.cot-jev--large .cot-mini-track { width: 110px; height: 8px; }
+.cot-mini-fill { position: absolute; left: 0; top: 0; bottom: 0; border-radius: 3px; transition: width .6s cubic-bezier(.2, .7, .2, 1); }
+.cot-mini--trend .cot-mini-fill { background: var(--color-accent); }
+.cot-mini--risk .cot-mini-fill { background: var(--color-caution-text); }
+.cot-jev-history { margin: 8px 0 0; }
+.cot-jev-history svg { display: block; width: 100%; height: 70px; }
+.cot-jev-mid { stroke: var(--color-border); stroke-dasharray: 3 3; }
+.cot-jev-line { fill: none; stroke-width: 1.8; }
+.cot-jev-line--trend { stroke: var(--color-accent); }
+.cot-jev-line--risk { stroke: var(--color-caution-text); stroke-dasharray: 5 3; }
+.cot-legend--trend { color: var(--color-accent); }
+.cot-legend--risk { color: var(--color-caution-text); }
+
+/* ladder + CDC */
+.cot-ladder { display: flex; flex-wrap: wrap; gap: 6px; align-items: center; }
+.cot-ladder-state--out { background: var(--color-neutral-bg); color: var(--color-neutral-text); border-color: var(--color-border); }
+.cot-ladder-state--starter { background: #e8efff; color: var(--color-accent-dark); border-color: #c9d8fb; }
+.cot-ladder-state--full { background: var(--cot-buy); color: #fff; }
+.cot-ladder-state--none { background: var(--color-neutral-bg); color: var(--color-text-muted); }
+.cot-ladder-action--buy { background: var(--cot-buy-bg); color: var(--cot-buy); border-color: #b7dcc5; }
+.cot-ladder-action--add { background: #0b6b33; color: #fff; }
+.cot-ladder-action--trim { background: #fdf2d9; color: #7a4d00; border-color: #e9cf8f; }
+.cot-ladder-action--sell { background: var(--cot-sell); color: #fff; }
+.cot-ladder-action--hold { background: var(--color-neutral-bg); color: var(--color-neutral-text); }
+.cot-ladder-delta { font-variant-numeric: tabular-nums; font-weight: 600; }
+.cot-ladder-hint { color: var(--color-text); font-size: 12.5px; }
+.cot-ladder-detail { margin-top: 8px; padding-top: 8px; border-top: 1px dashed var(--color-border); }
+.cot-cdc { background: var(--color-neutral-bg); color: var(--color-text); font-weight: 600; margin-top: 6px; white-space: normal; }
+.cot-cdc i, .cot-key--cdc i { display: inline-block; width: 10px; height: 10px; border-radius: 2px; }
+.cot-cdc--green i { background: #1f7a4d; }
+.cot-cdc--blue i { background: #2f6fed; }
+.cot-cdc--yellow i { background: #d4a017; }
+.cot-cdc--red i { background: #a3352a; }
+.cot-key--cdc i { background: linear-gradient(90deg, #1f7a4d 25%, #2f6fed 25% 50%, #d4a017 50% 75%, #a3352a 75%); width: 22px; height: 6px; }
+
+/* coin detail */
+.cot-detail-head { margin-bottom: 12px; }
+.cot-back { display: inline-block; margin-bottom: 6px; }
+.cot-detail-title { display: grid; grid-template-columns: auto minmax(0, 1fr) auto; gap: 12px; align-items: center; }
+.cot-detail-title h1 { margin: 0; font-size: 22px; }
+.cot-detail-price { display: flex; gap: 8px; align-items: baseline; flex-wrap: wrap; font-variant-numeric: tabular-nums; }
+.cot-detail-price strong { font-size: 20px; }
+.cot-detail-action { display: grid; gap: 6px; justify-items: end; }
+.cot-detail { display: grid; grid-template-columns: minmax(0, 1.5fr) minmax(320px, 1fr); gap: 12px; align-items: start; }
+/* minmax(0, 1fr): an auto track would size to the chart canvas and stop the page from shrinking on phones */
+.cot-detail-main, .cot-detail-side { display: grid; grid-template-columns: minmax(0, 1fr); gap: 12px; min-width: 0; }
+.cot-detail-main > .panel, .cot-detail-side > .panel, .cot-detail-side > div > .panel { margin: 0; }
+.cot-chart { height: 400px; width: 100%; min-width: 0; border: 1px solid var(--color-border); border-radius: var(--radius); overflow: hidden; }
+.cot-chart--equity { height: 240px; }
+.cot-chart-legend { display: flex; flex-wrap: wrap; gap: 4px 12px; color: var(--color-text-muted); margin: 6px 0 0; }
+.cot-key { display: inline-flex; align-items: center; gap: 4px; white-space: nowrap; }
+.cot-key--trend { color: var(--color-accent); }
+.cot-key--hold { color: var(--color-positive-text); }
+.cot-key--avg { color: #6b21a8; }
+.cot-key--add { color: #12803f; }
+.cot-key--trim { color: #a06a0f; }
+.cot-key--exit { color: var(--color-negative-text); }
+.cot-decision { display: grid; gap: 4px; }
+.cot-sub { padding: 10px 0; border-bottom: 1px solid var(--color-border); }
+.cot-sub:first-child { padding-top: 0; }
+.cot-sub-head { display: flex; justify-content: space-between; align-items: center; gap: 8px; flex-wrap: wrap; margin-bottom: 6px; }
+.cot-sub-head h3 { margin: 0; font-size: 14px; }
+.cot-sub h4 { margin: 10px 0 4px; font-size: 12.5px; }
+.cot-rule { display: flex; gap: 10px; align-items: center; flex-wrap: wrap; margin-bottom: 6px; }
+.cot-rule-text { margin: 4px 0; }
+.cot-sizing-line { margin: 0 0 6px; font-size: 15px; font-variant-numeric: tabular-nums; }
+.cot-sizing--buy .cot-sizing-line { color: var(--color-positive-text); }
+.cot-sizing--sell .cot-sizing-line { color: var(--color-negative-text); }
+.cot-sizing--unset { padding: 8px 10px; border-radius: 8px; background: var(--color-caution-bg); color: var(--color-caution-text); }
+.cot-sizing--unset p { margin: 2px 0; }
+.cot-how { margin: 0; padding-left: 18px; display: grid; gap: 3px; font-size: 12.5px; }
+.cot-how-warn { color: var(--color-caution-text); font-weight: 600; }
+.cot-ai-blocked { margin: 6px 0; padding: 6px 10px; border-radius: 6px; background: var(--color-caution-bg); color: var(--color-caution-text); font-weight: 600; }
+.cot-bullbear { display: grid; grid-template-columns: 1fr 1fr; gap: 10px; }
+.cot-bull h4 { color: var(--color-positive-text); }
+.cot-bear h4 { color: var(--color-negative-text); }
+.cot-bullets { margin: 0; padding-left: 18px; font-size: 12.5px; display: grid; gap: 2px; }
+.cot-cmm { font-size: 12.5px; margin: 8px 0; }
+.cot-ask { margin: 8px 0 4px; }
+.cot-analyses { list-style: none; margin: 0; padding: 0; display: grid; gap: 8px; }
+.cot-analysis { padding-bottom: 8px; border-bottom: 1px dashed var(--color-border); }
+.cot-analysis p { margin: 4px 0 0; }
+.cot-analysis-head { display: flex; flex-wrap: wrap; gap: 6px; align-items: center; }
+.cot-journal { list-style: none; margin: 10px 0 0; padding: 0; display: grid; gap: 8px; }
+.cot-journal-row { padding: 8px 10px; border: 1px solid var(--color-border); border-radius: 8px; font-variant-numeric: tabular-nums; }
+.cot-journal-head { display: flex; flex-wrap: wrap; gap: 6px; align-items: center; }
+.cot-journal-note { margin: 4px 0 0; color: var(--color-text-muted); }
+.cot-agree--yes { background: var(--cot-buy-bg); color: var(--cot-buy); }
+.cot-agree--no { background: var(--cot-warn-bg); color: var(--cot-warn); }
+.cot-journal-actions { margin: 0; padding: 0; border: 1px solid var(--color-border); }
+.cot-journal-form textarea { padding: 6px 8px; border: 1px solid var(--color-border); border-radius: 6px; font: inherit; color: var(--color-text); resize: vertical; }
+.cot-open-tag { background: #e8efff; color: var(--color-accent-dark); }
+.cot-trade--open td { background: #f6f9ff; }
+.cot-evidence-main th, .cot-evidence-main td { font-weight: 700; background: #f6f9ff; }
+.cot-scorecard-table th[scope="colgroup"] { text-align: center; }
+.cot-few { color: var(--color-text-muted); font-style: italic; text-align: center; }
+.cot-verdicts { list-style: none; margin: 8px 0; padding: 0; display: grid; gap: 4px; }
+.cot-cost { display: flex; flex-wrap: wrap; gap: 4px; align-items: center; font-variant-numeric: tabular-nums; }
+.cot-unavailable code { display: inline-block; margin-top: 4px; padding: 2px 6px; border-radius: 4px; background: var(--color-neutral-bg); font-size: 12px; overflow-wrap: anywhere; }
+
+/* holdings */
+.cot-totals { display: grid; grid-template-columns: repeat(5, minmax(0, 1fr)); gap: 8px; margin-bottom: 12px; }
+.cot-total { display: grid; gap: 2px; padding: 10px 12px; border: 1px solid var(--color-border); border-radius: 10px; font-variant-numeric: tabular-nums; min-width: 0; }
+.cot-total strong { font-size: 16px; display: flex; flex-wrap: wrap; gap: 4px 8px; }
+.cot-alloc { margin: 0 0 12px; }
+.cot-alloc-bar { display: flex; height: 14px; border-radius: 7px; overflow: hidden; background: var(--color-neutral-bg); }
+.cot-alloc-bar span { display: block; height: 100%; min-width: 2px; border-right: 1px solid var(--color-surface); transition: width .6s cubic-bezier(.2, .7, .2, 1); }
+.cot-alloc-legend { display: flex; flex-wrap: wrap; gap: 4px 12px; margin-top: 6px; font-variant-numeric: tabular-nums; }
+.cot-alloc-legend span { display: inline-flex; align-items: center; gap: 5px; }
+.cot-alloc-legend i { width: 10px; height: 10px; border-radius: 2px; display: inline-block; }
+.cot-holds { list-style: none; margin: 0; padding: 0; display: grid; gap: 10px; }
+.cot-hold { padding: 10px 12px; border: 1px solid var(--color-border); border-left: 4px solid var(--color-border); border-radius: 10px; display: grid; gap: 8px; }
+.cot-hold--warn { border-left-color: var(--color-caution-text); }
+.cot-hold-head { display: grid; grid-template-columns: auto minmax(0, 1fr) auto; gap: 10px; align-items: center; }
+.cot-hold-name { display: grid; gap: 3px; min-width: 0; }
+.cot-hold-value { display: grid; justify-items: end; text-align: right; font-variant-numeric: tabular-nums; }
+.cot-hold-grid { display: grid; grid-template-columns: repeat(6, minmax(0, 1fr)); gap: 4px 10px; margin: 0; font-size: 12.5px; font-variant-numeric: tabular-nums; }
+.cot-hold-grid > div { display: grid; }
+.cot-hold-grid dt { color: var(--color-text-muted); font-size: 11px; }
+.cot-hold-grid dd { margin: 0; font-weight: 600; }
+.cot-src--gate { background: #e8efff; color: var(--color-accent-dark); }
+.cot-src--manual { background: var(--color-neutral-bg); color: var(--color-neutral-text); }
+.cot-src--unknown { background: var(--color-caution-bg); color: var(--color-caution-text); }
+.cot-align { margin: 0; padding: 6px 10px; border-radius: 6px; font-size: 12.5px; }
+.cot-align--warn { background: var(--color-caution-bg); color: var(--color-caution-text); font-weight: 600; }
+.cot-align--info { background: #eef4ff; color: var(--color-accent-dark); }
+.cot-align--ok { background: transparent; padding: 0; color: var(--color-positive-text); }
+.cot-sync { display: grid; gap: 8px; margin-bottom: 12px; }
+.cot-sync-row { display: flex; flex-wrap: wrap; gap: 8px; align-items: center; }
+.cot-guide { padding: 10px 12px; border: 1px dashed var(--color-border); border-radius: 8px; font-size: 13px; }
+.cot-guide ol { margin: 6px 0 0; padding-left: 20px; display: grid; gap: 3px; }
+.cot-validation { padding: 8px 10px; border: 1px solid var(--color-border); border-radius: 8px; }
+.cot-validation p { margin: 2px 0; }
+.cot-two { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 12px; }
+.cot-two > .panel { margin: 0; }
+
+@media (max-width: 1080px) {
+  .cot-detail { grid-template-columns: minmax(0, 1fr); }
+  .cot-regime { grid-template-columns: repeat(3, minmax(0, 1fr)); }
+  .cot-totals { grid-template-columns: repeat(3, minmax(0, 1fr)); }
+}
+@media (max-width: 600px) {
+  .cot-regime { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+  .cot-regime-main { grid-column: 1 / -1; }
+  .cot-grid { grid-template-columns: minmax(0, 1fr); }
+  .cot-action--big { font-size: 18px; padding: 3px 10px; }
+  .cot-detail-title { grid-template-columns: auto minmax(0, 1fr); }
+  .cot-detail-action { grid-column: 1 / -1; justify-items: start; grid-auto-flow: column; justify-content: start; }
+  .cot-chart { height: 300px; }
+  .cot-chart--equity { height: 200px; }
+  .cot-bullbear, .cot-two { grid-template-columns: minmax(0, 1fr); }
+  .cot-totals { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+  .cot-hold-grid { grid-template-columns: repeat(3, minmax(0, 1fr)); }
+  .cot-hold-head { grid-template-columns: auto minmax(0, 1fr); }
+  .cot-hold-value { grid-column: 2; justify-items: start; text-align: left; }
+}
+@media (prefers-reduced-motion: reduce) {
+  .cot-fresh-dot, .cot-card--fresh { animation: none !important; }
+  .cot-card, .cot-mini-fill, .cot-alloc-bar span { transition: none !important; }
+  .cot-card:hover { transform: none; }
+}
