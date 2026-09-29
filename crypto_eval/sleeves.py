@@ -246,7 +246,7 @@ CREATE TABLE IF NOT EXISTS sleeve_trails(
 MARGIN_USE = 0.99  # scale only when the book cannot be funded at all (1% left for fees)
 
 
-def effective_gross_cap(sleeves: dict[str, Any], sleeve: str) -> float:
+def effective_gross_cap(sleeves: dict[str, Any], sleeve: str, config: dict[str, Any] | None = None) -> float:
     """Gross exposure (sum of |weight|, as a multiple of the sleeve's equity) the sleeve can actually carry.
 
     Isolated margin needs notional / leverage per position, so gross above leverage x equity cannot be
@@ -255,7 +255,12 @@ def effective_gross_cap(sleeves: dict[str, Any], sleeve: str) -> float:
 
     if not sleeves.get("margin_scaling"):
         return float(sleeves["gross_cap"])
-    return min(float(sleeves["gross_cap"]), MARGIN_USE * int(sleeves[sleeve]["leverage"]))
+    # Per unit of notional the RiskEngine reserves (1 + slippage) x (1 / leverage + taker fee). Derive the
+    # fundable gross from the experiment's own cost assumptions, keeping 1% of equity free.
+    fee = float((config or {}).get("taker_fee_rate", 0.0005))
+    slip = float((config or {}).get("slippage_bps", 2.0)) / 10_000
+    per_notional = (1 + slip) * (1 / int(sleeves[sleeve]["leverage"]) + fee)
+    return min(float(sleeves["gross_cap"]), MARGIN_USE / per_notional)
 
 
 def capital_cohorts(config: dict[str, Any]) -> list[str]:
@@ -649,7 +654,7 @@ class SleeveEngine:
             for sleeve, fn in (("tsmom", tsmom_weights), ("xsmom", xsmom_weights)):
                 if not sleeves[sleeve]["enabled"] or not due[sleeve]:
                     continue
-                targets = fn(closes, day, sleeves[sleeve], effective_gross_cap(sleeves, sleeve))
+                targets = fn(closes, day, sleeves[sleeve], effective_gross_cap(sleeves, sleeve, config))
                 if not entries_allowed:
                     # Halted/paused: only reductions (flatten to what is already held, never add).
                     targets = {}

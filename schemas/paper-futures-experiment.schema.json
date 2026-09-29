@@ -311,7 +311,7 @@
         "object",
         "null"
       ],
-      "description": "sleeves_v1 parameters (universe, per-sleeve leverage/sizing, catastrophe stop, capital_rebalance); validated by crypto_eval.sleeves.validate_sleeves"
+      "description": "sleeves_v1 parameters (universe, per-sleeve leverage/sizing, catastrophe stop, capital_rebalance, margin_scaling: opt-in, default false; scales a momentum book to what isolated margin can fund); validated by crypto_eval.sleeves.validate_sleeves. See docs/trend-sleeves-engine.md"
     },
     "label": {
       "type": [
