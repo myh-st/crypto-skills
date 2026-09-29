@@ -32,7 +32,9 @@ CHECKPOINTS = (("DAY_7", 7), ("DAY_30", 30), ("DAY_60", 60), ("DAY_90", 90))
 SKILL_ROOT = Path(__file__).resolve().parents[1] / "skills" / "crypto-market-trading-analysis"
 
 # Portfolio settings that change strategy treatment (material) vs operation only.
-MATERIAL_SETTING_GROUPS = ("brain", "safety", "lifecycle", "ai_spot")
+# ``promotion`` is material: the gate criteria are part of what an experiment means, so changing
+# them mid-campaign (moving the goalposts) requires a new manifest version like any treatment change.
+MATERIAL_SETTING_GROUPS = ("brain", "safety", "lifecycle", "ai_spot", "promotion")
 MATERIAL_SETTING_KEYS = (
     "spot_fee_rate", "spot_slippage_bps", "spot_max_allocation_pct", "spot_max_deployed_pct", "spot_min_cash_reserve_pct",
     "spot_limit_participation", "perp_manual_max_risk_pct", "default_ai_management_mode",
