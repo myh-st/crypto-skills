@@ -21,6 +21,7 @@ from .gate_market import CHART_INTERVALS, GATE_DATA_ORIGIN, GateUsdtFuturesMarke
 from .gate_stream import GateLiveMarketStream
 from .paper_contracts import PaperTradingError
 from .paper_runtime import PaperRuntime, PaperScheduler, PaperStore
+from .portfolio_os import ConfirmationRequired
 from .secret_store import CredentialResolver, default_secret_store
 
 
@@ -146,6 +147,223 @@ class PaperRequestHandler(BaseHTTPRequestHandler):
     def _safe_error(self, status: int, message: str) -> None:
         self._send_json(status, {"error": message})
 
+    def _confirmation(self, exc: ConfirmationRequired) -> None:
+        self._send_json(
+            409,
+            {"error": str(exc), "code": exc.code, "confirmation_required": True, "details": exc.details},
+        )
+
+    # ---- portfolio OS routes (PAPER-local; no exchange write path exists) ----
+    @staticmethod
+    def _q(query: dict[str, list[str]], name: str, default: str | None = None) -> str | None:
+        values = query.get(name)
+        return values[0] if values else default
+
+    def _portfolio_get(self, path: str, query: dict[str, list[str]]) -> dict[str, Any] | None:
+        portfolio = self.runtime.portfolio
+        q = lambda name, default=None: self._q(query, name, default)  # noqa: E731
+        if path == "/api/markets":
+            market_type = q("market_type", "spot")
+            limit = q("limit", "200")
+            return portfolio.catalog.list(
+                market_type,
+                query=q("q", "") or "",
+                quote=q("quote"),
+                tradable_only=q("tradable") == "true",
+                limit=int(limit) if limit and limit.isdigit() else 200,
+                sort=q("sort", "volume") or "volume",
+            )
+        if path.startswith("/api/markets/"):
+            remainder = urllib.parse.unquote(path[len("/api/markets/") :])
+            if remainder.endswith("/quote"):
+                return {"quote": portfolio.quote(remainder[: -len("/quote")])}
+            return {"instrument": portfolio.catalog.get(remainder)}
+        if path == "/api/portfolio":
+            return portfolio.portfolio()
+        if path == "/api/portfolio/settings":
+            return {"settings": portfolio.settings()}
+        if path == "/api/positions":
+            return {"positions": portfolio.list_positions(status=q("status", "open") or "open")}
+        if path.startswith("/api/positions/"):
+            return {"position": portfolio.position(urllib.parse.unquote(path[len("/api/positions/") :]))}
+        if path == "/api/orders":
+            return {"orders": portfolio.list_orders(status=q("status"))}
+        if path == "/api/replans":
+            return {"proposals": portfolio.list_replans(status=q("status"), position_ref=q("position_ref"))}
+        if path == "/api/attention":
+            return portfolio.attention(include_resolved=q("include_resolved") == "true")
+        if path == "/api/activity":
+            limit = q("limit", "200")
+            unified = portfolio.activity(
+                symbol=q("symbol"),
+                position_ref=q("position_ref"),
+                category=q("category"),
+                source=q("source"),
+                market_type=q("market_type"),
+                severity=q("severity"),
+                since=q("since"),
+                limit=int(limit) if limit and limit.isdigit() else 200,
+            )
+            experiment = self.runtime.store.experiment()
+            return {**unified, "activity": self.runtime.store.activity(experiment["experiment_id"], limit=200)}
+        if path == "/api/runtime/summary":
+            experiment = self.runtime.store.experiment()
+            stream = self.runtime.live_stream
+            symbol = q("symbol")
+            cycles = self.runtime.store.list_cycles(experiment["experiment_id"], limit=60)
+            if symbol:
+                cycles = [cycle for cycle in cycles if cycle["symbol"] == symbol.upper()]
+            return {
+                "experiment": {k: experiment[k] for k in ("experiment_id", "status", "config", "created_at", "updated_at")},
+                "market_stream": None if stream is None else self._stream_status(stream),
+                "cycles": [
+                    {k: cycle.get(k) for k in (
+                        "cycle_id", "symbol", "status", "cycle_slot", "data_cutoff", "primary_arm", "primary_decision",
+                        "risk", "portfolio_brain", "quant_gate", "jev_status", "market_regime", "as_of", "created_at",
+                    )}
+                    for cycle in cycles[:20]
+                ],
+                "exchange_accounts": self.runtime.store.list_exchange_accounts(),
+                "live_execution": {"gate_write_execution": False, "status": "BLOCKED_BY_DESIGN"},
+            }
+        if path == "/api/tournament":
+            return portfolio.tournament()
+        if path == "/api/reviews":
+            return {"reviews": portfolio.reviews(), "hypotheses": portfolio.hypotheses()}
+        if path == "/api/management-events":
+            return {"events": portfolio.management_events(q("position_ref"))}
+        return None
+
+    def _portfolio_post(self, path: str) -> dict[str, Any] | None:
+        portfolio = self.runtime.portfolio
+        if path == "/api/orders/preview":
+            return {"preview": portfolio.preview_order(self._read_json())}
+        if path == "/api/orders":
+            return {"order": portfolio.create_order(self._read_json())}
+        if path.startswith("/api/orders/") and path.endswith("/cancel"):
+            return {"order": portfolio.cancel_order(urllib.parse.unquote(path[len("/api/orders/") : -len("/cancel")]))}
+        if path.startswith("/api/orders/") and path.endswith("/amend"):
+            return {"order": portfolio.amend_order(urllib.parse.unquote(path[len("/api/orders/") : -len("/amend")]), self._read_json())}
+        if path == "/api/portfolio/review":
+            return {"review": portfolio.portfolio_review()}
+        if path == "/api/portfolio/settings":
+            return {"settings": portfolio.update_settings(self._read_json())}
+        if path == "/api/automation":
+            body = self._read_json()
+            confirm = body.pop("confirm", False)
+            if not isinstance(confirm, bool):
+                raise PaperTradingError("confirm must be boolean")
+            return {"settings": portfolio.set_automation(body, confirm=confirm)}
+        if path == "/api/experiment/validate":
+            return self._validate_experiment(self._read_json())
+        if path.startswith("/api/attention/") and path.endswith("/ack"):
+            return {"attention": portfolio.acknowledge_attention(urllib.parse.unquote(path[len("/api/attention/") : -len("/ack")]))}
+        if path.startswith("/api/replans/"):
+            remainder = urllib.parse.unquote(path[len("/api/replans/") :])
+            proposal_id, _, action = remainder.rpartition("/")
+            body = self._read_json()
+            if action == "apply":
+                confirm = body.get("confirm", False)
+                if not isinstance(confirm, bool):
+                    raise PaperTradingError("confirm must be boolean")
+                return {"proposal": portfolio.apply_replan(proposal_id, edits=body.get("edits"), confirm=confirm)}
+            if action == "reject":
+                return {"proposal": portfolio.reject_replan(proposal_id, reason=body.get("reason"))}
+            return None
+        if path.startswith("/api/positions/"):
+            remainder = urllib.parse.unquote(path[len("/api/positions/") :])
+            ref, _, action = remainder.rpartition("/")
+            if not ref.startswith(("perp:", "spot:")):
+                ref = f"perp:{ref}"  # legacy raw futures position id
+            body = self._read_json()
+            confirm = body.get("confirm", False)
+            if not isinstance(confirm, bool):
+                raise PaperTradingError("confirm must be boolean")
+            request_id = body.get("client_request_id")
+            if action == "reduce":
+                result = portfolio.reduce_position(
+                    ref, body.get("fraction", 1.0), confirm=confirm, request_id=request_id
+                )
+                return {"result": {**result, "accepted": True, "filled_quantity": result["result"].get("filled_quantity")}}
+            if action == "close":
+                return {"result": portfolio.close_position(ref, confirm=confirm, request_id=request_id)}
+            if action == "protection":
+                return {"result": self._protection(portfolio, ref, body)}
+            if action == "management-mode":
+                return {"result": portfolio.set_management_mode(ref, body.get("mode"), confirm=confirm, reason=body.get("reason"))}
+            if action == "replan":
+                use_ai = body.get("use_ai", True)
+                if not isinstance(use_ai, bool):
+                    raise PaperTradingError("use_ai must be boolean")
+                return {"proposal": portfolio.request_replan(ref, intent=body.get("intent"), use_ai=use_ai, note=body.get("note"))}
+        return None
+
+    @staticmethod
+    def _protection(portfolio: Any, ref: str, body: dict[str, Any]) -> dict[str, Any]:
+        allowed = {"stop_price", "targets", "target_fractions", "confirm", "confirm_risk_increase", "client_request_id"}
+        if set(body) - allowed:
+            raise PaperTradingError("protection accepts stop_price, targets, target_fractions, confirm_risk_increase")
+        confirm = body.get("confirm_risk_increase", body.get("confirm", False))
+        if not isinstance(confirm, bool):
+            raise PaperTradingError("confirm_risk_increase must be boolean")
+        return portfolio.update_protection(
+            ref,
+            stop_price=body["stop_price"] if "stop_price" in body else "__unchanged__",
+            targets=body.get("targets"),
+            target_fractions=body.get("target_fractions"),
+            confirm_risk_increase=confirm,
+            request_id=body.get("client_request_id"),
+        )
+
+    def _validate_experiment(self, body: dict[str, Any]) -> dict[str, Any]:
+        from .paper_contracts import OPERATIONAL_EXPERIMENT_FIELDS, validate_experiment_config
+
+        current = self.runtime.store.experiment()
+        errors: list[str] = []
+        normalized = None
+        try:
+            normalized = validate_experiment_config(body)
+        except PaperTradingError as exc:
+            errors.append(str(exc))
+        cycles = self.runtime.store.list_cycles(current["experiment_id"], limit=1)
+        frozen_changes: list[str] = []
+        if normalized is not None and cycles:
+            frozen_changes = sorted(
+                key for key in normalized
+                if key not in OPERATIONAL_EXPERIMENT_FIELDS and normalized.get(key) != current["config"].get(key)
+            )
+            if frozen_changes:
+                errors.append("an experiment with recorded cycles is frozen; create a new experiment")
+        return {
+            "valid": not errors,
+            "errors": errors,
+            "normalized": normalized,
+            "frozen_fields_changed": frozen_changes,
+            "requires_stop": current["status"] != "stopped",
+        }
+
+    def _runtime_sse(self) -> None:
+        import time as _time
+
+        self.send_response(200)
+        self.send_header("Content-Type", "text/event-stream; charset=utf-8")
+        self.send_header("Cache-Control", "no-store")
+        self.send_header("X-Content-Type-Options", "nosniff")
+        self.send_header("Connection", "keep-alive")
+        self.end_headers()
+        since = datetime.now(timezone.utc).strftime("%Y-%m-%dT%H:%M:%S.000Z")
+        try:
+            while True:
+                state = self.runtime.portfolio.stream_state(since=since)
+                if state["activity"]:
+                    since = max(event["timestamp"] for event in state["activity"])
+                data = json.dumps(state, sort_keys=True, separators=(",", ":"), allow_nan=False, default=str)
+                self.wfile.write(f"event: runtime\ndata: {data}\n\n".encode("utf-8"))
+                self.wfile.flush()
+                _time.sleep(3)
+        except (BrokenPipeError, ConnectionResetError, OSError, ValueError):
+            pass
+
     def _static(self, request_path: str) -> bool:
         if request_path == "/":
             request_path = "/frontend/"
@@ -253,6 +471,37 @@ class PaperRequestHandler(BaseHTTPRequestHandler):
             "book": rest.fetch_book_top(symbol),
         }
 
+    def _instrument_candles(self, query: dict[str, list[str]]) -> dict[str, Any]:
+        from .market_catalog import neutral_symbol, parse_instrument_id
+
+        instrument_id = query["instrument_id"][0]
+        _exchange, market_type, exchange_symbol = parse_instrument_id(instrument_id)
+        interval = (query.get("interval") or ["1m"])[0]
+        if interval not in CHART_INTERVALS:
+            raise PaperTradingError("interval must be 1m, 5m, 15m, 1h, or 4h")
+        raw_limit = (query.get("limit") or ["300"])[0]
+        limit = max(10, min(1000, int(raw_limit) if raw_limit.isdigit() else 300))
+        catalog = self.runtime.portfolio.catalog
+        if market_type == "perpetual" and catalog.source == "gate":
+            return self._chart_candles({"symbol": [neutral_symbol(exchange_symbol)], "interval": [interval], "limit": [str(limit)]})
+        if market_type == "perpetual":
+            candles = catalog.spot.chart_candles(exchange_symbol, interval, limit=limit)
+            origin = "FIXTURE"
+        else:
+            candles = catalog.spot.chart_candles(exchange_symbol, interval, limit=limit)
+            origin = catalog.spot.data_origin
+        return {
+            "symbol": neutral_symbol(exchange_symbol),
+            "instrument_id": instrument_id,
+            "market_type": market_type,
+            "interval": interval,
+            "data_origin": origin,
+            "source": candles[-1]["source"] if candles else "none",
+            "synthetic": origin == "FIXTURE",
+            "candles": candles,
+            "stream": None,
+        }
+
     def _sse(self, query: dict[str, list[str]]) -> None:
         stream = self.runtime.live_stream
         if stream is None:
@@ -348,16 +597,6 @@ class PaperRequestHandler(BaseHTTPRequestHandler):
                 self._send_json(200, self.runtime.dashboard())
             elif path == "/api/evaluation":
                 self._send_json(200, self.runtime.evaluation())
-            elif path == "/api/activity":
-                experiment = self.runtime.store.experiment()
-                self._send_json(
-                    200,
-                    {
-                        "activity": self.runtime.store.activity(
-                            experiment["experiment_id"], limit=200
-                        )
-                    },
-                )
             elif path == "/api/cost":
                 self._send_json(200, self.runtime.cost_overview())
             elif path == "/api/economics":
@@ -382,13 +621,22 @@ class PaperRequestHandler(BaseHTTPRequestHandler):
             elif path == "/api/market/status":
                 stream = self.runtime.live_stream
                 self._send_json(200, {"stream": None if stream is None else self._stream_status(stream)})
+            elif path == "/api/market/candles" and "instrument_id" in query:
+                self._send_json(200, self._instrument_candles(query))
             elif path == "/api/market/candles":
                 self._send_json(200, self._chart_candles(query))
+            elif path == "/api/market/ticker" and "instrument_id" in query:
+                self._send_json(200, {"quote": self.runtime.portfolio.quote(query["instrument_id"][0])})
             elif path == "/api/market/ticker":
                 self._send_json(200, self._chart_ticker(query))
+            elif path == "/api/runtime/stream":
+                self._runtime_sse()
+                return
             elif path == "/api/market/stream":
                 self._sse(query)
                 return
+            elif (payload := self._portfolio_get(path, query)) is not None:
+                self._send_json(200, payload)
             elif path == "/api/integration/latest":
                 self._send_json(200, {"check": self.runtime.store.latest_integration_check()})
             elif path == "/api/export":
@@ -542,24 +790,53 @@ class PaperRequestHandler(BaseHTTPRequestHandler):
                     {"result": self.runtime.warm_up_market_history(profile=profile)},
                 )
                 return
-            if path.startswith("/api/positions/") and path.endswith("/reduce"):
-                position_id = urllib.parse.unquote(
-                    path[len("/api/positions/") : -len("/reduce")].strip("/")
-                )
-                body = self._read_json()
-                fraction = body.get("fraction", 1.0)
-                if isinstance(fraction, bool) or not isinstance(fraction, (int, float)):
-                    raise PaperTradingError("fraction must be a number")
-                self._send_json(
-                    200,
-                    {"result": self.runtime.close_or_reduce(position_id, fraction=float(fraction))},
-                )
+            payload = self._portfolio_post(path)
+            if payload is not None:
+                self._send_json(200, payload)
                 return
             self._safe_error(404, "resource not found")
+        except ConfirmationRequired as exc:
+            self._confirmation(exc)
         except PaperTradingError as exc:
             self._safe_error(400, str(exc))
         except (EvaluationError, OSError):
             self._safe_error(500, "request failed safely")
+        except Exception:
+            self._safe_error(500, "request failed safely")
+
+
+    def do_PATCH(self) -> None:
+        path = urllib.parse.urlsplit(self.path).path
+        try:
+            self._validate_request_origin()
+            portfolio = self.runtime.portfolio
+            if path.startswith("/api/positions/") and path.endswith("/protection"):
+                ref = urllib.parse.unquote(path[len("/api/positions/") : -len("/protection")])
+                self._send_json(200, {"result": self._protection(portfolio, ref, self._read_json())})
+                return
+            if path.startswith("/api/orders/"):
+                ref = urllib.parse.unquote(path[len("/api/orders/") :])
+                self._send_json(200, {"order": portfolio.amend_order(ref, self._read_json())})
+                return
+            self._safe_error(404, "resource not found")
+        except ConfirmationRequired as exc:
+            self._confirmation(exc)
+        except PaperTradingError as exc:
+            self._safe_error(400, str(exc))
+        except Exception:
+            self._safe_error(500, "request failed safely")
+
+    def do_DELETE(self) -> None:
+        path = urllib.parse.urlsplit(self.path).path
+        try:
+            self._validate_request_origin()
+            if path.startswith("/api/orders/"):
+                ref = urllib.parse.unquote(path[len("/api/orders/") :])
+                self._send_json(200, {"order": self.runtime.portfolio.cancel_order(ref)})
+                return
+            self._safe_error(404, "resource not found")
+        except PaperTradingError as exc:
+            self._safe_error(400, str(exc))
         except Exception:
             self._safe_error(500, "request failed safely")
 

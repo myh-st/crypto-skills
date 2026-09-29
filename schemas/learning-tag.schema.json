@@ -1,0 +1,25 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "learning-tag.schema.json",
+  "title": "Post-trade learning tag",
+  "enum": [
+    "BAD_DIRECTION",
+    "LATE_ENTRY",
+    "FALSE_BREAKOUT",
+    "STOP_TOO_TIGHT",
+    "STOP_TOO_WIDE",
+    "TARGET_TOO_AMBITIOUS",
+    "PREMATURE_EXIT",
+    "REGIME_MISCLASSIFIED",
+    "CORRELATION_OVEREXPOSURE",
+    "BTC_SHOCK",
+    "FUNDING_DRAG",
+    "SLIPPAGE_DRAG",
+    "AI_COST_TOO_HIGH",
+    "AI_FILTER_HELPED",
+    "AI_OVERRIDE_HELPED",
+    "AI_OVERRIDE_HURT",
+    "HUMAN_OVERRIDE_HELPED",
+    "HUMAN_OVERRIDE_HURT"
+  ]
+}

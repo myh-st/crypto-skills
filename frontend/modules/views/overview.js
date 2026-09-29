@@ -6,6 +6,7 @@ import { renderSparkline } from "../components/sparkline.js";
 import { loadPortfolioSummary } from "../components/portfolioSummary.js";
 import { paperApi } from "../paperApi.js";
 import { analysisService, decisionService, marketDataService, runService, runtimeService } from "../services.js";
+import { renderCockpit } from "./cockpit.js";
 
 function assetOptions(selected) {
   return ASSET_CATALOG
@@ -144,7 +145,19 @@ async function runAnalysis(store, navigate, input, button, error) {
   }
 }
 
+// Overview = daily cockpit (portfolio, attention, positions, automation) whenever the local
+// PAPER runtime is reachable. The research workspace below — including its clearly labeled
+// fixture market cards — is only shown here as a fallback when no runtime is available, and
+// lives in Research otherwise.
 export function render(root, ctx) {
+  if (ctx.paperRuntime === false) {
+    renderResearchOverview(root, ctx);
+    return undefined;
+  }
+  return renderCockpit(root, ctx);
+}
+
+export function renderResearchOverview(root, ctx, { embedded = false } = {}) {
   const { store, navigate } = ctx;
   const state = store.getState();
   const liveMode = analysisService.mode === "live";
@@ -168,15 +181,15 @@ export function render(root, ctx) {
   };
 
   root.innerHTML = `
-    <header class="page-header">
+    ${embedded ? "" : `<header class="page-header">
       <div>
         <h1>Overview</h1>
-        <p>Portfolio results first, then research and decision support</p>
+        <p>PAPER runtime unavailable · research workspace with labeled fixture data</p>
       </div>
       <time class="page-header-date" datetime="${now.toISOString()}">${headerTime}</time>
     </header>
 
-    <section class="panel panel--portfolio-summary" data-portfolio-summary aria-live="polite"></section>
+    <section class="panel panel--portfolio-summary" data-portfolio-summary aria-live="polite"></section>`}
 
     <section class="panel panel--overview-prompt">
       <h2>What do you want to analyze?</h2>
@@ -284,7 +297,7 @@ export function render(root, ctx) {
     marketChartPanel.innerHTML = renderMarketOverviewChart(marketChartState);
   });
 
-  loadPortfolioSummary(root.querySelector("[data-portfolio-summary]"), paperApi);
+  if (!embedded) loadPortfolioSummary(root.querySelector("[data-portfolio-summary]"), paperApi);
 
   root.querySelector('[data-role="overview-prompt"]').addEventListener("submit", (event) => {
     event.preventDefault();

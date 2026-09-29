@@ -76,6 +76,29 @@ uses local mocked providers and never sends external model requests. See
 [`docs/paper-futures-runtime.md`](docs/paper-futures-runtime.md) for setup,
 runtime controls, API boundaries, and validation.
 
+### AI Portfolio Trading OS (PAPER)
+
+On top of that runtime, the local app is a portfolio-first cockpit for PAPER
+Spot and Perpetual trading. Its pages are Overview, Portfolio, Trade, Activity,
+Research, Evaluations, and Settings.
+
+- **Instruments:** an exchange-backed Gate catalog.
+- **Spot:** its own accounting (average cost, fees, partial limit fills), not a
+  1x perpetual.
+- **Manual tickets:** go through the same deterministic risk and fill path as
+  AI trades.
+- **Positions:** a manager with protection, reduce/close, and explicit
+  authority (`AUTO_PAPER`, `RECOMMEND_ONLY`, `MANUAL_OVERRIDE`, `PAUSED`).
+- **AI re-plan:** structured, with a before/after diff.
+- **Portfolio Brain:** can shrink or block entries but never bypasses risk.
+- **Autonomous review:** a deterministic position-review queue.
+- **Journal:** a unified activity journal and attention queue.
+- **Learning:** post-trade reviews and a strategy tournament that includes AI
+  cost.
+
+Real Gate money-moving writes remain blocked by design. See
+[`docs/ai-portfolio-trading-os.md`](docs/ai-portfolio-trading-os.md).
+
 ### Interactive diagram
 
 [Open the interactive architecture diagram](docs/architecture.html)
@@ -91,7 +114,8 @@ crypto-skills/
 ├── docs/
 │   ├── architecture.md                 # workflow and implementation boundaries
 │   ├── evaluation.md                   # harness, runtime, forward CLI, and data limits
-│   └── paper-futures-runtime.md        # PAPER research runtime and safe local setup
+│   ├── paper-futures-runtime.md        # PAPER research runtime and safe local setup
+│   └── ai-portfolio-trading-os.md      # Spot + Perp PAPER cockpit, authority, re-plan, brain
 ├── frontend/                           # local-first research and PAPER futures UI
 │   └── README.md                       # local startup, modes, and limitations
 ├── schemas/
@@ -100,7 +124,8 @@ crypto-skills/
 │   ├── decision-record.schema.json     # journal / outcome contract
 │   ├── evidence-ledger.schema.json     # fact ledger contract
 │   ├── eval-*.schema.json              # evaluation spec / case / prediction / outcome contracts
-│   └── paper-*.schema.json             # strict PAPER intent/provider/experiment contracts
+│   ├── paper-*.schema.json             # strict PAPER intent/provider/experiment/order contracts
+│   └── (market|spot|position|portfolio|activity|attention|post-trade|learning)-*.schema.json
 ├── examples/
 │   ├── analysis-output.yaml
 │   ├── decision-record.yaml
@@ -116,6 +141,8 @@ crypto-skills/
 │   ├── test_openai_runner.py           # mocked Responses API runner contracts
 │   ├── test_forward_runtime.py         # mocked runtime/API/lifecycle integration
 │   ├── test_paper_futures.py           # mocked-provider PAPER vertical slice tests
+│   ├── test_portfolio_os.py            # Spot, orders, authority, re-plan, brain, safety
+│   ├── test_portfolio_schemas.py       # live Portfolio OS output vs JSON Schemas
 │   └── test_frontend_smoke.py          # frontend structural smoke checks
 ├── .github/workflows/
 │   └── validate.yml                     # PR/push contract gate
@@ -339,7 +366,9 @@ Start the local research application with:
 python3 -m crypto_eval paper-server
 ```
 
-Open `http://127.0.0.1:8765/` and use **Paper Trading**. EXP-001 starts with
+Open `http://127.0.0.1:8765/`. **Overview** shows portfolio health and what
+needs attention; **Trade** runs manual PAPER Spot/Perpetual tickets; the
+experiment itself is configured in **Research › Paper Trading Lab**. EXP-001 starts with
 $100 USDT, 15m decisions, 1h/4h context, 3x primary leverage, 1% risk per
 trade, 3 primary positions, and 1x/2x/3x/5x/10x shadow cohorts. The first-run
 mode is deterministic fixtures; switching to Binance USD-M uses public

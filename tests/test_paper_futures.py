@@ -2470,7 +2470,8 @@ class PaperFuturesRuntimeIntegrationTests(unittest.TestCase):
         self.addCleanup(reopened.close)
         loaded = reopened.cycle(result["cycle_id"])
         self.assertEqual(loaded["snapshot_hash"], result["snapshot_hash"])
-        self.assertEqual(len(reopened.open_positions("EXP-001")), 12)
+        # primary + 7 aligned arms (incl. Hybrid + Portfolio Brain) + 5 leverage cohorts
+        self.assertEqual(len(reopened.open_positions("EXP-001")), 13)
         reopened.set_status("stopped")
         changed = reopened.experiment()["config"]
         changed["starting_balance_usdt"] = 200

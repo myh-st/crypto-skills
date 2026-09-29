@@ -1,0 +1,30 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "position-management-mode.schema.json",
+  "title": "Position management-mode change request",
+  "description": "Only the user can change authority. MANUAL_OVERRIDE → AUTO_PAPER requires confirm=true.",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "mode"
+  ],
+  "properties": {
+    "mode": {
+      "enum": [
+        "AUTO_PAPER",
+        "RECOMMEND_ONLY",
+        "MANUAL_OVERRIDE",
+        "PAUSED"
+      ]
+    },
+    "confirm": {
+      "type": "boolean"
+    },
+    "reason": {
+      "type": [
+        "string",
+        "null"
+      ]
+    }
+  }
+}

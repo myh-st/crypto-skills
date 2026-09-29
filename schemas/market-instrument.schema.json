@@ -1,0 +1,240 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "market-instrument.schema.json",
+  "title": "Normalized exchange market instrument",
+  "description": "Spot leaves futures-only fields (leverage, maintenance, funding, settle) null. Unknown values stay null, never zero.",
+  "type": "object",
+  "additionalProperties": true,
+  "required": [
+    "base",
+    "best_ask",
+    "best_bid",
+    "change_24h",
+    "data_origin",
+    "display_symbol",
+    "exchange",
+    "exchange_symbol",
+    "funding_rate",
+    "index_price",
+    "instrument_id",
+    "last_price",
+    "liquidity",
+    "maintenance_rate",
+    "maker_fee_rate",
+    "mark_price",
+    "market_type",
+    "max_leverage",
+    "max_notional",
+    "max_quantity",
+    "min_leverage",
+    "min_notional",
+    "min_quantity",
+    "price_tick",
+    "quantity_step",
+    "quote",
+    "refreshed_at",
+    "schema_version",
+    "settle",
+    "spread_bps",
+    "status",
+    "symbol",
+    "taker_fee_rate",
+    "tradable",
+    "volume_24h_quote"
+  ],
+  "properties": {
+    "schema_version": {
+      "enum": [
+        "market-instrument.v1"
+      ]
+    },
+    "instrument_id": {
+      "type": "string",
+      "minLength": 10
+    },
+    "exchange": {
+      "enum": [
+        "gate",
+        "fixture"
+      ]
+    },
+    "market_type": {
+      "enum": [
+        "spot",
+        "perpetual"
+      ]
+    },
+    "exchange_symbol": {
+      "type": "string"
+    },
+    "symbol": {
+      "type": "string"
+    },
+    "display_symbol": {
+      "type": "string"
+    },
+    "base": {
+      "type": "string"
+    },
+    "quote": {
+      "type": "string"
+    },
+    "settle": {
+      "type": [
+        "string",
+        "null"
+      ]
+    },
+    "status": {
+      "enum": [
+        "tradable",
+        "buy_only",
+        "sell_only",
+        "untradable",
+        "delisting"
+      ]
+    },
+    "tradable": {
+      "type": "boolean"
+    },
+    "price_tick": {
+      "type": [
+        "number",
+        "null"
+      ]
+    },
+    "quantity_step": {
+      "type": [
+        "number",
+        "null"
+      ]
+    },
+    "min_quantity": {
+      "type": [
+        "number",
+        "null"
+      ]
+    },
+    "max_quantity": {
+      "type": [
+        "number",
+        "null"
+      ]
+    },
+    "min_notional": {
+      "type": [
+        "number",
+        "null"
+      ]
+    },
+    "max_notional": {
+      "type": [
+        "number",
+        "null"
+      ]
+    },
+    "min_leverage": {
+      "type": [
+        "number",
+        "null"
+      ]
+    },
+    "max_leverage": {
+      "type": [
+        "number",
+        "null"
+      ]
+    },
+    "maintenance_rate": {
+      "type": [
+        "number",
+        "null"
+      ]
+    },
+    "funding_rate": {
+      "type": [
+        "number",
+        "null"
+      ]
+    },
+    "taker_fee_rate": {
+      "type": [
+        "number",
+        "null"
+      ]
+    },
+    "maker_fee_rate": {
+      "type": [
+        "number",
+        "null"
+      ]
+    },
+    "last_price": {
+      "type": [
+        "number",
+        "null"
+      ]
+    },
+    "mark_price": {
+      "type": [
+        "number",
+        "null"
+      ]
+    },
+    "index_price": {
+      "type": [
+        "number",
+        "null"
+      ]
+    },
+    "best_bid": {
+      "type": [
+        "number",
+        "null"
+      ]
+    },
+    "best_ask": {
+      "type": [
+        "number",
+        "null"
+      ]
+    },
+    "volume_24h_quote": {
+      "type": [
+        "number",
+        "null"
+      ]
+    },
+    "change_24h": {
+      "type": [
+        "number",
+        "null"
+      ]
+    },
+    "spread_bps": {
+      "type": [
+        "number",
+        "null"
+      ]
+    },
+    "liquidity": {
+      "enum": [
+        "high",
+        "medium",
+        "low",
+        "unknown"
+      ]
+    },
+    "refreshed_at": {
+      "type": "string",
+      "format": "date-time"
+    },
+    "data_origin": {
+      "enum": [
+        "GATE_SPOT_PUBLIC",
+        "GATE_USDT_PUBLIC",
+        "FIXTURE"
+      ]
+    }
+  }
+}

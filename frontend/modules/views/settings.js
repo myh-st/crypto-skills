@@ -2,6 +2,7 @@ import { HORIZONS, RISK_STYLES } from "../contracts.js";
 import { titleCase } from "../format.js";
 import { buildSeedData } from "../demoData.js";
 import { mountRuntimeSettings, renderRuntimeSettingsShell } from "./runtimeSettings.js";
+import { mountPortfolioSettings } from "./portfolioSettings.js";
 
 function options(list, selected) {
   return list
@@ -44,6 +45,12 @@ export function render(root, ctx) {
       </form>
     </section>
 
+    <section class="panel" id="settings-portfolio-policy">
+      <div class="section-heading"><h2>Portfolio policy</h2><span class="demo-tag">PAPER · every change is journaled</span></div>
+      <div data-portfolio-policy><p class="muted">Loading…</p></div>
+      <p class="muted small">Experiment strategy, providers, arms, and leverage cohorts live in <a href="#/paper-trading">Research › Paper Trading Lab</a>.</p>
+    </section>
+
     <div data-runtime-settings>${renderRuntimeSettingsShell()}</div>
 
     <section class="panel">
@@ -66,6 +73,7 @@ export function render(root, ctx) {
   });
 
   mountRuntimeSettings(root.querySelector("[data-runtime-settings]"));
+  mountPortfolioSettings(root.querySelector("[data-portfolio-policy]"));
 
   root.querySelector('[data-role="reset-demo"]').addEventListener("click", () => {
     const seed = buildSeedData();

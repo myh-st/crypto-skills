@@ -53,24 +53,47 @@ market snapshot (closed 15m bar + 1h/4h context)
 
 - `paper_runtime.py` is the core module (about 6.7k lines). It contains `RiskEngine`, `PaperStore` (all SQLite), `PaperRuntime` (cycle orchestration), `PaperScheduler` (15m scheduler plus the independent bar-monitor thread), and `PaperRuntimeReports`. `paper_server.py` is the stdlib HTTP API on top of it. The API contract for `/api/dashboard` is `schemas/paper-dashboard.schema.json`.
 - Invariants to preserve: GPT can never set quantity or leverage, and it cannot override risk. Jev's `escalation_needed` cannot bypass the router. A risk rejection never creates an order or fill. A cycle key is unique per (experiment, symbol, closed candle), so retries return the stored cycle without calling Jev or GPT again. If one bar hits both stop and target, the stop wins. Missing data or unknown cost stays explicitly unavailable and is never zero-filled.
+- Portfolio OS layer (`docs/ai-portfolio-trading-os.md`):
+  - `market_catalog.py`: Gate Spot and Perp catalog, public GET only, fail-closed.
+  - `spot_accounting.py`: Spot accounting and `SpotRiskEngine`.
+  - `portfolio_os.py`: orders, position manager, authority modes, re-plan, review queue, attention and activity hooks, AI Spot allocations.
+  - `portfolio_brain.py`: entry gate that can only shrink or block; never bypasses `RiskEngine`.
+  - `activity.py`, `learning.py`, `portfolio_store.py`: schema and settings.
+  - Reached as `runtime.portfolio`; the scheduler's monitor loop calls `portfolio.after_monitor()`.
+- Portfolio OS invariants to keep:
+  - AI may mutate a position only in `AUTO_PAPER`, and never to increase risk.
+  - Only the user changes authority.
+  - Perp order requests never carry a quantity.
+  - Confirmation-required actions return HTTP 409.
 - `ai_cost.py` holds the AI usage/cost ledger, the versioned price book, and budget guards (`BLOCK_PAID_AI`, `FALLBACK_QUANT`, `JEV_ONLY`, `PAUSE_NEW_ENTRIES`). Paid calls fail closed when their price is unknown.
 
-## Real AI + live Gate integration (merged via PR #2)
+## Current live-integration baseline and canonical next phase
 
-Canonical spec: `.goals/real-ai-live-paper-trading/goal.md`, `status.json`, and `docs/real-ai-live-paper-trading-plan.md`. Gate USDT perpetuals are the primary live market source (`market_data_mode: gate_usdt`; Binance USD-M remains available):
+The real AI + live Gate integration from PR #2 is now an implementation baseline, not the active product goal:
 
-- `gate_market.py`: REST warm-up
-- `gate_stream.py` and `ws_client.py`: public WebSocket live stream and chart
+- `gate_market.py`: Gate perpetual REST warm-up
+- `gate_stream.py` and `ws_client.py`: public Gate WebSocket live stream and chart
 - `gate_account.py`: read-only account sync; `DisabledLiveExecutionAdapter` blocks every write
 - `secret_store.py`: macOS Keychain or Linux `secret-tool`; there is deliberately no plaintext backend
-- `real_integration.py`: the real acceptance check, which reports `NOT_VERIFIED` rather than substituting fixtures
+- `real_integration.py`: real local acceptance; never substitutes fixtures for failed required real checks
+- `ai_cost.py`: versioned AI price book, usage ledger, and hard budget guard
 
-`docs/paper-futures-runtime.md` documents this runtime; the README may still describe the Binance-only runtime in places.
+`docs/paper-futures-runtime.md` documents the implemented runtime baseline.
 
-Testing tiers:
+The canonical active product goal for this branch is:
+
+- `.goals/ai-portfolio-trading-os/goal.md`
+- `.goals/ai-portfolio-trading-os/status.json`
+- `docs/ai-portfolio-trading-os-plan.md`
+- `docs/claude-opus-5-5-ai-portfolio-trading-os-prompt.md`
+
+This phase extends the platform into an AI Portfolio Trading OS: portfolio-first UX, Spot + Perpetual PAPER trading, exchange-backed instrument selection, full position/order management, explicit AI/manual authority modes, structured AI re-plan, Portfolio Brain, attention/activity, strategy tournament, and post-trade learning.
+
+Testing tiers remain:
 
 - **CI and unit tests** must use fakes or fixtures only. Never add real network calls to tests.
-- **Local acceptance** (`real-integration-check`) must use real Gate, Jev, and Azure GPT-6 Luna with reasoning=max, using user-supplied credentials.
+- **Local acceptance** may use real public Gate market data and real configured Jev/Azure providers.
+- Real Gate money-moving writes remain blocked by design.
 
 ## Safety boundaries (enforced by design, keep them)
 

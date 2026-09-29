@@ -1,0 +1,119 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "portfolio-state.schema.json",
+  "title": "PAPER portfolio state",
+  "description": "Real Gate account data is a separate read-only mirror and is never merged into PAPER equity.",
+  "type": "object",
+  "additionalProperties": true,
+  "required": [
+    "as_of",
+    "execution_mode",
+    "experiment_id",
+    "paper",
+    "real_mirror",
+    "schema_version"
+  ],
+  "properties": {
+    "schema_version": {
+      "enum": [
+        "portfolio-state.v1"
+      ]
+    },
+    "experiment_id": {
+      "type": "string"
+    },
+    "as_of": {
+      "type": "string",
+      "format": "date-time"
+    },
+    "execution_mode": {
+      "enum": [
+        "PAPER"
+      ]
+    },
+    "paper": {
+      "type": "object",
+      "required": [
+        "total_equity_usdt",
+        "starting_capital_usdt",
+        "trading_pnl_usdt",
+        "economic_pnl_usdt",
+        "drawdown",
+        "open_risk_usdt",
+        "exposure",
+        "allocation",
+        "spot",
+        "perpetual",
+        "counts",
+        "ai_budget",
+        "reconciliation"
+      ],
+      "properties": {
+        "total_equity_usdt": {
+          "type": "number"
+        },
+        "starting_capital_usdt": {
+          "type": "number"
+        },
+        "trading_pnl_usdt": {
+          "type": "number"
+        },
+        "economic_pnl_usdt": {
+          "type": [
+            "number",
+            "null"
+          ]
+        },
+        "ai_cost_usdt": {
+          "type": [
+            "number",
+            "null"
+          ]
+        },
+        "open_risk_usdt": {
+          "type": "number"
+        },
+        "spot": {
+          "type": "object",
+          "required": [
+            "wallet",
+            "holdings"
+          ]
+        },
+        "perpetual": {
+          "type": "object",
+          "required": [
+            "wallet",
+            "positions"
+          ]
+        }
+      }
+    },
+    "real_mirror": {
+      "type": "object",
+      "required": [
+        "read_only",
+        "merged_with_paper",
+        "write_execution",
+        "accounts"
+      ],
+      "properties": {
+        "read_only": {
+          "enum": [
+            true
+          ]
+        },
+        "merged_with_paper": {
+          "enum": [
+            false
+          ]
+        },
+        "write_execution": {
+          "enum": [
+            "BLOCKED_BY_DESIGN"
+          ]
+        }
+      }
+    }
+  }
+}

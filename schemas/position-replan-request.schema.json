@@ -1,0 +1,30 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "position-replan-request.schema.json",
+  "title": "Position re-plan request",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [],
+  "properties": {
+    "intent": {
+      "enum": [
+        "tighten_risk",
+        "protect_profit",
+        "give_more_room",
+        "reduce_exposure",
+        "exit_if_thesis_weakened",
+        "reassess",
+        null
+      ]
+    },
+    "use_ai": {
+      "type": "boolean"
+    },
+    "note": {
+      "type": [
+        "string",
+        "null"
+      ]
+    }
+  }
+}

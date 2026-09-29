@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import csv
+import hashlib
 import io
 import json
 import math
@@ -64,6 +65,8 @@ from .paper_market import (
 )
 from .gate_account import ReadOnlyGateClient, sync_read_only_account
 from .secret_store import CredentialResolver, store_secret
+from .portfolio_brain import evaluate_entry as portfolio_brain_entry
+from .portfolio_store import PORTFOLIO_SCHEMA
 
 
 MARKET_PROVIDER_IDS = {
@@ -806,6 +809,7 @@ class PaperStore:
         )
         self._db.executescript(COST_SCHEMA)
         self._db.executescript(EXTRA_SCHEMA)
+        self._db.executescript(PORTFOLIO_SCHEMA)
 
     def _migrate_schema(self) -> None:
         with self._lock:
@@ -844,6 +848,12 @@ class PaperStore:
                     self._db.execute(
                         f"ALTER TABLE providers ADD COLUMN {name} {declaration}"
                     )
+            meta_columns = {
+                row["name"] for row in self._db.execute("PRAGMA table_info(position_meta)").fetchall()
+            }
+            for name, declaration in (("initial_risk", "REAL"), ("review_count", "INTEGER NOT NULL DEFAULT 0")):
+                if name not in meta_columns:
+                    self._db.execute(f"ALTER TABLE position_meta ADD COLUMN {name} {declaration}")
             order_columns = {
                 row["name"] for row in self._db.execute("PRAGMA table_info(orders)").fetchall()
             }
@@ -1162,7 +1172,7 @@ class PaperStore:
             if status in {"paused", "stopped"}:
                 cursor = db.execute(
                     "UPDATE orders SET status='cancelled', updated_at=? "
-                    "WHERE experiment_id=? AND status='pending'",
+                    "WHERE experiment_id=? AND status='pending' AND cycle_id NOT LIKE 'manual:%'",
                     (now, current["experiment_id"]),
                 )
                 if cursor.rowcount:
@@ -1545,13 +1555,15 @@ class PaperStore:
         experiment_id: str,
         cycle_id: str,
         execution: dict[str, Any],
+        *,
+        require_running: bool = True,
     ) -> dict[str, Any]:
         risk = dict(execution["risk"])
         status_row = db.execute(
             "SELECT status FROM experiments WHERE experiment_id=?",
             (experiment_id,),
         ).fetchone()
-        if status_row is None or status_row["status"] != "running":
+        if status_row is None or (require_running and status_row["status"] != "running"):
             risk.update(
                 {
                     "allowed": False,
@@ -2965,6 +2977,17 @@ class PaperStore:
                         }
                     )
                 else:
+                    completed.extend(
+                        self._apply_partial_targets_locked(
+                            db,
+                            current,
+                            h,
+                            l,
+                            close_time,
+                            taker_fee_rate if maker_fee_rate is None else maker_fee_rate,
+                            data_origin,
+                        )
+                    )
                     db.execute(
                         "UPDATE positions SET mark_price=? WHERE position_id=? AND status='open'",
                         (c, current["position_id"]),
@@ -2973,6 +2996,62 @@ class PaperStore:
                         db, experiment_id, current["cohort"], close_time, data_origin
                     )
         return completed
+
+    def _apply_partial_targets_locked(
+        self,
+        db: sqlite3.Connection,
+        position: sqlite3.Row,
+        high: float,
+        low: float,
+        close_time: str,
+        fee_rate: float,
+        data_origin: str,
+    ) -> list[dict[str, Any]]:
+        """Scale-out targets from the position plan. At most one partial per bar; the stop
+        (checked earlier) always wins a bar that touches both, and a partial never closes
+        the final remainder (the final target does)."""
+
+        if position["cohort"] != "primary" or position["status"] != "open":
+            return []
+        ref = f"perp:{position['position_id']}"
+        meta = db.execute("SELECT targets_json FROM position_meta WHERE position_ref=?", (ref,)).fetchone()
+        if meta is None:
+            return []
+        targets = _loads(meta["targets_json"], [])
+        for target in targets:
+            if target.get("hit") or target.get("final"):
+                continue
+            price = float(target["price"])
+            touched = high >= price if position["side"] == "long" else low <= price
+            if not touched:
+                continue
+            quantity = min(float(target.get("quantity") or 0.0), float(position["quantity"]))
+            if quantity <= 0 or float(position["quantity"]) - quantity <= 1e-10:
+                continue
+            executed = self._reduce_position_locked(
+                db, position, quantity, price, fee_rate, close_time, "target_partial", data_origin
+            )
+            target["hit"] = True
+            target["hit_at"] = close_time
+            db.execute(
+                "UPDATE position_meta SET targets_json=?, updated_at=? WHERE position_ref=?",
+                (_json(targets), close_time, ref),
+            )
+            db.execute(
+                "INSERT INTO management_events(experiment_id, position_ref, order_ref, market_type, action, source, "
+                "request_id, before_json, after_json, risk_before, risk_after, snapshot_json, created_at) "
+                "VALUES(?, ?, NULL, 'perpetual', 'TARGET_PARTIAL', 'SYSTEM', NULL, ?, ?, NULL, NULL, ?, ?)",
+                (
+                    position["experiment_id"],
+                    ref,
+                    _json({"quantity": float(position["quantity"])}),
+                    _json({"filled_quantity": executed.get("quantity"), "price": price}),
+                    _json({"bar_close": close_time}),
+                    close_time,
+                ),
+            )
+            return [{"position_id": position["position_id"], "event": "target_partial", "exit_price": price}]
+        return []
 
     def _settle_funding_locked(
         self,
@@ -3207,8 +3286,11 @@ class PaperRuntime:
         clock: Callable[[], datetime] | None = None,
         resolver: CredentialResolver | None = None,
         live_stream: Any | None = None,
+        catalog: Any | None = None,
     ) -> None:
         self.store = store
+        self._catalog_override = catalog
+        self._portfolio: Any | None = None
         self._market_provider_override = market_provider
         self._jev_provider_override = jev_provider
         self._gpt_provider_override = gpt_provider
@@ -3225,6 +3307,16 @@ class PaperRuntime:
         self.live_stream = live_stream
         self._gate_provider: GateUsdtFuturesMarketDataProvider | None = None
         self.store.cost_ledger._clock = self._clock
+
+    @property
+    def portfolio(self) -> Any:
+        """Portfolio OS service (Spot, unified orders, authority, re-plan, attention, learning)."""
+
+        if self._portfolio is None:
+            from .portfolio_os import PortfolioOS
+
+            self._portfolio = PortfolioOS(self, catalog=self._catalog_override)
+        return self._portfolio
 
     def _market(self, config: dict[str, Any]) -> FuturesMarketDataProvider:
         if self._market_provider_override is not None:
@@ -4270,6 +4362,19 @@ class PaperRuntime:
                 if jev_arms_selected
                 else "not_requested"
             )
+            if "hybrid_brain" in config["evaluation_arms"] and "hybrid" in arm_results:
+                # Same frozen input and the same (shared) AI calls as Hybrid; the Portfolio Brain
+                # policy is applied against this arm's own wallet at execution time.
+                hybrid_result = arm_results["hybrid"]
+                brain_intent = hybrid_result.get("intent")
+                if brain_intent is not None:
+                    brain_intent = TradingIntent.from_dict({**brain_intent, "source_arm": "hybrid_brain"}).to_dict()
+                arm_results["hybrid_brain"] = {
+                    **hybrid_result,
+                    "arm": "hybrid_brain",
+                    "intent": brain_intent,
+                    "portfolio_brain": None,
+                }
             for arm_result in arm_results.values():
                 arm_result["decision_input_hash"] = decision_input_hash
             primary = arm_results.get(config["primary_arm"])
@@ -4313,7 +4418,16 @@ class PaperRuntime:
                 return float(features["market_mark_price"]), "last_closed_1m_close"
 
             pause_entries_reason = None
-            if feed_blocks_entries:
+            portfolio_settings = self.portfolio.settings()
+            automation = portfolio_settings["automation"]
+            if automation["emergency_stop"]:
+                pause_entries_reason = ("EMERGENCY_STOP", "emergency stop is active; new PAPER entries are blocked")
+            elif automation["new_entries_paused"]:
+                pause_entries_reason = (
+                    "AUTOMATION_NEW_ENTRIES_PAUSED",
+                    "new AI entries are paused by the user; open positions are still monitored",
+                )
+            elif feed_blocks_entries:
                 pause_entries_reason = ("STALE_MARKET_FEED", "required live market feed is stale")
             elif budget_blocks and limit_action == "PAUSE_NEW_ENTRIES":
                 pause_entries_reason = (
@@ -4347,13 +4461,84 @@ class PaperRuntime:
 
             if selected_intent is not None:
                 selected_intent = configured_execution_intent(selected_intent)
+
+            def brain_gate(
+                intent: TradingIntent,
+                cohort: str,
+                equity: float,
+                cohort_positions: list[dict[str, Any]],
+            ) -> dict[str, Any]:
+                """Portfolio Brain policy for one entry; it can only shrink or block (never size up)."""
+
+                entry = float(intent.entry_price)
+                stop_distance = abs(entry - float(intent.stop_price))
+                risk_usdt = max(0.0, equity) * float(risk_config["risk_per_trade"])
+                unit = stop_distance + entry * (2 * config["taker_fee_rate"] + 2 * config["slippage_bps"] / 10_000)
+                notional = risk_usdt / unit * entry if unit > 0 else 0.0
+                if cohort == "primary":
+                    state = self.portfolio.exposure_state()
+                else:
+                    state = {
+                        "equity_usdt": equity,
+                        "drawdown": self._risk_statistics(experiment["experiment_id"], cohort)[1],
+                        "max_drawdown_stop": config["max_drawdown_stop"],
+                        "exposures": [
+                            {
+                                "base": item["symbol"][:-4],
+                                "side": item["side"],
+                                "risk_usdt": max(
+                                    0.0,
+                                    (1 if item["side"] == "long" else -1)
+                                    * (float(item["mark_price"]) - float(item["stop_price"]))
+                                    * float(item["quantity"]),
+                                ),
+                                "notional_usdt": float(item["quantity"]) * float(item["mark_price"]),
+                            }
+                            for item in cohort_positions
+                        ],
+                    }
+                return portfolio_brain_entry(
+                    {
+                        "symbol": intent.symbol,
+                        "base": intent.symbol[:-4],
+                        "side": intent.side,
+                        "market_type": "perpetual",
+                        "risk_usdt": risk_usdt,
+                        "notional_usdt": notional,
+                        "funding_rate": features.get("funding_rate"),
+                    },
+                    state,
+                    portfolio_settings["brain"],
+                )
+
+            primary_brain = None
+            primary_block_reason: tuple[str, str] | None = None
+            primary_risk_config = risk_config
+            if selected_intent is not None and (
+                portfolio_settings["brain"]["enabled"] or config["primary_arm"] == "hybrid_brain"
+            ):
+                primary_brain = brain_gate(
+                    selected_intent, "primary", float(wallet["equity"]), []
+                )
+                if not primary_brain["allowed"]:
+                    primary_block_reason = (
+                        "PORTFOLIO_BRAIN_BLOCK",
+                        f"Portfolio Brain {primary_brain['action']}: {', '.join(primary_brain['reason_codes'])}",
+                    )
+                    selected_intent = None
+                elif primary_brain["size_multiplier"] < 1.0:
+                    primary_risk_config = {
+                        **risk_config,
+                        "risk_per_trade": float(risk_config["risk_per_trade"]) * primary_brain["size_multiplier"],
+                    }
             executions: list[dict[str, Any]] = []
             risk_summary: dict[str, Any]
             if selected_intent is None:
+                block = pause_entries_reason or primary_block_reason
                 risk_summary = {
                     "allowed": False,
-                    "code": pause_entries_reason[0] if pause_entries_reason else "NO_INTENT",
-                    "reason": pause_entries_reason[1] if pause_entries_reason else primary["reason"],
+                    "code": block[0] if block else "NO_INTENT",
+                    "reason": block[1] if block else primary["reason"],
                     "quantity": 0.0,
                     "leverage": 0,
                     "notional": 0.0,
@@ -4365,7 +4550,7 @@ class PaperRuntime:
             else:
                 primary_risk = self.risk_engine.evaluate(
                     selected_intent,
-                    risk_config,
+                    primary_risk_config,
                     equity=float(wallet["equity"]),
                     margin_used=float(wallet["margin_used"]),
                     open_positions=open_positions,
@@ -4415,9 +4600,22 @@ class PaperRuntime:
                 arm_daily_loss, arm_drawdown, arm_streak = self._risk_statistics(
                     experiment["experiment_id"], cohort
                 )
+                arm_risk_config = risk_config
+                if arm_name == "hybrid_brain":
+                    arm_brain = brain_gate(intent, cohort, float(cohort_wallet["equity"]), cohort_positions)
+                    result["portfolio_brain"] = arm_brain
+                    if not arm_brain["allowed"]:
+                        result["decision"] = "NO_TRADE"
+                        result["reason"] = f"Portfolio Brain {arm_brain['action']}: {', '.join(arm_brain['reason_codes'])}"
+                        return
+                    if arm_brain["size_multiplier"] < 1.0:
+                        arm_risk_config = {
+                            **risk_config,
+                            "risk_per_trade": float(risk_config["risk_per_trade"]) * arm_brain["size_multiplier"],
+                        }
                 decision = self.risk_engine.evaluate(
                     intent,
-                    risk_config,
+                    arm_risk_config,
                     equity=float(cohort_wallet["equity"]),
                     margin_used=float(cohort_wallet["margin_used"]),
                     open_positions=[
@@ -4529,6 +4727,8 @@ class PaperRuntime:
                 "primary_arm": config["primary_arm"],
                 "primary_decision": primary,
                 "risk": risk_summary,
+                "portfolio_brain": primary_brain,
+                "automation": dict(automation),
                 "cycle_latency_ms": end_to_end_ms,
                 "manual_cycle": bool(manual),
                 "live_execution_enabled": False,
@@ -4553,6 +4753,14 @@ class PaperRuntime:
                 risk_events=[],
                 data_origin=snapshot.data_origin,
             )
+            if selected_intent is not None and pause_entries_reason is None:
+                spot = self.portfolio.ai_spot_entry(
+                    cycle_id=cycle_id,
+                    intent=selected_intent.to_dict(),
+                    brain=primary_brain,
+                )
+                if spot is not None:
+                    result = {**result, "spot_execution": spot}
             return result
         except Exception as exc:
             self.store.fail_cycle(cycle_id, "cycle_processing_error")
@@ -4657,6 +4865,8 @@ class PaperRuntime:
         *,
         fraction: float = 1.0,
         as_of: datetime | None = None,
+        reference_price: float | None = None,
+        data_origin: str | None = None,
     ) -> dict[str, Any]:
         if not math.isfinite(float(fraction)) or not 0 < float(fraction) <= 1:
             raise PaperTradingError("reduce fraction must be greater than 0 and at most 1")
@@ -4697,8 +4907,14 @@ class PaperRuntime:
         )
         if not risk.allowed:
             return {"accepted": False, "reason": risk.reason, "risk": risk.to_dict()}
-        market = self._market(config).fetch_snapshot(position["symbol"], current_time)
-        mark = float(market.candles_1m[-1]["close"])
+        if reference_price is not None and math.isfinite(float(reference_price)) and reference_price > 0:
+            # Live top-of-book exit reference (best bid for a long, best ask for a short).
+            mark = float(reference_price)
+            origin = data_origin if data_origin in DATA_ORIGINS else MARKET_DATA_ORIGINS[config["market_data_mode"]]
+        else:
+            market = self._market(config).fetch_snapshot(position["symbol"], current_time)
+            mark = float(market.candles_1m[-1]["close"])
+            origin = market.data_origin
         side_sign = -1 if position["side"] == "long" else 1
         fill_price = mark * (1 + side_sign * config["slippage_bps"] / 10_000)
         return self.store.execute_reduce(
@@ -4708,7 +4924,7 @@ class PaperRuntime:
             mark_price=fill_price,
             fee_rate=config["taker_fee_rate"],
             as_of=iso_utc(current_time),
-            data_origin=market.data_origin,
+            data_origin=origin,
             slippage_cost=abs(fill_price - mark) * float(risk.quantity),
         )
 
@@ -5230,7 +5446,11 @@ class PaperScheduler:
             try:
                 experiment = self.runtime.store.experiment()
                 interval = experiment["config"]["monitor_interval_seconds"]
-                self.runtime.monitor_once(as_of=self.runtime._clock().astimezone(timezone.utc))
+                now = self.runtime._clock().astimezone(timezone.utc)
+                self.runtime.monitor_once(as_of=now)
+                # Spot limits/plans, management metadata, post-trade reviews, the deterministic
+                # position-review queue (no per-tick AI), snapshots, and attention.
+                self.runtime.portfolio.after_monitor(now=now)
             except Exception:
                 interval = 30
             self._shutdown.wait(max(5, int(interval)))
@@ -6663,6 +6883,53 @@ class PaperRuntimeReports:
             files["gate-account-sync-summary.json"] = json.dumps(
                 account_syncs[-20:], indent=2, sort_keys=True
             ).encode("utf-8")
+        portfolio_files = self.runtime.portfolio.export_files()
+
+        def csv_rows(rows: list[dict[str, Any]]) -> bytes:
+            fields = sorted({key for row in rows for key in row}) if rows else ["empty"]
+            return self._csv_bytes(rows, fields)
+
+        files["portfolio-snapshots.csv"] = csv_rows(portfolio_files["portfolio_snapshots"])
+        files["spot-wallets.csv"] = csv_rows(portfolio_files["spot_wallets"])
+        files["spot-holdings.csv"] = csv_rows(portfolio_files["spot_holdings"])
+        files["spot-orders.csv"] = csv_rows(portfolio_files["spot_orders"])
+        files["spot-fills.csv"] = csv_rows(portfolio_files["spot_fills"])
+        files["position-plans.jsonl"] = jsonl(portfolio_files["position_plans"])
+        files["position-replans.jsonl"] = jsonl(portfolio_files["position_replans"])
+        files["management-events.jsonl"] = jsonl(portfolio_files["management_events"])
+        files["activity.csv"] = csv_rows(portfolio_files["activity"])
+        files["attention-events.csv"] = csv_rows(portfolio_files["attention"])
+        files["post-trade-reviews.jsonl"] = jsonl(portfolio_files["post_trade_reviews"])
+        files["improvement-hypotheses.jsonl"] = jsonl(portfolio_files["hypotheses"])
+        files["brain-decisions.jsonl"] = jsonl(portfolio_files["brain_decisions"])
+        files["strategy-tournament.csv"] = csv_rows(
+            [
+                {key: value for key, value in arm.items() if not isinstance(value, (list, dict))}
+                for arm in portfolio_files["tournament"]["arms"]
+            ]
+        )
+        files["strategy-tournament.json"] = json.dumps(
+            portfolio_files["tournament"], indent=2, sort_keys=True, default=str
+        ).encode("utf-8")
+        files["portfolio-settings.json"] = json.dumps(
+            portfolio_files["settings"], indent=2, sort_keys=True
+        ).encode("utf-8")
+        manifest["portfolio_os"] = {
+            "schema_versions": {
+                "portfolio_state": "portfolio-state.v1",
+                "unified_position_view": "unified-position-view.v1",
+                "paper_order_view": "paper-order-view.v1",
+                "position_replan_proposal": "position-replan-proposal.v1",
+                "activity_event": "activity-event.v1",
+                "attention_event": "attention-event.v1",
+                "post_trade_review": "post-trade-review.v1",
+                "strategy_tournament": "strategy-tournament.v1",
+            },
+            "row_counts": {
+                key: len(value) for key, value in portfolio_files.items() if isinstance(value, list)
+            },
+            "spot_real_writes": False,
+        }
         manifest["ai_cost"] = {
             "providers": [
                 {
@@ -6717,6 +6984,33 @@ class PaperRuntimeReports:
         ]
         files["summary.md"] = ("\n".join(report) + "\n").encode("utf-8")
         manifest["files"] = sorted([*files, "manifest.json"])
+        manifest["file_sha256"] = {
+            name: hashlib.sha256(data).hexdigest() for name, data in sorted(files.items()) if name != "manifest.json"
+        }
+        resolver = self.runtime.resolver
+        markers: list[bytes] = []
+        for provider in self.store.providers_internal():
+            if provider.get("kind", "").startswith("fixture_"):
+                continue
+            value, _source = resolver.resolve(
+                secret_id=provider.get("credential_secret"), env_name=provider.get("credential_env")
+            )
+            if value and len(value) >= 8:
+                markers.append(value.encode("utf-8"))
+        for account in self.store.list_exchange_accounts():
+            internal = self.store.exchange_account_internal(account["account_id"])
+            for secret_id in (internal["key_secret_id"], internal["secret_secret_id"]):
+                value, _source = resolver.resolve(secret_id=secret_id, env_name=None)
+                if value and len(value) >= 8:
+                    markers.append(value.encode("utf-8"))
+        leaked = sorted({name for name, data in files.items() for marker in markers if marker in data})
+        if leaked:
+            raise PaperTradingError("export refused: a configured credential value appeared in the bundle")
+        manifest["secret_scan"] = {
+            "scanned_files": len(files),
+            "configured_credentials_checked": len(markers),
+            "credential_values_found": False,
+        }
         files["manifest.json"] = json.dumps(manifest, indent=2, sort_keys=True).encode("utf-8")
         archive = io.BytesIO()
         with zipfile.ZipFile(archive, "w", compression=zipfile.ZIP_DEFLATED) as bundle:

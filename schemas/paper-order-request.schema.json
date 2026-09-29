@@ -1,0 +1,98 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "paper-order-request.schema.json",
+  "title": "PAPER order request (browser → server)",
+  "description": "Perpetual requests may not send quantity/quote_amount: size is derived server-side from risk_pct, stop, and leverage.",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "instrument_id",
+    "action"
+  ],
+  "properties": {
+    "client_request_id": {
+      "type": "string",
+      "minLength": 8
+    },
+    "instrument_id": {
+      "type": "string",
+      "minLength": 10
+    },
+    "action": {
+      "enum": [
+        "long",
+        "short",
+        "buy",
+        "sell"
+      ]
+    },
+    "order_type": {
+      "enum": [
+        "market",
+        "limit"
+      ]
+    },
+    "limit_price": {
+      "type": [
+        "number",
+        "null"
+      ]
+    },
+    "risk_pct": {
+      "type": [
+        "number",
+        "null"
+      ]
+    },
+    "stop_price": {
+      "type": [
+        "number",
+        "null"
+      ]
+    },
+    "targets": {
+      "type": "array",
+      "maxItems": 3,
+      "items": {
+        "type": "number"
+      }
+    },
+    "target_fractions": {
+      "type": [
+        "array",
+        "null"
+      ],
+      "items": {
+        "type": "number"
+      }
+    },
+    "leverage": {
+      "type": "integer",
+      "minimum": 1
+    },
+    "quantity": {
+      "type": [
+        "number",
+        "null"
+      ]
+    },
+    "quote_amount": {
+      "type": [
+        "number",
+        "null"
+      ]
+    },
+    "allocation_target_pct": {
+      "type": [
+        "number",
+        "null"
+      ]
+    },
+    "note": {
+      "type": [
+        "string",
+        "null"
+      ]
+    }
+  }
+}

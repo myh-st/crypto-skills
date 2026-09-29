@@ -2,6 +2,16 @@ import { escapeHtml, formatPrice, formatTimestamp, titleCase } from "../format.j
 import { paperApi } from "../paperApi.js";
 import { mountLiveChart, overlayLines } from "../components/liveChart.js";
 import { renderAccountMirror } from "./runtimeSettings.js";
+import { money, usd, displayValue, numericValue, fixedNumber, percent, dataOriginLabel, yesNo, usdCost } from "../numbers.js";
+import { metric } from "../components/ui.js";
+import { renderProviderUsage, renderEconomics, renderLedgerRows, renderBudgetEvents } from "../components/aiCostSummary.js";
+import { renderArmRows, renderPerformanceRows, renderLeverageRows, renderComparisonChart } from "../components/strategyTournamentSummary.js";
+import { renderHealthStrip } from "../components/tradingStatusBar.js";
+import { renderPositions } from "../components/positionsTable.js";
+import { renderActivity } from "../components/activityTimeline.js";
+
+// Re-exported for existing importers/tests; implementations live in components/.
+export { renderEconomics, renderLedgerRows, renderHealthStrip };
 
 const PROVIDER_KINDS = [
   ["fixture_jev", "Jev fixture"],
@@ -21,49 +31,6 @@ const ARMS = [
 ];
 const SHADOW_LEVERAGE = [1, 2, 3, 5, 10];
 const MARKET_DATA_RETENTION_DAYS = [30, 90, 365];
-
-function money(value, digits = 2) {
-  if (value === null || value === undefined || value === "") return "—";
-  if (!Number.isFinite(Number(value))) return "—";
-  return `${Number(value).toLocaleString("en-US", {
-    minimumFractionDigits: digits,
-    maximumFractionDigits: digits,
-  })} USDT`;
-}
-
-function usd(value) {
-  if (value === null || value === undefined || !Number.isFinite(Number(value))) return "—";
-  return `$${Number(value).toFixed(6)}`;
-}
-
-function displayValue(value) {
-  return value === null || value === undefined || value === "" ? "—" : String(value);
-}
-
-function numericValue(value) {
-  if (value === null || value === undefined || value === "") return null;
-  const number = Number(value);
-  return Number.isFinite(number) ? number : null;
-}
-
-function fixedNumber(value, digits = 2) {
-  const number = numericValue(value);
-  return number === null ? "—" : number.toFixed(digits);
-}
-
-function percent(value, digits = 1) {
-  const number = numericValue(value);
-  return number === null ? "—" : `${(number * 100).toFixed(digits)}%`;
-}
-
-function dataOriginLabel(value) {
-  if (value === null || value === undefined || value === "") return "—";
-  return titleCase(String(value).replaceAll("_", " "));
-}
-
-function yesNo(value) {
-  return typeof value === "boolean" ? (value ? "Yes" : "No") : "Unknown";
-}
 
 function normalizeRetentionDays(value) {
   if (value === null || value === undefined || value === "") return "";
@@ -130,16 +97,6 @@ export function renderRetentionSection(retentionDays = null) {
         <button class="btn btn--ghost" type="button" data-action="export">Export bundle</button>
       </div>
     </section>
-  `;
-}
-
-function metric(label, value, note = "") {
-  return `
-    <div class="paper-metric">
-      <span class="paper-metric-value">${escapeHtml(value)}</span>
-      <span class="paper-metric-label">${escapeHtml(label)}</span>
-      ${note ? `<small>${escapeHtml(note)}</small>` : ""}
-    </div>
   `;
 }
 
@@ -234,128 +191,6 @@ function renderProviderCards(providers) {
   }).join("");
 }
 
-function renderPositions(positions) {
-  if (!positions.length) return '<p class="muted">No primary paper positions are open.</p>';
-  return `
-    <div class="table-scroll">
-      <table class="data-table">
-        <thead><tr><th>Symbol</th><th>Side</th><th>Qty</th><th>Entry</th><th>Mark</th><th>Stop / target</th><th>Margin</th><th>Action</th></tr></thead>
-        <tbody>
-          ${positions.filter((position) => position.status === "open").map((position) => `
-            <tr>
-              <td>${escapeHtml(position.symbol)}</td>
-              <td><span class="pill pill--${position.side === "long" ? "positive" : "caution"}">${escapeHtml(titleCase(position.side))} · ${escapeHtml(position.leverage)}x</span></td>
-              <td>${escapeHtml(Number(position.quantity).toFixed(8))}</td>
-              <td>${escapeHtml(formatPrice(Number(position.entry_price)))}</td>
-              <td>${escapeHtml(formatPrice(Number(position.mark_price)))}</td>
-              <td>${escapeHtml(formatPrice(Number(position.stop_price)))} / ${escapeHtml(formatPrice(Number(position.target_price)))}</td>
-              <td>${escapeHtml(money(position.margin))}</td>
-              <td class="paper-inline-actions">
-                <button class="btn btn--ghost btn--small" data-action="reduce-position"
-                  data-position-id="${escapeHtml(position.position_id)}" data-fraction="0.5">Reduce 50%</button>
-                <button class="btn btn--ghost btn--small" data-action="close-position"
-                  data-position-id="${escapeHtml(position.position_id)}">Close</button>
-              </td>
-            </tr>
-          `).join("")}
-        </tbody>
-      </table>
-    </div>
-  `;
-}
-
-function renderArmRows(arms) {
-  return Object.entries(arms || {}).map(([name, value]) => `
-    <tr>
-      <td>${escapeHtml(titleCase(name))}</td>
-      <td>${escapeHtml(displayValue(value.closed_trade_count))}</td>
-      <td>${escapeHtml(money(value.net_pnl_usdt))}</td>
-      <td>${escapeHtml(money(value.expectancy_usdt))}</td>
-      <td>${escapeHtml(percent(value.max_drawdown, 2))}</td>
-      <td>${escapeHtml(dataOriginLabel(value.data_origin))}</td>
-    </tr>
-  `).join("");
-}
-
-function renderPerformanceRows(rows, dimension) {
-  if (!Array.isArray(rows) || !rows.length) {
-    return '<tr><td colspan="6" class="table-empty">No performance breakdown is available.</td></tr>';
-  }
-  return rows.map((value) => `
-    <tr>
-      <td>${escapeHtml(displayValue(value?.[dimension]))}</td>
-      <td>${escapeHtml(displayValue(value?.closed_trade_count))}</td>
-      <td>${escapeHtml(money(value?.net_pnl_usdt))}</td>
-      <td>${escapeHtml(money(value?.expectancy_usdt))}</td>
-      <td>${escapeHtml(percent(value?.max_drawdown, 2))}</td>
-      <td><span class="demo-tag">${escapeHtml(dataOriginLabel(value?.data_origin))}</span></td>
-    </tr>
-  `).join("");
-}
-
-function renderLeverageRows(rows) {
-  return (rows || []).map((value) => `
-    <tr>
-      <td>${escapeHtml(value.cohort.replace(/^x/, ""))}x</td>
-      <td>${escapeHtml(value.closed_trade_count)}</td>
-      <td>${escapeHtml(money(value.net_pnl_usdt))}</td>
-      <td>${escapeHtml(value.open_position_count)}</td>
-      <td>${escapeHtml(value.data_origin)}</td>
-    </tr>
-  `).join("");
-}
-
-function renderComparisonChart(arms) {
-  const rows = Object.entries(arms || {}).map(([name, value]) => ({
-    name,
-    value,
-    pnl: numericValue(value.net_pnl_usdt),
-  }));
-  if (!rows.some(({ value }) => value.closed_trade_count > 0 || value.open_position_count > 0)) {
-    return '<p class="muted">No arm positions have been recorded.</p>';
-  }
-  const recordedPnls = rows.filter((row) => row.pnl !== null);
-  if (!recordedPnls.length) {
-    return '<p class="muted">Net PnL is unavailable for the recorded experiment arms.</p>';
-  }
-  const maximum = Math.max(0, ...recordedPnls.map(({ pnl }) => Math.abs(pnl)));
-  return `
-    <div class="paper-comparison-chart" role="img" aria-label="Net paper PnL by experiment arm">
-      ${rows.map(({ name, pnl }) => {
-        const width = pnl === null ? 0 : maximum > 0 ? Math.max(2, Math.abs(pnl) / maximum * 100) : 2;
-        const tone = pnl > 0 ? "positive" : pnl < 0 ? "negative" : "neutral";
-        return `
-          <div class="paper-bar-row">
-            <span>${escapeHtml(titleCase(name))}</span>
-            <div class="paper-bar-track">${pnl === null ? "" : `<span class="paper-bar-fill paper-bar-fill--${tone}" style="width:${width.toFixed(2)}%"></span>`}</div>
-            <strong>${escapeHtml(money(pnl))}</strong>
-          </div>
-        `;
-      }).join("")}
-    </div>
-    <p class="chart-caption">Separate virtual wallets · values reconcile to recorded arm positions</p>
-  `;
-}
-
-function renderProviderUsage(rows) {
-  if (!rows?.length) return '<p class="muted">No provider calls have been recorded.</p>';
-  return `
-    <div class="table-scroll"><table class="data-table">
-      <thead><tr><th>Provider</th><th>Model</th><th>Calls</th><th>Input / output tokens</th><th>p50 / p95</th><th>Cost</th></tr></thead>
-      <tbody>${rows.map((provider) => `
-        <tr>
-          <td>${escapeHtml(provider.provider_id)}<br /><small>${escapeHtml(provider.provider_kind)}</small></td>
-          <td>${escapeHtml(provider.model)}</td>
-          <td>${escapeHtml(provider.successful_call_count)} / ${escapeHtml(provider.call_count)}</td>
-          <td>${escapeHtml(provider.input_tokens)} / ${escapeHtml(provider.output_tokens)}</td>
-          <td>${provider.latency_p50_ms === null ? "—" : `${provider.latency_p50_ms.toFixed(1)} / ${provider.latency_p95_ms.toFixed(1)} ms`}</td>
-          <td>${provider.cost_estimate_usd === null ? "Unpriced" : usd(provider.cost_estimate_usd)}</td>
-        </tr>
-      `).join("")}</tbody>
-    </table></div>
-  `;
-}
-
 function renderSchedulerMetrics(metrics) {
   const scheduler = metrics.scheduler_cycles;
   const operations = metrics.operational;
@@ -366,25 +201,6 @@ function renderSchedulerMetrics(metrics) {
       ${metric("Cycles skipped", String(scheduler.schedule_skipped + scheduler.signal_skipped), `${scheduler.schedule_skipped} schedule · ${scheduler.signal_skipped} signal gate`)}
       ${metric("Cycles failed", String(scheduler.failed + scheduler.interrupted), `${operations.market_data_failure_count} data · ${operations.provider_error_count} AI provider errors`)}
     </div>
-  `;
-}
-
-function renderActivity(events) {
-  if (!events.length) return '<p class="muted">No activity has been recorded.</p>';
-  return `
-    <ul class="paper-event-list">
-      ${events.slice(0, 12).map((event) => {
-        const details = event.payload || {};
-        const label = details.symbol || details.status || details.position_id || details.reason || "";
-        return `
-          <li>
-            <strong>${escapeHtml(titleCase(event.event_type))}</strong>
-            <span>${escapeHtml(String(label))}</span>
-            <small>${escapeHtml(formatTimestamp(event.created_at))} · ${escapeHtml(String(event.cycle_id || "runtime"))}</small>
-          </li>
-        `;
-      }).join("")}
-    </ul>
   `;
 }
 
@@ -461,115 +277,6 @@ function renderMetrics(dashboard) {
       ${metric("Cycle p50 / p95", latency.cycle_sample_count ? `${latency.cycle_p50.toFixed(1)} / ${latency.cycle_p95.toFixed(1)} ms` : "—", `${latency.cycle_sample_count} measured cycles`)}
     </div>
   `;
-}
-
-function usdCost(value, digits = 4) {
-  if (value === null || value === undefined || !Number.isFinite(Number(value))) return "—";
-  return `$${Number(value).toFixed(digits)}`;
-}
-
-function providerHealth(providers, providerId) {
-  const provider = (providers || []).find((item) => item.provider_id === providerId);
-  if (!provider) return { label: "missing", tone: "bad" };
-  if (provider.kind.startsWith("fixture_")) return { label: "FIXTURE", tone: "idle" };
-  if (provider.last_validation_status === "passed") return { label: "connected", tone: "ok" };
-  if (provider.last_validation_status === "failed") return { label: "failed", tone: "bad" };
-  return { label: "not tested", tone: "idle" };
-}
-
-export function renderHealthStrip(dashboard) {
-  const config = dashboard.experiment.config;
-  const stream = dashboard.market_stream;
-  const streamState = config.market_data_mode === "gate_usdt"
-    ? (stream ? stream.state : "OFFLINE")
-    : config.market_data_mode === "fixture" ? "FIXTURE" : "REST ONLY";
-  const streamTone = { LIVE: "ok", STALE: "warn", RECONNECTING: "warn", CONNECTING: "warn", OFFLINE: "bad" }[streamState] || "idle";
-  const jev = providerHealth(dashboard.providers, config.jev_provider_id);
-  const gpt = providerHealth(dashboard.providers, config.gpt_provider_id);
-  const budget = dashboard.ai_cost?.budget_status;
-  const remaining = budget?.remaining_today_usd;
-  const budgetTone = budget?.exhausted ? "bad" : (budget?.utilization_today ?? 0) >= 0.8 ? "warn" : "ok";
-  const pill = (label, value, tone) => `<span class="status-pill status-pill--${tone}"><small>${escapeHtml(label)}</small> ${escapeHtml(value)}</span>`;
-  return `
-    <div class="health-strip" role="status" aria-label="Runtime health">
-      ${pill("Gate", streamState, streamTone)}
-      ${pill("Scheduler", titleCase(dashboard.experiment.status), dashboard.experiment.status === "running" ? "ok" : "idle")}
-      ${pill("Mode", "PAPER", "ok")}
-      ${pill("Jev", jev.label, jev.tone)}
-      ${pill("GPT", gpt.label, gpt.tone)}
-      ${pill("AI budget left today", remaining === null || remaining === undefined ? "no limit" : usdCost(remaining, 2), budgetTone)}
-      ${pill("Gate live orders", "BLOCKED BY DESIGN", "blocked")}
-    </div>`;
-}
-
-export function renderEconomics(economics) {
-  if (!economics) return "";
-  const t = economics.trading;
-  const ai = economics.ai_cost;
-  const k = economics.kpis;
-  const net = economics.net_economic_pnl_usdt;
-  return `
-    <div class="paper-dashboard-grid">
-      <section class="paper-subpanel">
-        <h3>Trading PnL (USDT)</h3>
-        <dl class="paper-definition-list">
-          <div><dt>Gross trading PnL</dt><dd>${escapeHtml(money(t.gross_trading_pnl_usdt, 4))}</dd></div>
-          <div><dt>Fees</dt><dd>${escapeHtml(money(-t.fees_usdt, 4))}</dd></div>
-          <div><dt>Funding</dt><dd>${escapeHtml(money(-t.funding_usdt, 4))}</dd></div>
-          <div><dt>Slippage</dt><dd>${escapeHtml(money(-t.slippage_usdt, 4))}</dd></div>
-          <div><dt>Unrealized</dt><dd>${escapeHtml(money(t.unrealized_pnl_usdt, 4))}</dd></div>
-          <div><dt>Net trading PnL</dt><dd><strong>${escapeHtml(money(t.net_trading_pnl_usdt, 4))}</strong></dd></div>
-        </dl>
-      </section>
-      <section class="paper-subpanel">
-        <h3>AI cost (USD) and net economics</h3>
-        <dl class="paper-definition-list">
-          <div><dt>Jev cost</dt><dd>${escapeHtml(usdCost(ai.jev_cost_usd))}</dd></div>
-          <div><dt>GPT cost</dt><dd>${escapeHtml(usdCost(ai.gpt_cost_usd))}</dd></div>
-          <div><dt>Total AI cost</dt><dd><strong>${escapeHtml(usdCost(ai.total_ai_cost_usd))}</strong>${ai.complete ? "" : ` · ${ai.calls_with_unavailable_cost} unpriced`}</dd></div>
-          <div><dt>FX policy</dt><dd>${economics.fx.mode === "manual" ? `${escapeHtml(economics.fx.usdt_per_usd)} USDT/USD · ${escapeHtml(economics.fx.source)}` : "none"}</dd></div>
-          <div><dt>Net experiment economics</dt><dd><strong>${net === null ? "Unavailable" : escapeHtml(money(net, 4))}</strong></dd></div>
-        </dl>
-        ${net === null ? `<p class="field-help">${escapeHtml(economics.net_economic_unavailable_reason || "")}</p>` : ""}
-      </section>
-    </div>
-    <div class="paper-metric-grid">
-      ${metric("AI cost / analysis", usdCost(k.ai_cost_per_analysis_usd), `${k.denominators.analyses} analyses`)}
-      ${metric("AI cost / eligible case", usdCost(k.ai_cost_per_eligible_case_usd), `${k.denominators.eligible_cases} eligible`)}
-      ${metric("AI cost / trade", usdCost(k.ai_cost_per_trade_usd), `${k.denominators.closed_trades} closed`)}
-      ${metric("AI cost / winning trade", usdCost(k.ai_cost_per_winning_trade_usd), `${k.denominators.winning_trades} wins`)}
-      ${metric("AI cost % of gross profit", k.ai_cost_pct_of_gross_profit == null ? "—" : percent(k.ai_cost_pct_of_gross_profit), "needs FX policy")}
-      ${metric("Net economic expectancy / trade", k.net_economic_expectancy_per_trade_usdt == null ? "—" : money(k.net_economic_expectancy_per_trade_usdt, 4), "after AI cost")}
-      ${metric("Cost on NO_TRADE", usdCost(ai.cost_on_no_trade_usd), "paid analyses without entry")}
-      ${metric("GPT escalation cost", usdCost(ai.gpt_escalation_cost_usd), "hybrid route")}
-    </div>
-    <p class="chart-caption">Aligned-arm AI value: ${escapeHtml(economics.aligned_arm_value.status.replaceAll("_", " "))}
-      (quant n=${escapeHtml(economics.aligned_arm_value.sample.quant_closed)}, hybrid n=${escapeHtml(economics.aligned_arm_value.sample.hybrid_closed)}; no causal claim).</p>`;
-}
-
-export function renderLedgerRows(rows) {
-  if (!rows?.length) return '<tr><td colspan="10" class="muted">No AI calls recorded.</td></tr>';
-  return rows.map((row) => `
-    <tr>
-      <td>${escapeHtml(row.provider_id)}</td>
-      <td>${escapeHtml(row.model)}${row.returned_models?.length ? `<br><small>${escapeHtml(row.returned_models.join(", "))}</small>` : ""}</td>
-      <td>${escapeHtml(row.reasoning_effort || "—")}</td>
-      <td>${escapeHtml(row.calls)} (${escapeHtml(row.real_external_calls)} real)</td>
-      <td>${escapeHtml(displayValue(row.input_tokens))} / ${escapeHtml(displayValue(row.output_tokens))}</td>
-      <td>${escapeHtml(displayValue(row.reasoning_tokens))}</td>
-      <td>${row.latency_p50_ms == null ? "—" : `${Number(row.latency_p50_ms).toFixed(0)} / ${Number(row.latency_p95_ms).toFixed(0)} ms`}</td>
-      <td>${escapeHtml(usdCost(row.estimated_cost_usd))}${row.calls_with_unavailable_cost ? ` · ${row.calls_with_unavailable_cost} unpriced` : ""}</td>
-      <td>${escapeHtml(usdCost(row.billed_cost_usd))}</td>
-      <td>${escapeHtml(row.budget_blocks)}</td>
-    </tr>`).join("");
-}
-
-function renderBudgetEvents(events) {
-  const shown = (events || []).filter((event) => !["reserved", "reconciled", "released"].includes(event.event_type)).slice(0, 12);
-  if (!shown.length) return '<p class="muted">No budget warnings, blocks, or fallbacks.</p>';
-  return `<ul class="paper-activity-list">${shown.map((event) => `
-    <li><strong>${escapeHtml(event.event_type)} · ${escapeHtml(event.code)}</strong>
-      <span>${escapeHtml(event.scope || "")} · ${escapeHtml(event.limit_action || "")} · ${escapeHtml(formatTimestamp(event.created_at))}</span></li>`).join("")}</ul>`;
 }
 
 export function renderDashboard(host, dashboard) {

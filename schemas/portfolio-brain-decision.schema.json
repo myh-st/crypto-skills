@@ -1,0 +1,86 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "portfolio-brain-decision.schema.json",
+  "title": "Portfolio Brain entry decision",
+  "description": "Can only allow, shrink (size_multiplier <= 1), or block; the deterministic RiskEngine still sizes and validates every order.",
+  "type": "object",
+  "additionalProperties": true,
+  "required": [
+    "action",
+    "advisories",
+    "allowed",
+    "correlation_group",
+    "decision_id",
+    "exposure",
+    "inputs",
+    "policy_version",
+    "reason_codes",
+    "risk_engine_authoritative",
+    "schema_version",
+    "size_multiplier"
+  ],
+  "properties": {
+    "schema_version": {
+      "enum": [
+        "portfolio-brain-decision.v1"
+      ]
+    },
+    "policy_version": {
+      "type": "string"
+    },
+    "decision_id": {
+      "type": "string"
+    },
+    "action": {
+      "enum": [
+        "ALLOW",
+        "RESIZE",
+        "BLOCK_CONCENTRATION",
+        "BLOCK_CORRELATED_EXPOSURE",
+        "HOLD_CASH",
+        "DE_RISK"
+      ]
+    },
+    "allowed": {
+      "type": "boolean"
+    },
+    "size_multiplier": {
+      "type": "number",
+      "minimum": 0
+    },
+    "reason_codes": {
+      "type": "array",
+      "items": {
+        "type": "string"
+      }
+    },
+    "advisories": {
+      "type": "array",
+      "items": {
+        "enum": [
+          "PREFER_SPOT",
+          "PREFER_PERPETUAL"
+        ]
+      }
+    },
+    "correlation_group": {
+      "enum": [
+        "BTC",
+        "ETH",
+        "ALT",
+        "STABLE"
+      ]
+    },
+    "exposure": {
+      "type": "object"
+    },
+    "inputs": {
+      "type": "object"
+    },
+    "risk_engine_authoritative": {
+      "enum": [
+        true
+      ]
+    }
+  }
+}

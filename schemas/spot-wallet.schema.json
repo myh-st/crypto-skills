@@ -1,0 +1,79 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "spot-wallet.schema.json",
+  "title": "PAPER Spot wallet",
+  "type": "object",
+  "additionalProperties": true,
+  "required": [
+    "available_quote_usdt",
+    "cash_balance_usdt",
+    "equity_usdt",
+    "fees_usdt",
+    "funding",
+    "holdings_value_usdt",
+    "leverage",
+    "liquidation",
+    "net_pnl_usdt",
+    "quote",
+    "realized_pnl_usdt",
+    "reserved_quote_usdt",
+    "schema_version",
+    "slippage_usdt",
+    "starting_balance_usdt",
+    "unrealized_pnl_usdt"
+  ],
+  "properties": {
+    "schema_version": {
+      "enum": [
+        "spot-wallet.v1"
+      ]
+    },
+    "quote": {
+      "enum": [
+        "USDT"
+      ]
+    },
+    "starting_balance_usdt": {
+      "type": "number"
+    },
+    "cash_balance_usdt": {
+      "type": "number"
+    },
+    "reserved_quote_usdt": {
+      "type": "number"
+    },
+    "available_quote_usdt": {
+      "type": "number"
+    },
+    "holdings_value_usdt": {
+      "type": "number"
+    },
+    "equity_usdt": {
+      "type": "number"
+    },
+    "realized_pnl_usdt": {
+      "type": "number"
+    },
+    "unrealized_pnl_usdt": {
+      "type": "number"
+    },
+    "fees_usdt": {
+      "type": "number"
+    },
+    "slippage_usdt": {
+      "type": "number"
+    },
+    "net_pnl_usdt": {
+      "type": "number"
+    },
+    "leverage": {
+      "type": "null"
+    },
+    "liquidation": {
+      "type": "null"
+    },
+    "funding": {
+      "type": "null"
+    }
+  }
+}

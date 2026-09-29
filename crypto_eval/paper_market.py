@@ -163,7 +163,7 @@ class MarketSnapshot:
         cutoff = parse_utc(self.data_cutoff, "snapshot.data_cutoff")
         if cutoff > as_of:
             raise MarketDataError("snapshot data_cutoff cannot be later than as_of")
-        if self.data_origin not in {"FIXTURE", "BINANCE_USDM_PUBLIC", "GATE_USDT_PUBLIC"}:
+        if self.data_origin not in {"FIXTURE", "BINANCE_USDM_PUBLIC", "GATE_USDT_PUBLIC", "GATE_SPOT_PUBLIC"}:
             raise MarketDataError("snapshot data origin is unsupported")
         for lane, interval, minimum in (
             (self.candles_15m, "15m", 30),
@@ -234,7 +234,7 @@ class FixtureFuturesMarketDataProvider:
     provider_id = "deterministic-paper-fixture"
 
     def __init__(self, *, future_path: dict[str, list[dict[str, Any]]] | None = None) -> None:
-        self.future_path = future_path or {}
+        self.future_path = future_path if future_path is not None else {}
 
     @staticmethod
     def _base(symbol: str) -> float:
