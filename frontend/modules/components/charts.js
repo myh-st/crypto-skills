@@ -9,7 +9,7 @@ const fmtNum = (v, d = 2) => (v === null || v === undefined || Number.isNaN(Numb
 export { fmtPct, fmtNum };
 
 // Equity line with a baseline (e.g. start-of-day equity): green above, red below.
-export function lineChart(points, { baseline = null, height = 150, label = "Equity", unit = "USDT" } = {}) {
+export function lineChart(points, { baseline = null, height = 150, label = "Equity", unit = "USDT", motionKey = "" } = {}) {
   const values = (points || []).map((p) => Number(p[1])).filter((v) => Number.isFinite(v));
   if (values.length < 2) return `<div class="chart-empty muted small">Not enough data yet for the ${escapeHtml(label.toLowerCase())} chart.</div>`;
   const width = 600;
@@ -28,7 +28,7 @@ export function lineChart(points, { baseline = null, height = 150, label = "Equi
   const lastT = points[points.length - 1][0];
   const t = (iso) => escapeHtml(new Date(iso).toLocaleTimeString("en-US", { hour: "2-digit", minute: "2-digit" }));
   return `
-    <figure class="chart chart--line ${up ? "chart--up" : "chart--down"}">
+    <figure class="chart chart--line ${up ? "chart--up" : "chart--down"}"${motionKey ? ` data-motion-enter="${escapeHtml(motionKey)}"` : ""}>
       <svg viewBox="0 0 ${width} ${height}" preserveAspectRatio="none" role="img"
         aria-label="${escapeHtml(label)} from ${escapeHtml(base.toFixed(2))} to ${escapeHtml(last.toFixed(2))} ${escapeHtml(unit)}">
         <path class="chart-area" d="${area}" />
@@ -41,7 +41,7 @@ export function lineChart(points, { baseline = null, height = 150, label = "Equi
 }
 
 // GitHub-style calendar: one square per UTC day, colored by P&L %.
-export function calendarHeatmap(days, { title = "Daily P&L" } = {}) {
+export function calendarHeatmap(days, { title = "Daily P&L", motionKey = "" } = {}) {
   if (!days?.length) return "";
   const scale = Math.max(0.002, ...days.map((d) => Math.abs(Number(d.pnl_pct) || 0)));
   const first = new Date(`${days[0].date}T00:00:00Z`);
@@ -49,21 +49,23 @@ export function calendarHeatmap(days, { title = "Daily P&L" } = {}) {
   const cells = [...Array(offset).fill(null), ...days];
   const weeks = [];
   for (let i = 0; i < cells.length; i += 7) weeks.push(cells.slice(i, i + 7));
+  let order = 0;
   const cell = (d) => {
     if (!d) return '<span class="cal-cell cal-cell--pad"></span>';
+    const i = order++;
     if (d.pnl_pct === null || d.pnl_pct === undefined) {
-      return `<span class="cal-cell cal-cell--none" title="${escapeHtml(d.date)} · no data"></span>`;
+      return `<span class="cal-cell cal-cell--none" style="--i:${i}" title="${escapeHtml(d.date)} · no data"></span>`;
     }
     const v = Number(d.pnl_pct);
     const level = Math.min(4, Math.max(1, Math.ceil((Math.abs(v) / scale) * 4)));
     const tone = v > 0 ? "pos" : v < 0 ? "neg" : "flat";
-    return `<span class="cal-cell cal-cell--${tone} cal-l${tone === "flat" ? 0 : level}${d.today ? " cal-cell--today" : ""}"
+    return `<span class="cal-cell cal-cell--${tone} cal-l${tone === "flat" ? 0 : level}${d.today ? " cal-cell--today" : ""}" style="--i:${i}"
       title="${escapeHtml(d.date)} · ${escapeHtml(fmtPct(v, 2))} (${escapeHtml(fmtNum(d.pnl_usdt))} USDT) · ${escapeHtml(d.trades)} trades"></span>`;
   };
   const green = days.filter((d) => Number(d.pnl_usdt) > 0).length;
   const red = days.filter((d) => Number(d.pnl_usdt) < 0).length;
   return `
-    <figure class="chart chart--calendar" aria-label="${escapeHtml(title)}">
+    <figure class="chart chart--calendar" aria-label="${escapeHtml(title)}"${motionKey ? ` data-motion-enter="${escapeHtml(motionKey)}"` : ""}>
       <div class="cal-grid">${weeks.map((w) => `<div class="cal-week">${w.map(cell).join("")}</div>`).join("")}</div>
       <figcaption class="small muted">${escapeHtml(title)} · <span class="pos-text">${green} green</span> · <span class="neg-text">${red} red</span> days ·
         <span class="cal-legend"><span class="cal-cell cal-cell--neg cal-l4"></span><span class="cal-cell cal-cell--neg cal-l2"></span><span class="cal-cell cal-cell--flat cal-l0"></span><span class="cal-cell cal-cell--pos cal-l2"></span><span class="cal-cell cal-cell--pos cal-l4"></span></span></figcaption>
@@ -71,10 +73,10 @@ export function calendarHeatmap(days, { title = "Daily P&L" } = {}) {
 }
 
 // Horizontal bars around zero (signed) or from zero (unsigned). items: [{label, value, note}]
-export function barList(items, { format = (v) => fmtNum(v), signed = true, max = null } = {}) {
+export function barList(items, { format = (v) => fmtNum(v), signed = true, max = null, motionKey = "" } = {}) {
   if (!items?.length) return '<p class="muted small">No data.</p>';
   const m = max ?? Math.max(1e-12, ...items.map((i) => Math.abs(Number(i.value) || 0)));
-  return `<div class="bar-list${signed ? " bar-list--signed" : ""}">${items.map((i) => {
+  return `<div class="bar-list${signed ? " bar-list--signed" : ""}"${motionKey ? ` data-motion-fill="${escapeHtml(motionKey)}"` : ""}>${items.map((i) => {
     const v = Number(i.value) || 0;
     const w = Math.min(100, (Math.abs(v) / m) * (signed ? 50 : 100));
     const style = signed ? (v >= 0 ? `left:50%;width:${w}%` : `left:${50 - w}%;width:${w}%`) : `left:0;width:${w}%`;
@@ -102,10 +104,10 @@ export function heatGrid(rows, cols, cellFn, { rowLabel = (r) => r, colLabel = (
 }
 
 // Progress gauge (0..1), e.g. how much of the daily loss limit is used.
-export function gauge(used, { label = "", danger = 0.8 } = {}) {
+export function gauge(used, { label = "", danger = 0.8, motionKey = "" } = {}) {
   const u = Math.max(0, Math.min(1, Number(used) || 0));
   const tone = u >= 1 ? "stop" : u >= danger ? "warn" : "ok";
-  return `<div class="gauge gauge--${tone}" role="meter" aria-valuemin="0" aria-valuemax="100" aria-valuenow="${Math.round(u * 100)}" aria-label="${escapeHtml(label)}">
+  return `<div class="gauge gauge--${tone}"${motionKey ? ` data-motion-fill="${escapeHtml(motionKey)}"` : ""} role="meter" aria-valuemin="0" aria-valuemax="100" aria-valuenow="${Math.round(u * 100)}" aria-label="${escapeHtml(label)}">
     <span class="gauge-fill" style="width:${(u * 100).toFixed(1)}%"></span></div>`;
 }
 

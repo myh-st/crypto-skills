@@ -19,7 +19,7 @@ export function renderAttentionQueue(attention, { limit = 8 } = {}) {
   return `
     <ul class="attention-list" aria-label="Needs attention">
       ${items.slice(0, limit).map((item) => `
-        <li class="attention-item attention-item--${escapeHtml(item.severity.toLowerCase())}${item.status === "acknowledged" ? " is-acknowledged" : ""}">
+        <li class="attention-item attention-item--${escapeHtml(item.severity.toLowerCase())}${item.status === "acknowledged" ? " is-acknowledged" : ""}" data-motion-enter="att:${escapeHtml(item.attention_id)}">
           ${severityBadge(item.severity)}
           <div class="attention-text">
             <strong>${escapeHtml(item.title)}</strong>
