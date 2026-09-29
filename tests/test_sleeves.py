@@ -82,13 +82,21 @@ class SignalTests(unittest.TestCase):
     def test_config_validation(self):
         self.assertEqual(validate_sleeves({})["universe"], DEFAULT_SLEEVES["universe"])
         for bad in ({"universe": ["BTCUSDT"]}, {"donchian": {"risk": 0.5}}, {"xsmom": {"k": 5}}, {"nope": 1}, {"leverage": 3},
-                    {"tsmom": {"leverage": 9}}, {"donchian": {"nope": 1}}):
+                    {"tsmom": {"leverage": 9}}, {"donchian": {"nope": 1}},
+                    {"history_bars": 200}):   # 200 x 4h = 33 days cannot cover a 60-day lookback
             with self.assertRaises(PaperTradingError):
                 validate_sleeves(bad)
         config = validate_experiment_config({**default_experiment_config(), "strategy_engine": "sleeves_v1"})
         self.assertEqual(config["sleeves"]["tsmom"]["look_days"], 60)
         self.assertEqual(capital_cohorts(config), ["sleeve-don", "sleeve-ts", "sleeve-xs"])
         self.assertEqual(capital_cohorts(default_experiment_config()), ["primary"])
+        # coverage boundary: 366 x 4h = 61 daily closes, exactly what a 60-day lookback needs; 360 is one short
+        self.assertEqual(validate_sleeves({"history_bars": 366})["history_bars"], 366)
+        with self.assertRaises(PaperTradingError):
+            validate_sleeves({"history_bars": 360})
+        for bad in ({"tsmom": {"vol_days": "30"}}, {"xsmom": {"vol_days": 0}}, {"tsmom": {"rebalance_band": 2}}):
+            with self.assertRaises(PaperTradingError):   # a clean validation error, never a raw exception
+                validate_sleeves(bad)
         self.assertEqual(validate_experiment_config({**default_experiment_config(), "label": "EXP-002"})["label"], "EXP-002")
         with self.assertRaises(PaperTradingError):
             validate_experiment_config({**default_experiment_config(), "label": "<script>"})

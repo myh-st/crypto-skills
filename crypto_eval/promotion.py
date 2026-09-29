@@ -124,21 +124,28 @@ def diff_material(frozen: dict[str, Any], current: dict[str, Any], prefix: str =
                   added_defaults: dict[str, Any] | None = None) -> list[str]:
     """Material differences between a frozen manifest and the current one.
 
-    Schema evolution: a field that did not exist when the manifest was frozen (absent there) and now
-    holds its DEFAULT value is not a change in behaviour, so it is not drift. Any other value for a
-    new field, and every change to an existing field, still is.
+    Key presence is compared before values. Schema evolution: a field ABSENT from the frozen manifest
+    whose current value equals its known default (of any type, dicts included) is not drift. Any
+    other added field, every removed field (even one whose value was None), and every changed value
+    is drift.
     """
     changes: list[str] = []
-    added_defaults = added_defaults or {}
-    keys = set(frozen) | set(current)
-    for key in sorted(keys):
-        a, b = frozen.get(key), current.get(key)
+    defaults = added_defaults if isinstance(added_defaults, dict) else {}
+    for key in sorted(set(frozen) | set(current)):
         path = f"{prefix}{key}"
-        default = added_defaults.get(key) if isinstance(added_defaults, dict) else None
-        if key not in frozen and key in added_defaults and not isinstance(default, dict) and b == default:
+        in_frozen, in_current = key in frozen, key in current
+        if not in_frozen:
+            if key in defaults and current[key] == defaults[key]:
+                continue
+            changes.append(path)
             continue
+        if not in_current:
+            changes.append(path)
+            continue
+        a, b = frozen[key], current[key]
         if isinstance(a, dict) and isinstance(b, dict):
-            changes.extend(diff_material(a, b, f"{path}.", default if isinstance(default, dict) else None))
+            nested = defaults.get(key)
+            changes.extend(diff_material(a, b, f"{path}.", nested if isinstance(nested, dict) else None))
         elif a != b:
             changes.append(path)
     return changes

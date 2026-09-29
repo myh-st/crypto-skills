@@ -2724,14 +2724,23 @@ class PortfolioOS:
 
         config = self.experiment()["config"]
         now = self._now()
+        history = None
         if kind == "perp":
-            snapshot = self.runtime._market(config).fetch_snapshot(row["symbol"], now).validate()
+            provider = self.runtime._market(config)
+            snapshot = provider.fetch_snapshot(row["symbol"], now).validate()
+            # Same warmed-up feature window as the 15m cycle: a bare snapshot (64/48/36 bars) is too short
+            # for EMA26 to converge, which flipped quant_regime (and so the re-plan thesis) ~8% of the time.
+            try:
+                history = self.runtime._feature_history(snapshot, provider.provider_id)
+            except Exception:
+                history = None
         else:
             snapshot = self.catalog.spot.fetch_snapshot(row["exchange_symbol"], now)
         features = compute_features(
             snapshot,
             minimum_signal_strength=config["minimum_signal_strength"],
             signal_gate_enabled=config["signal_gate_enabled"],
+            historical_bars=history,
         )
         return snapshot, features
 

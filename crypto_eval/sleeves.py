@@ -72,6 +72,8 @@ def validate_sleeves(value: Any) -> dict[str, Any]:
         ("tsmom.look_days", merged["tsmom"]["look_days"], 10, 250), ("tsmom.vol_target", merged["tsmom"]["vol_target"], 0.002, 0.06),
         ("xsmom.look_days", merged["xsmom"]["look_days"], 10, 250), ("xsmom.vol_target", merged["xsmom"]["vol_target"], 0.002, 0.06),
         ("xsmom.k", merged["xsmom"]["k"], 1, 5),
+        ("tsmom.vol_days", merged["tsmom"]["vol_days"], 5, 250), ("xsmom.vol_days", merged["xsmom"]["vol_days"], 5, 250),
+        ("tsmom.rebalance_band", merged["tsmom"]["rebalance_band"], 0, 1), ("xsmom.rebalance_band", merged["xsmom"]["rebalance_band"], 0, 1),
     ]
     for name, item, low, high in checks:
         if isinstance(item, bool) or not isinstance(item, (int, float)) or not math.isfinite(float(item)) or not low <= float(item) <= high:
@@ -86,6 +88,15 @@ def validate_sleeves(value: Any) -> dict[str, Any]:
             raise PaperTradingError(f"sleeves.{key} has unsupported fields: {', '.join(sorted(extra))}")
         if not isinstance(merged[key]["enabled"], bool):
             raise PaperTradingError(f"sleeves.{key}.enabled must be boolean")
+    # Last, once every field is known to be well-typed: the fetched 4h history must reach back far enough.
+    # N consecutive 4h bars ending at 00:00 give N // 6 daily closes; day d and d - look_days need look_days + 1.
+    days_covered = int(merged["history_bars"]) // 6
+    for key in ("tsmom", "xsmom"):
+        if merged[key]["enabled"]:
+            needed = max(int(merged[key]["look_days"]), int(merged[key]["vol_days"])) + 1
+            if days_covered < needed:
+                raise PaperTradingError(f"sleeves.history_bars ({merged['history_bars']} x 4h = {days_covered} daily closes) must cover "
+                                        f"{key} look_days/vol_days + 1 = {needed}")
     return merged
 
 

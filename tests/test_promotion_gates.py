@@ -223,5 +223,17 @@ class SchemaEvolutionDriftTests(unittest.TestCase):
         # a field REMOVED from the current manifest is always a change
         self.assertEqual(diff_material(frozen, {"experiment_config": {"symbols": ["BTCUSDT"]}}, added_defaults=defaults),
                          ["experiment_config.max_daily_loss"])
-        # without defaults (e.g. listing what a new version changes) every difference is reported
-        self.assertEqual(diff_material(frozen, current), ["experiment_config.strategy_engine"])
+        # without defaults (e.g. listing what a new version changes) every difference is reported, added keys included
+        self.assertEqual(diff_material(frozen, current), ["experiment_config.sleeves", "experiment_config.strategy_engine"])
+
+    def test_key_presence_is_compared_before_values_and_dict_defaults_count(self):
+        from crypto_eval.promotion import diff_material
+
+        # removing a frozen field whose value was None is still a change
+        self.assertEqual(diff_material({"c": {"x": None}}, {"c": {}}, added_defaults={"c": {"x": None}}), ["c.x"])
+        # a dictionary-valued field added at its exact default is not drift; a different dict is
+        defaults = {"c": {"budget": {"cap": 1.0, "mode": "block"}}}
+        self.assertEqual(diff_material({"c": {}}, {"c": {"budget": {"cap": 1.0, "mode": "block"}}}, added_defaults=defaults), [])
+        self.assertEqual(diff_material({"c": {}}, {"c": {"budget": {"cap": 2.0, "mode": "block"}}}, added_defaults=defaults), ["c.budget"])
+        # an added field with no known default is drift
+        self.assertEqual(diff_material({"c": {}}, {"c": {"new": 0}}, added_defaults={"c": {}}), ["c.new"])
