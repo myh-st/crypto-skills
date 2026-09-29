@@ -611,3 +611,25 @@ test("positions name the owning sleeve so a long and a short on one coin read cl
   const breakout = renderUnifiedPositions([{ ...base, side: "long", cohort: "primary" }]);
   assert.doesNotMatch(breakout, /Engine managed/);
 });
+
+test("book by coin aggregates sleeves per coin with a coin symbol, net exposure and combined P&L", async () => {
+  const { aggregateByCoin, renderCoinBook, coinIcon } = await import("../modules/components/coinBook.js");
+  const p = (symbol, side, cohort, notional, pnlValue) => ({ status: "open", market_type: "perpetual", symbol, base: symbol.replace("USDT", ""), side, cohort,
+    notional_usdt: notional, unrealized_pnl_usdt: pnlValue, mark_price: 100, leverage: 2 });
+  const positions = [p("BTCUSDT", "long", "sleeve-ts", 30, 0.1), p("BTCUSDT", "short", "sleeve-xs", 108, -0.35), p("AVAXUSDT", "long", "sleeve-don", 20, 0.38),
+    p("AVAXUSDT", "long", "sleeve-ts", 12, 0.43)];
+  const rows = aggregateByCoin(positions);
+  const btc = rows.find((r) => r.base === "BTC");
+  assert.equal(btc.net, -78);                  // 30 long - 108 short
+  assert.ok(Math.abs(btc.pnl + 0.25) < 1e-9);
+  assert.equal(rows.find((r) => r.base === "AVAX").legs.length, 2);
+  const html = renderCoinBook(positions);
+  assert.match(html, /NET SHORT/);
+  assert.match(html, /NET LONG/);
+  assert.match(html, /TS ▲ 30/);
+  assert.match(html, /XS ▼ 108/);
+  assert.match(html, /data-motion-key="coin:BTCUSDT:pnl"/);
+  assert.match(html, /aria-label="Bitcoin"/);
+  assert.match(coinIcon("ZZZ"), /hsl\(/);      // unknown coins get a stable generated colour
+  assert.match(coinIcon("<x>"), /&lt;x&gt;/);
+});

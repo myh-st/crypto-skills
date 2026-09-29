@@ -16,7 +16,7 @@ import urllib.request
 from datetime import datetime, timezone
 from typing import Any
 
-DEFAULT_SERVERS = {"EXP-001": "http://127.0.0.1:8765", "EXP-002": "http://127.0.0.1:8768"}
+DEFAULT_SERVERS = {"EXP-001": "http://127.0.0.1:8765", "EXP-002": "http://127.0.0.1:8768", "EXP-002x": "http://127.0.0.1:8770"}
 LOOPBACK = ("http://127.0.0.1:", "http://localhost:", "http://[::1]:")
 TICK_GRACE_SECONDS = 4 * 3600 + 20 * 60  # a sleeves tick is due every 4h (+ schedule delay)
 

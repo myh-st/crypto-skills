@@ -15,9 +15,9 @@ from .paper_contracts import iso_utc, parse_utc
 from .sleeves import ENGINE_ID as SLEEVES_ENGINE, capital_cohorts
 
 DAY = 86400
-# Loopback ports probed for other PAPER experiment servers. 8766 is deliberately absent (a user's own
-# unrelated static server). Override with PAPER_PEER_PORTS="8765,8768,...".
-DEFAULT_PEER_PORTS = (8765, 8767, 8768, 8769, 8770, 8771)
+# Loopback ports probed for other PAPER experiment servers. 8766 and 8769 are deliberately absent (the user's
+# own unrelated servers). Override with PAPER_PEER_PORTS="8765,8768,...".
+DEFAULT_PEER_PORTS = (8765, 8767, 8768, 8770, 8771)   # 8769 is another local app (Okta Verify): never probed
 MAX_INTRADAY_POINTS = 288
 MAX_PEER_RESPONSE_BYTES = 2_000_000  # a loopback peer's JSON is small; anything larger is rejected unparsed
 

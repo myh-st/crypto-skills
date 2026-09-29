@@ -26,6 +26,18 @@ export function applyLiveFrame(payload, doc = globalThis.document) {
     set(`pos:${p.position_ref}:mark`, price(p.price));
     set(`pos:${p.position_ref}:pnl`, pnl(p.unrealized_pnl_usdt));
   }
+  const byCoin = new Map();
+  for (const p of live.positions || []) {
+    const c = byCoin.get(p.symbol) || { pnl: 0, fresh: false, price: p.price };
+    c.pnl += Number(p.unrealized_pnl_usdt) || 0;
+    if (p.fresh) { c.fresh = true; c.price = p.price; }
+    byCoin.set(p.symbol, c);
+  }
+  for (const [symbol, c] of byCoin) {
+    if (!c.fresh) continue;
+    set(`coin:${symbol}:price`, price(c.price));
+    set(`coin:${symbol}:pnl`, pnl(c.pnl));
+  }
   if (Number.isFinite(live.equity_usdt)) {
     set("kpi:equity", usdt(live.equity_usdt));
     const total = Number(payload.portfolio?.total_equity_usdt), trading = Number(payload.portfolio?.trading_pnl_usdt);
