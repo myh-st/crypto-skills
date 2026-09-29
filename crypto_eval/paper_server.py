@@ -226,6 +226,10 @@ class PaperRequestHandler(BaseHTTPRequestHandler):
                 "exchange_accounts": self.runtime.store.list_exchange_accounts(),
                 "live_execution": {"gate_write_execution": False, "status": "BLOCKED_BY_DESIGN"},
             }
+        if path == "/api/safety":
+            return portfolio.safety_overview()
+        if path == "/api/execution-plans":
+            return {"plans": portfolio.safety.plans(portfolio.experiment_id)}
         if path == "/api/tournament":
             return portfolio.tournament()
         if path == "/api/reviews":
@@ -246,6 +250,17 @@ class PaperRequestHandler(BaseHTTPRequestHandler):
             return {"order": portfolio.amend_order(urllib.parse.unquote(path[len("/api/orders/") : -len("/amend")]), self._read_json())}
         if path == "/api/portfolio/review":
             return {"review": portfolio.portfolio_review()}
+        if path == "/api/safety/kill-switch":
+            body = self._read_json()
+            if set(body) - {"level", "reason", "confirm"}:
+                raise PaperTradingError("kill switch accepts level, reason, confirm")
+            confirm = body.get("confirm", False)
+            if not isinstance(confirm, bool):
+                raise PaperTradingError("confirm must be boolean")
+            return {"kill_switch": portfolio.set_kill_switch(body.get("level"), reason=str(body.get("reason") or "")[:300], confirm=confirm)}
+        if path == "/api/safety/assess":
+            body = self._read_json()
+            return {"assessment": portfolio.assess(body.get("instrument_id"), force=True)}
         if path == "/api/portfolio/settings":
             return {"settings": portfolio.update_settings(self._read_json())}
         if path == "/api/automation":
@@ -289,6 +304,8 @@ class PaperRequestHandler(BaseHTTPRequestHandler):
                 return {"result": portfolio.close_position(ref, confirm=confirm, request_id=request_id)}
             if action == "protection":
                 return {"result": self._protection(portfolio, ref, body)}
+            if action == "core":
+                return {"result": portfolio.set_core_quantity(ref, core_fraction=body.get("core_fraction"))}
             if action == "management-mode":
                 return {"result": portfolio.set_management_mode(ref, body.get("mode"), confirm=confirm, reason=body.get("reason"))}
             if action == "replan":

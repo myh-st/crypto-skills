@@ -27,6 +27,15 @@ from typing import Any, Callable
 from . import activity as activity_mod
 from . import learning
 from .contracts import digest
+from .execution_safety import (
+    KILL_RANK,
+    SafetyLedger,
+    classify_market,
+    kill_switch_allows,
+    plan_execution,
+    reconcile_ledgers,
+    within_envelope,
+)
 from .market_catalog import CatalogError, MarketCatalog, neutral_symbol, parse_instrument_id
 from .paper_ai import AIProviderError, REPLAN_SCHEMA_VERSION, parse_replan
 from .paper_contracts import (
@@ -151,6 +160,8 @@ class PortfolioOS:
         self.spot_risk = SpotRiskEngine()
         self._lock = threading.RLock()
         self._last_snapshot_at: datetime | None = None
+        self.safety = SafetyLedger(self.store, runtime._clock)
+        self._assess_cache: dict[str, tuple[datetime, dict[str, Any]]] = {}
 
     # ------------------------------------------------------------------ basics
     def _now(self) -> datetime:
@@ -407,6 +418,148 @@ class PortfolioOS:
             "liquidation": None,
             "funding": None,
         }
+
+    # ------------------------------------------------------------------ safety
+    def safety_settings(self) -> dict[str, Any]:
+        return self.settings()["safety"]
+
+    def kill_switch(self) -> dict[str, Any]:
+        return self.safety.kill_switch(self.experiment_id)
+
+    def set_kill_switch(self, level: str, *, reason: str = "", source: str = "USER", confirm: bool = False) -> dict[str, Any]:
+        current = self.kill_switch()
+        if level not in KILL_RANK:
+            raise PaperTradingError(f"kill switch level must be one of {', '.join(KILL_RANK)}")
+        if level == current["level"]:
+            return current
+        lowering = KILL_RANK[level] < KILL_RANK[current["level"]]
+        if lowering:
+            if source != "USER":
+                raise PaperTradingError("AUTHORITY_DENIED: only the user can lower the kill switch")
+            reconciliation = self.reconcile(escalate=False)
+            if not reconciliation["ok"]:
+                raise PaperTradingError("RECONCILIATION_FAILURE: resolve the ledger mismatch before lowering the kill switch")
+            if not confirm:
+                raise ConfirmationRequired(
+                    "CONFIRM_KILL_SWITCH_LOWER",
+                    f"lower the kill switch from {current['level']} to {level}?",
+                    {"from": current["level"], "to": level},
+                )
+        result = self.safety.set_kill_switch(self.experiment_id, level, reason=reason or f"set by {source}", source=source)
+        with self.store.transaction() as db:
+            self._journal_locked(db, action="KILL_SWITCH", source=source, before={"level": current["level"]},
+                                 after={"level": level, "reason": reason})
+            self._activity_locked(
+                db, source=source, category="ALERT",
+                severity="CRITICAL" if KILL_RANK[level] >= KILL_RANK["RISK_REDUCING_ONLY"] else "ACTION" if level != "NORMAL" else "INFO",
+                title=f"Kill switch {current['level']} → {level}", summary=(reason or "")[:300],
+            )
+        return result
+
+    def reconcile(self, *, escalate: bool = True) -> dict[str, Any]:
+        result = reconcile_ledgers(self.store, self.experiment_id, tolerance=self.safety_settings()["reconciliation_tolerance_usdt"])
+        if not result["ok"] and escalate:
+            self.safety.event(self.experiment_id, kind="reconciliation", code="RECONCILIATION_FAILURE", source="SYSTEM",
+                              detail={"problems": result["problems"][:10]})
+            if KILL_RANK[self.kill_switch()["level"]] < KILL_RANK["RISK_REDUCING_ONLY"]:
+                self.set_kill_switch("RISK_REDUCING_ONLY", reason="RECONCILIATION_FAILURE: ledger invariant mismatch", source="SYSTEM")
+        return result
+
+    def _bars_for(self, market_type: str, exchange_symbol: str, now: datetime, minutes: int = 31) -> list[dict[str, Any]]:
+        start = now - timedelta(minutes=minutes)
+        try:
+            if market_type == "spot":
+                return self.catalog.spot.fetch_monitor_bars(exchange_symbol, start, now)
+            provider = self.catalog.perpetual if self.catalog.source == "gate" else self.runtime._market(self.experiment()["config"])
+            return provider.fetch_monitor_bars(neutral_symbol(exchange_symbol), start, now)
+        except (PaperTradingError, MarketDataError, AttributeError):
+            return []
+
+    def assess(self, instrument_id: str, *, force: bool = False) -> dict[str, Any]:
+        """Deterministic market safety state for an instrument (cached ~10 s). AI has no input."""
+
+        now = self._now()
+        cached = self._assess_cache.get(instrument_id)
+        if cached and not force and (now - cached[0]).total_seconds() < 10:
+            return cached[1]
+        exchange, market_type, exchange_symbol = parse_instrument_id(instrument_id)
+        try:
+            quote = self.catalog.quote(instrument_id)
+        except (PaperTradingError, MarketDataError):
+            quote = None
+        other = f"{exchange}:{'perpetual' if market_type == 'spot' else 'spot'}:{exchange_symbol}"
+        reference = None
+        try:
+            other_quote = self.catalog.quote(other)
+            if other_quote.get("fresh"):
+                reference = other_quote.get("mark_price") or other_quote.get("mid_price")
+        except (PaperTradingError, MarketDataError):
+            reference = None
+        assessment = classify_market(
+            instrument_id=instrument_id, market_type=market_type, quote=quote,
+            bars_1m=self._bars_for(market_type, exchange_symbol, now), settings=self.safety_settings(), now=now,
+            reference_price=reference, prior=self.safety.prior_state(self.experiment_id, instrument_id),
+        )
+        assessment["quote"] = None if quote is None else {k: quote.get(k) for k in ("best_bid", "best_ask", "mid_price", "last_price", "observed_at", "source", "fresh")}
+        self.safety.record_state(self.experiment_id, assessment)
+        self._assess_cache[instrument_id] = (now, assessment)
+        return assessment
+
+    def safety_overview(self) -> dict[str, Any]:
+        return {
+            "schema_version": "safety-overview.v1",
+            "kill_switch": self.kill_switch(),
+            "market_states": self.safety.states(self.experiment_id),
+            "counts": self.safety.counts(self.experiment_id),
+            "recent_events": self.safety.events(self.experiment_id, limit=50),
+            "reconciliation": reconcile_ledgers(self.store, self.experiment_id, tolerance=self.safety_settings()["reconciliation_tolerance_usdt"]),
+            "hierarchy": ["LIQUIDATION / ACCOUNTING SAFETY", "RISK ENGINE", "CRASH / PRICE / LIQUIDITY GUARDS", "PORTFOLIO BRAIN", "AI / HUMAN INTENT"],
+            "settings": self.safety_settings(),
+        }
+
+    def _safety_reject(self, code: str, detail: dict[str, Any], *, instrument_id: str | None = None, position_ref: str | None = None,
+                       source: str = "SYSTEM") -> None:
+        self.safety.event(self.experiment_id, kind="guard", code=code, source=source, detail=detail,
+                          instrument_id=instrument_id, position_ref=position_ref)
+
+    def _entry_plan(self, preview: dict[str, Any], req: dict[str, Any], source: str) -> dict[str, Any]:
+        """Execution planning for an entry/buy preview; may reject, defer, or resize (never enlarge)."""
+
+        if not preview.get("allowed"):
+            return preview
+        instrument = self.catalog.get(req["instrument_id"])
+        assessment = self.assess(req["instrument_id"])
+        buying = req["action"] in {"long", "buy"}
+        action = "entry" if buying or req["market_type"] == "perpetual" else "reduce"
+        holding_qty = None
+        core = 0.0
+        if action == "reduce":
+            holding = next((h for h in self.spot_holdings() if h["instrument_id"] == req["instrument_id"]), None)
+            holding_qty = 0.0 if holding is None else float(holding["quantity"]) - float(holding["reserved_quantity"])
+            meta = self._meta(f"spot:{holding['holding_id']}") if holding else None
+            core = float((meta or {}).get("core_quantity") or 0.0)
+        plan = plan_execution(
+            action=action, source=source, market_type=req["market_type"], side=req["action"], quantity=float(preview["quantity"]),
+            assessment=assessment, quote=preview.get("quote"), settings=self.safety_settings(),
+            quantity_step=instrument.get("quantity_step"), position_quantity=holding_qty, core_quantity=core,
+            kill_switch_level=self.kill_switch()["level"],
+        )
+        preview = dict(preview)
+        preview["market_safety"] = {k: assessment[k] for k in ("state", "price_confidence", "reasons", "restrictions")}
+        preview["execution_plan"] = {k: plan.get(k) for k in ("plan_id", "decision", "style", "slices", "max_slippage_bps", "price_envelope", "reasons", "expires_at", "blocked_reason")}
+        if plan["decision"] in {"REJECT", "DEFER"}:
+            code = (plan.get("blocked_reason") or "").split(":")[0] or (plan["reasons"][0] if plan["reasons"] else "EXECUTION_DEFERRED")
+            preview.update({"allowed": False, "code": code, "reason": plan.get("blocked_reason") or f"execution {plan['decision'].lower()}: {', '.join(plan['reasons']) or assessment['state']}"})
+            return preview
+        factor = plan["quantity"] / float(preview["quantity"]) if preview["quantity"] else 1.0
+        if factor < 1 - 1e-9:
+            preview["quantity"] = plan["quantity"]
+            for key in ("notional_usdt", "margin_usdt", "max_loss_usdt", "estimated_entry_fee_usdt", "estimated_exit_fee_at_stop_usdt",
+                        "estimated_slippage_usdt", "notional", "fee", "slippage_cost", "quote_amount_usdt"):
+                if isinstance(preview.get(key), (int, float)):
+                    preview[key] = preview[key] * factor
+            preview.setdefault("warnings", []).append("SAFETY_RESIZE")
+        return preview
 
     # ------------------------------------------------------------ quotes/marks
     def quote(self, instrument_id: str) -> dict[str, Any]:
@@ -1000,7 +1153,7 @@ class PortfolioOS:
     ORDER_FIELDS = {
         "client_request_id", "instrument_id", "action", "order_type", "limit_price", "risk_pct",
         "stop_price", "targets", "target_fractions", "leverage", "quantity", "quote_amount",
-        "allocation_target_pct", "note",
+        "allocation_target_pct", "note", "preview_as_of",
     }
 
     def _validate_order_request(self, request: Any) -> dict[str, Any]:
@@ -1031,6 +1184,10 @@ class PortfolioOS:
         return {**request, "order_type": order_type, "market_type": market_type}
 
     def _guard_new_entries(self, source: str) -> None:
+        level = self.kill_switch()["level"]
+        allowed, why = kill_switch_allows(level, action="entry", source=source, risk_reducing=False)
+        if not allowed:
+            raise PaperTradingError(why)
         automation = self.settings()["automation"]
         if automation["emergency_stop"]:
             raise PaperTradingError("EMERGENCY_STOP: new PAPER orders are blocked until the emergency stop is cleared")
@@ -1039,9 +1196,10 @@ class PortfolioOS:
 
     def preview_order(self, request: Any, *, source: str = "USER") -> dict[str, Any]:
         req = self._validate_order_request(request)
-        if req["market_type"] == "perpetual":
-            return self._perp_preview(req, source=source)
-        return self._spot_preview(req, source=source)
+        preview = self._perp_preview(req, source=source) if req["market_type"] == "perpetual" else self._spot_preview(req, source=source)
+        preview = self._entry_plan(preview, req, source)
+        preview["expires_at"] = iso_utc(self._now() + timedelta(seconds=self.safety_settings()["preview_ttl_seconds"]))
+        return preview
 
     def _perp_preview(self, req: dict[str, Any], *, source: str) -> dict[str, Any]:
         experiment = self.experiment()
@@ -1313,14 +1471,30 @@ class PortfolioOS:
         request_id = req.get("client_request_id")
         replay = self._idempotent(request_id, "order", request)
         if replay is not None:
+            self._safety_reject("DUPLICATE_PREVENTED", {"client_request_id": request_id}, instrument_id=req["instrument_id"], source=source)
             return replay
+        if req.get("preview_as_of") is not None:
+            age = (self._now() - parse_utc(req["preview_as_of"], "preview_as_of")).total_seconds()
+            if age > self.safety_settings()["preview_ttl_seconds"]:
+                self._safety_reject("STALE_DECISION", {"preview_age_seconds": age}, instrument_id=req["instrument_id"], source=source)
+                raise PaperTradingError("STALE_DECISION: the preview expired; review the updated preview before submitting")
         if req["market_type"] == "perpetual" or req["action"] == "buy":
             self._guard_new_entries(source)
         with self._lock:
             replay = self._idempotent(request_id, "order", request)
             if replay is not None:
                 return replay
-            preview = self.preview_order(request, source=source)
+            preview = self.preview_order({k: v for k, v in request.items() if k != "preview_as_of"}, source=source)
+            if not preview["allowed"] and preview.get("execution_plan"):
+                self._safety_reject(preview["code"], {"reason": preview["reason"], "plan": preview["execution_plan"]},
+                                    instrument_id=req["instrument_id"], source=source)
+            if preview["allowed"] and req["order_type"] == "market":
+                plan = preview.get("execution_plan") or {}
+                buying = req["action"] in {"long", "buy"}
+                fill = preview.get("estimated_entry_price") or preview.get("fill_price")
+                if plan and fill and not within_envelope(float(fill), plan, buying):
+                    self._safety_reject("SLIPPAGE_LIMIT", {"fill": fill, "envelope": plan.get("price_envelope")}, instrument_id=req["instrument_id"], source=source)
+                    preview = {**preview, "allowed": False, "code": "SLIPPAGE_LIMIT", "reason": "estimated fill is outside the acceptable-price envelope"}
             if req["market_type"] == "perpetual":
                 response = self._create_perp_order(req, preview, source=source)
             else:
@@ -1849,11 +2023,18 @@ class PortfolioOS:
             return {**created, "original_order_ref": order_ref, "amend_mode": "cancel_replace"}
 
     # ------------------------------------------------------ position manager
-    def _authorize(self, ref: str, meta: dict[str, Any] | None, source: str) -> None:
+    def _authorize(self, ref: str, meta: dict[str, Any] | None, source: str, *, reason: str | None = None) -> None:
         if source == "USER":
             return
+        if source == "SYSTEM":
+            # Deterministic liquidation safety sits above every authority mode.
+            if reason == "liquidation_emergency":
+                return
+            raise PaperTradingError("AUTHORITY_DENIED: SYSTEM mutations are limited to liquidation emergencies")
         if source != "AI":
-            raise PaperTradingError("mutation source must be USER or AI")
+            raise PaperTradingError("mutation source must be USER, AI, or SYSTEM")
+        if KILL_RANK[self.kill_switch()["level"]] >= KILL_RANK["AI_MANAGEMENT_PAUSED"]:
+            raise PaperTradingError(f"AUTHORITY_DENIED: kill switch {self.kill_switch()['level']} pauses AI management")
         automation = self.settings()["automation"]
         mode = (meta or {}).get("management_mode")
         if mode != "AUTO_PAPER":
@@ -1966,6 +2147,9 @@ class PortfolioOS:
             increased = risk_after > risk_before + 1e-9
             if increased and source == "AI":
                 raise PaperTradingError("AI_RISK_INCREASE_FORBIDDEN: autonomous changes may not increase risk")
+            level = self.kill_switch()["level"]
+            if increased and KILL_RANK[level] >= KILL_RANK["RISK_REDUCING_ONLY"]:
+                raise PaperTradingError(f"KILL_SWITCH_{level}: only risk-reducing protection changes are allowed")
             if increased and not confirm_risk_increase:
                 raise ConfirmationRequired(
                     "CONFIRM_RISK_INCREASE",
@@ -2039,13 +2223,37 @@ class PortfolioOS:
         request = {"ref": ref, "fraction": fraction, "confirm": confirm}
         replay = self._idempotent(request_id, "reduce", request)
         if replay is not None:
+            self._safety_reject("DUPLICATE_PREVENTED", {"request_id": request_id}, position_ref=ref, source=source)
             return replay
         with self._lock:
             self.sync_meta()
-            kind, identifier, row = self._position_row(ref)
+            try:
+                kind, identifier, row = self._position_row(ref)
+            except PaperTradingError as exc:
+                if "POSITION_CLOSED" in str(exc):
+                    self._safety_reject("WRONG_SIDE_BLOCK", {"reason": "reduce/close after flat cannot open or reverse"}, position_ref=ref, source=source)
+                raise
             meta = self._meta(ref)
-            self._authorize(ref, meta, source)
+            self._authorize(ref, meta, source, reason=reason)
             closing = fraction >= 1 - 1e-9
+            plan = self._reduce_plan(kind, row, meta, fraction=1.0 if closing else fraction, closing=closing, source=source, reason=reason)
+            if plan["decision"] in {"REJECT", "DEFER"}:
+                code = (plan.get("blocked_reason") or "").split(":")[0] or (plan["reasons"][0] if plan["reasons"] else "EXECUTION_DEFERRED")
+                self._safety_reject(code, {"plan": plan}, instrument_id=(meta or {}).get("instrument_id"), position_ref=ref, source=source)
+                raise PaperTradingError(f"{code}: execution {plan['decision'].lower()} ({', '.join(plan['reasons']) or plan['market_state']})")
+            clamped = bool({"SELL_VELOCITY_LIMIT", "CORE_PROTECTED"} & set(plan["reasons"]))
+            if clamped and source == "USER" and not confirm:
+                raise ConfirmationRequired(
+                    "CONFIRM_SAFETY_OVERRIDE",
+                    f"safety guards limit this {row['symbol']} reduction ({', '.join(plan['reasons'])}); override?",
+                    {"instrument": row["symbol"], "requested_quantity": plan["requested_quantity"], "guarded_quantity": plan["quantity"],
+                     "market_state": plan["market_state"]},
+                )
+            if clamped and source == "USER":
+                self._safety_reject("SAFETY_OVERRIDE", {"plan_reasons": plan["reasons"], "requested": plan["requested_quantity"]},
+                                    position_ref=ref, source="USER")
+                plan["quantity"] = plan["requested_quantity"]
+                plan["slices"] = [plan["requested_quantity"]]
             if source == "USER" and not confirm:
                 if closing:
                     raise ConfirmationRequired(
@@ -2059,31 +2267,14 @@ class PortfolioOS:
                     )
             price, quote = self._current_price(kind, row)
             before = {"quantity": float(row["quantity"])}
-            if kind == "perp":
-                reference = None
-                if quote and quote.get("fresh"):
-                    reference = float(quote["best_bid"] if row["side"] == "long" else quote["best_ask"])
-                result = self.runtime.close_or_reduce(
-                    identifier, fraction=1.0 if closing else fraction, reference_price=reference,
-                    data_origin=None if quote is None else quote.get("data_origin"),
-                )
-                if not result.get("accepted"):
-                    raise PaperTradingError(f"REDUCE_REJECTED: {result.get('reason') or 'risk engine rejected the reduce'}")
-                after = {"quantity": result.get("remaining_quantity"), "filled_quantity": result.get("filled_quantity"),
-                         "realized_pnl": result.get("realized_pnl")}
-                closed = (result.get("remaining_quantity") or 0.0) <= 1e-10
-            else:
-                result = self._spot_market_sell(
-                    ref, identifier, fraction=1.0 if closing else fraction, source=source,
-                    exit_reason=reason or ("user_close" if source == "USER" else "ai_close"),
-                )
-                after = {"quantity": result["holding_quantity"], "filled_quantity": result["quantity"], "realized_pnl": result["realized_pnl"]}
-                closed = result["holding_closed"]
+            after, closed = self._execute_plan(kind, identifier, row, meta, plan, closing=closing, source=source, reason=reason,
+                                               request_id=request_id)
             with self.store.transaction() as db:
                 event_id = self._journal_locked(
                     db, action="CLOSE" if closed else "REDUCE", source=source, position_ref=ref,
                     market_type="perpetual" if kind == "perp" else "spot",
-                    before=before, after={**after, "fraction": fraction, "reason": reason, "proposal_id": proposal_id},
+                    before=before, after={**after, "fraction": fraction, "reason": reason, "proposal_id": proposal_id,
+                                          "plan_id": plan["plan_id"], "plan_decision": plan["decision"], "plan_reasons": plan["reasons"]},
                     snapshot={"price": price}, request_id=request_id,
                 )
                 if kind == "perp":
@@ -2097,15 +2288,111 @@ class PortfolioOS:
                     )
                 if source == "USER":
                     db.execute("UPDATE position_meta SET last_user_override_at=? WHERE position_ref=?", (self._iso(), ref))
-                response = {"position_ref": ref, "closed": closed, "fraction": fraction, "result": after, "audit_event_id": event_id, "source": source}
+                response = {"position_ref": ref, "closed": closed, "fraction": fraction, "result": after, "audit_event_id": event_id,
+                            "source": source, "execution_plan": {k: plan.get(k) for k in ("plan_id", "decision", "style", "slices", "reasons", "market_state")}}
                 self._remember_locked(db, request_id, "reduce", request, response)
             self.record_snapshot(force=True)
+            self.reconcile()
             return response
+
+    def _recent_reduced_fraction(self, ref: str, quantity_now: float) -> float:
+        window = timedelta(minutes=self.safety_settings()["sell_velocity_window_minutes"])
+        since = iso_utc(self._now() - window)
+        reduced = 0.0
+        for event in self.management_events(ref, limit=200):
+            if event["created_at"] < since or event["action"] not in {"REDUCE", "CLOSE", "PLAN_STOP", "PLAN_TARGET", "TARGET_PARTIAL"}:
+                continue
+            after = event.get("after") or {}
+            reduced += float(after.get("filled_quantity") or after.get("quantity") or 0.0) if event["action"] in {"REDUCE", "CLOSE"} else float(after.get("quantity") or after.get("filled_quantity") or 0.0)
+        total = reduced + quantity_now
+        return reduced / total if total > 0 else 0.0
+
+    def _reduce_plan(self, kind: str, row: dict[str, Any], meta: dict[str, Any] | None, *, fraction: float, closing: bool,
+                     source: str, reason: str | None) -> dict[str, Any]:
+        instrument_id = (meta or {}).get("instrument_id") or (self.perp_instrument_id(row["symbol"]) if kind == "perp" else row["instrument_id"])
+        assessment = self.assess(instrument_id)
+        quote = assessment.get("quote")
+        if kind == "perp":
+            position_quantity = float(row["quantity"])
+            step = None
+        else:
+            position_quantity = float(row["quantity"]) - (0.0 if closing else float(row["reserved_quantity"]))
+            step = self.catalog.get(instrument_id).get("quantity_step")
+        return plan_execution(
+            action="close" if closing else "reduce", source=source, market_type="perpetual" if kind == "perp" else "spot",
+            side=row.get("side", "long"), quantity=position_quantity * fraction, assessment=assessment, quote=quote,
+            settings=self.safety_settings(), urgency="emergency" if reason == "liquidation_emergency" else "normal",
+            quantity_step=None if closing else step, recent_reduced_fraction=self._recent_reduced_fraction(f"{'perp' if kind == 'perp' else 'spot'}:{row.get('position_id') or row.get('holding_id')}", float(row["quantity"])),
+            position_quantity=position_quantity, core_quantity=float((meta or {}).get("core_quantity") or 0.0),
+            kill_switch_level=self.kill_switch()["level"],
+        )
+
+    def _execute_plan(self, kind: str, identifier: str, row: dict[str, Any], meta: dict[str, Any] | None, plan: dict[str, Any], *,
+                      closing: bool, source: str, reason: str | None, request_id: str | None) -> tuple[dict[str, Any], bool]:
+        """Execute slices with revalidation between them; the remainder defers if conditions degrade."""
+
+        instrument_id = (meta or {}).get("instrument_id") or (self.perp_instrument_id(row["symbol"]) if kind == "perp" else row["instrument_id"])
+        filled = 0.0
+        realized = 0.0
+        remaining_qty = float(row["quantity"])
+        closed = False
+        deferred: list[float] = []
+        buying_to_close = row.get("side") == "short"
+        slices = plan["slices"]
+        # A close only liquidates "everything" when no guard clamped it; otherwise it is a sized reduce.
+        full_close = closing and plan["quantity"] >= plan["requested_quantity"] - 1e-12
+        self.safety.save_plan(self.experiment_id, plan, instrument_id=instrument_id, position_ref=f"{kind}:{identifier}",
+                              idempotency_key=None if request_id is None else f"plan:{request_id}", status="executing")
+        for index, quantity in enumerate(slices):
+            if index > 0:
+                check = self.assess(instrument_id, force=True)
+                bid = (check.get("quote") or {}).get("best_bid")
+                ask = (check.get("quote") or {}).get("best_ask")
+                reference = ask if buying_to_close else bid
+                if (check["state"] == "MARKET_DATA_UNTRUSTED" and plan["urgency"] != "emergency") or reference is None or not within_envelope(float(reference), plan, buying_to_close):
+                    deferred = slices[index:]
+                    self._safety_reject("EXECUTION_DEFERRED", {"plan_id": plan["plan_id"], "remaining_slices": len(deferred),
+                                                                 "state": check["state"]}, instrument_id=instrument_id,
+                                        position_ref=f"{kind}:{identifier}", source=source)
+                    break
+            final_slice = full_close and index == len(slices) - 1
+            if kind == "perp":
+                current = self.store._query("SELECT quantity FROM positions WHERE position_id=?", (identifier,))[0]["quantity"]
+                slice_fraction = 1.0 if final_slice else min(1.0, quantity / float(current))
+                quote = self.assess(instrument_id).get("quote") or {}
+                ref_price = quote.get("best_ask" if buying_to_close else "best_bid")
+                result = self.runtime.close_or_reduce(
+                    identifier, fraction=slice_fraction, reference_price=ref_price, data_origin=None,
+                    order_key=f"{plan['plan_id']}:{index}",
+                )
+                if not result.get("accepted"):
+                    raise PaperTradingError(f"REDUCE_REJECTED: {result.get('reason') or 'risk engine rejected the reduce'}")
+                filled += float(result.get("filled_quantity") or 0.0)
+                realized += float(result.get("realized_pnl") or 0.0)
+                remaining_qty = float(result.get("remaining_quantity") or 0.0)
+                closed = remaining_qty <= 1e-10
+            else:
+                fill = self._spot_market_sell(
+                    f"spot:{identifier}", identifier, fraction=1.0 if final_slice else 0.0, quantity=None if final_slice else quantity,
+                    source=source, exit_reason=reason or ("user_close" if source == "USER" else "ai_close"),
+                )
+                filled += fill["quantity"]
+                realized += fill["realized_pnl"]
+                remaining_qty = fill["holding_quantity"]
+                closed = fill["holding_closed"]
+            if closed:
+                break
+        status = "complete" if not deferred else "partially_deferred"
+        result = {"quantity": remaining_qty, "filled_quantity": filled, "realized_pnl": realized, "deferred_slices": len(deferred)}
+        self.safety.save_plan(self.experiment_id, plan, instrument_id=instrument_id, position_ref=f"{kind}:{identifier}",
+                              idempotency_key=None if request_id is None else f"plan:{request_id}", status=status, result=result)
+        return result, closed
 
     def close_position(self, ref: str, *, source: str = "USER", confirm: bool = False, request_id: str | None = None, reason: str | None = None, proposal_id: str | None = None) -> dict[str, Any]:
         return self.reduce_position(ref, 1.0, source=source, confirm=confirm, request_id=request_id, reason=reason, proposal_id=proposal_id)
 
-    def _spot_market_sell(self, ref: str, holding_id: str, *, fraction: float, source: str, exit_reason: str) -> dict[str, Any]:
+    def _spot_market_sell(self, ref: str, holding_id: str, *, fraction: float, source: str, exit_reason: str,
+                          quantity: float | None = None) -> dict[str, Any]:
         rows = self.store._query("SELECT * FROM spot_holdings WHERE holding_id=?", (holding_id,))
         holding = dict(rows[0])
         instrument = self.catalog.get(holding["instrument_id"])
@@ -2113,7 +2400,7 @@ class PortfolioOS:
         if not quote.get("fresh"):
             raise PaperTradingError("STALE_DATA: no fresh spot quote; retry when market data recovers")
         settings = self.settings()
-        closing = fraction >= 1 - 1e-9
+        closing = quantity is None and fraction >= 1 - 1e-9
         if closing:
             pending_sells = self.store._query(
                 "SELECT order_id FROM spot_orders WHERE holding_id=? AND side='sell' AND status IN ('pending','partially_filled')",
@@ -2123,7 +2410,13 @@ class PortfolioOS:
                 self.cancel_order(f"spot:{order['order_id']}", source=source, reason="holding_close")
             holding = dict(self.store._query("SELECT * FROM spot_holdings WHERE holding_id=?", (holding_id,))[0])
         available = float(holding["quantity"]) - float(holding["reserved_quantity"])
-        quantity = available if closing else floor_to_step(available * fraction, instrument.get("quantity_step"))
+        if quantity is not None:
+            if quantity > available + 1e-12:
+                self._safety_reject("WRONG_SIDE_BLOCK", {"requested": quantity, "available": available}, position_ref=ref, source=source)
+                raise PaperTradingError("INSUFFICIENT_BASE: a Spot sell cannot exceed the available holding")
+            quantity = min(quantity, available)
+        else:
+            quantity = available if closing else floor_to_step(available * fraction, instrument.get("quantity_step"))
         if quantity <= 0:
             raise PaperTradingError("INSUFFICIENT_BASE: no available quantity to sell")
         reference = float(quote["best_bid"])
@@ -2318,18 +2611,31 @@ class PortfolioOS:
         slip = float(settings["spot_slippage_bps"]) / 10_000
         fee_rate = float(settings.get("spot_fee_rate") or instrument.get("taker_fee_rate") or 0.001)
         available = float(holding["quantity"]) - float(holding["reserved_quantity"])
+        core = float(meta.get("core_quantity") or 0.0)
+        confirm_needed = int(settings["safety"]["spot_stop_confirm_closes"])
+        breaches = int(meta.get("stop_breaches") or 0)
         result = None
         with self.store.transaction() as db:
-            if stop is not None and available > 0 and (o <= stop or l <= stop):
-                reference = min(o, float(stop))
+            # Spot has no liquidation risk, so a stop needs N consecutive closes below it: a wick
+            # or bad print alone never sells. Core quantity is never sold by a plan stop.
+            if stop is not None:
+                breaches = breaches + 1 if c <= float(stop) else 0
+                db.execute("UPDATE position_meta SET stop_breaches=? WHERE position_ref=?", (breaches, ref))
+            sellable = max(0.0, available - core)
+            if stop is not None and breaches >= confirm_needed and sellable > 0:
+                reference = c
                 fill = self._spot_fill_locked(
                     db, order_id=f"so-plan-{uuid.uuid4().hex[:12]}", instrument=instrument, side="sell",
-                    quantity=available, price=reference * (1 - slip), reference=reference, fee_rate=fee_rate,
+                    quantity=sellable, price=reference * (1 - slip), reference=reference, fee_rate=fee_rate,
                     liquidity="taker", source="SYSTEM", exit_reason="plan_stop",
                 )
+                db.execute("UPDATE position_meta SET stop_breaches=0 WHERE position_ref=?", (ref,))
                 self._journal_locked(db, action="PLAN_STOP", source="SYSTEM", position_ref=ref, market_type="spot",
-                                     before={"quantity": float(holding["quantity"])}, after=fill, snapshot={"bar": bar})
-                result = {"event": "plan_stop", "position_ref": ref}
+                                     before={"quantity": float(holding["quantity"]), "core_quantity": core},
+                                     after={**fill, "confirmed_closes": breaches}, snapshot={"bar": bar})
+                result = {"event": "plan_stop", "position_ref": ref, "core_protected": core > 0}
+            elif stop is not None and breaches >= confirm_needed and core > 0:
+                result = {"event": "core_protected", "position_ref": ref}
             else:
                 changed = False
                 for target in targets:
@@ -2926,6 +3232,8 @@ class PortfolioOS:
         experiment = self.experiment()
         if not settings["review"]["enabled"] or settings["automation"]["ai_management_paused"]:
             return []
+        if KILL_RANK[self.kill_switch()["level"]] >= KILL_RANK["AI_MANAGEMENT_PAUSED"]:
+            return []
         if experiment["status"] != "running" and not force:
             return []
         now = (now or self._now()).astimezone(timezone.utc)
@@ -3040,6 +3348,8 @@ class PortfolioOS:
         wallet = self.store.wallet_summary(self.experiment_id, "primary")
         spot = self.spot_wallet()
         return {
+            "kill_switch": self.kill_switch(),
+            "market_states": self.safety.states(self.experiment_id),
             "experiment": experiment,
             "positions": positions,
             "market_stream": stream_status,
@@ -3377,12 +3687,60 @@ class PortfolioOS:
         result["reviews"] = len(reviews)
         return result
 
+    def set_core_quantity(self, ref: str, *, core_fraction: float, source: str = "USER") -> dict[str, Any]:
+        """Logical Spot Core/Tactical split. Core is protected from plan stops and crash-state
+        discretionary sells unless a structural breakdown is confirmed."""
+
+        kind, _identifier, row = self._position_row(ref)
+        if kind != "spot":
+            raise PaperTradingError("Core/Tactical allocation applies to Spot holdings")
+        if source not in {"USER", "SYSTEM"}:
+            raise PaperTradingError("AUTHORITY_DENIED: Core allocation is set by the user or the lifecycle policy")
+        fraction = _num(core_fraction, "core_fraction")
+        if not 0 <= fraction <= 1:
+            raise PaperTradingError("core_fraction must be between 0 and 1")
+        core = float(row["quantity"]) * fraction
+        with self.store.transaction() as db:
+            before = db.execute("SELECT core_quantity FROM position_meta WHERE position_ref=?", (ref,)).fetchone()
+            db.execute("UPDATE position_meta SET core_quantity=?, updated_at=? WHERE position_ref=?", (core, self._iso(), ref))
+            self._journal_locked(db, action="CORE_ALLOCATION", source=source, position_ref=ref, market_type="spot",
+                                 before={"core_quantity": None if before is None else before["core_quantity"]},
+                                 after={"core_quantity": core, "core_fraction": fraction})
+        return {"position_ref": ref, "core_quantity": core, "tactical_quantity": float(row["quantity"]) - core}
+
+    def liquidation_guard(self) -> list[dict[str, Any]]:
+        """Futures liquidation safety overrides slow confirmation and every authority mode."""
+
+        settings = self.safety_settings()
+        actions = []
+        for position in [p for p in self.list_positions() if p["status"] == "open" and p["market_type"] == "perpetual"]:
+            buffer = position.get("liquidation_buffer_pct")
+            if not isinstance(buffer, (int, float)) or buffer > settings["liquidation_emergency_buffer_pct"]:
+                continue
+            ref = position["position_ref"]
+            recent = [e for e in self.management_events(ref, limit=50)
+                      if e["source"] == "SYSTEM" and (e.get("after") or {}).get("reason") == "liquidation_emergency"
+                      and e["created_at"] >= iso_utc(self._now() - timedelta(minutes=settings["emergency_cooldown_minutes"]))]
+            if recent:
+                continue
+            self._safety_reject("LIQUIDATION_BUFFER_CRITICAL", {"buffer_pct": buffer, "mode": position["management_mode"]},
+                                instrument_id=position["instrument_id"], position_ref=ref)
+            try:
+                result = self.reduce_position(ref, settings["emergency_reduce_fraction"], source="SYSTEM", confirm=True,
+                                              reason="liquidation_emergency")
+                actions.append({"position_ref": ref, "buffer_pct": buffer, "closed": result["closed"]})
+            except PaperTradingError as exc:
+                actions.append({"position_ref": ref, "buffer_pct": buffer, "error": str(exc)[:160]})
+        return actions
+
     # --------------------------------------------------------------- hooks
     def after_monitor(self, *, now: datetime | None = None) -> dict[str, Any]:
         summary: dict[str, Any] = {}
         for name, step in (
             ("meta", self.sync_meta),
+            ("liquidation_guard", lambda: len(self.liquidation_guard())),
             ("spot", lambda: len(self.monitor_spot(now=now))),
+            ("reconciliation", lambda: self.reconcile()["ok"]),
             ("reviews", self.sync_reviews),
             ("position_reviews", lambda: len(self.review_positions(now=now))),
             ("snapshot", lambda: bool(self.record_snapshot())),
@@ -3436,4 +3794,8 @@ class PortfolioOS:
             "brain_decisions": rows("SELECT * FROM brain_decisions WHERE experiment_id=? ORDER BY created_at"),
             "tournament": self.tournament(),
             "settings": self.settings(),
+            "safety_events": self.safety.events(experiment_id, limit=100_000),
+            "execution_plans": self.safety.plans(experiment_id, limit=100_000),
+            "market_safety_states": self.safety.states(experiment_id),
+            "kill_switch": self.kill_switch(),
         }
