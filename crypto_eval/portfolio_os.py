@@ -434,6 +434,28 @@ class PortfolioOS:
         }
 
     # ------------------------------------------------------------------ safety
+    def capital_cohorts(self) -> list[str]:
+        from .sleeves import capital_cohorts
+
+        return capital_cohorts(self.experiment()["config"])
+
+    def _perp_wallet(self) -> dict[str, Any]:
+        """Perpetual capital: the primary wallet, or the sum of the sleeve sub-accounts."""
+
+        cohorts = self.capital_cohorts()
+        if cohorts == ["primary"]:
+            return self.store.wallet_summary(self.experiment_id, "primary")
+        wallets = [self.store.wallet_summary(self.experiment_id, cohort) for cohort in cohorts]
+        total: dict[str, Any] = {}
+        for wallet in wallets:
+            for key, value in wallet.items():
+                if isinstance(value, (int, float)) and not isinstance(value, bool):
+                    total[key] = float(total.get(key, 0.0)) + float(value)
+                else:
+                    total.setdefault(key, value)
+        total["cohorts"] = {cohort: wallet for cohort, wallet in zip(cohorts, wallets)}
+        return total
+
     def safety_settings(self) -> dict[str, Any]:
         return self.settings()["safety"]
 
@@ -646,7 +668,8 @@ class PortfolioOS:
         existing = self._meta_rows()
         created = 0
         settings = self.settings()
-        positions = [p for p in self.store.open_positions(self.experiment_id) if p["cohort"] == "primary"]
+        cohorts = set(self.capital_cohorts()) | {"primary"}
+        positions = [p for p in self.store.open_positions(self.experiment_id) if p["cohort"] in cohorts]
         missing = [p for p in positions if f"perp:{p['position_id']}" not in existing]
         if not missing:
             return 0
@@ -679,7 +702,8 @@ class PortfolioOS:
         return created
 
     def _open_refs(self) -> list[str]:
-        refs = [f"perp:{p['position_id']}" for p in self.store.open_positions(self.experiment_id) if p["cohort"] == "primary"]
+        cohorts = set(self.capital_cohorts()) | {"primary"}
+        refs = [f"perp:{p['position_id']}" for p in self.store.open_positions(self.experiment_id) if p["cohort"] in cohorts]
         refs += [f"spot:{h['holding_id']}" for h in self.spot_holdings()]
         return refs
 
@@ -866,10 +890,11 @@ class PortfolioOS:
         metas = self._meta_rows()
         live = self._live_prices() if with_live else {}
         pending = self._pending_by_ref()
-        perp_wallet = self.store.wallet_summary(self.experiment_id, "primary")
+        perp_wallet = self._perp_wallet()
         spot = self.spot_wallet()
         equity = float(perp_wallet["equity"]) + spot["equity_usdt"]
-        rows = self.store.list_positions(self.experiment_id, cohort="primary")
+        rows = [row for cohort in dict.fromkeys(["primary", *self.capital_cohorts()])
+                for row in self.store.list_positions(self.experiment_id, cohort=cohort)]
         views = []
         for row in rows:
             if status != "all" and row["status"] != status:
@@ -888,13 +913,14 @@ class PortfolioOS:
         meta = self._meta(ref)
         live_prices = self._live_prices()
         pending = self._pending_by_ref().get(ref)
-        perp_wallet = self.store.wallet_summary(self.experiment_id, "primary")
+        perp_wallet = self._perp_wallet()
         spot = self.spot_wallet()
         equity = float(perp_wallet["equity"]) + spot["equity_usdt"]
         if kind == "perp":
             rows = self.store._query(
-                "SELECT * FROM positions WHERE position_id=? AND experiment_id=? AND cohort='primary'",
-                (identifier, self.experiment_id),
+                "SELECT * FROM positions WHERE position_id=? AND experiment_id=? AND cohort IN (%s)"
+                % ",".join("?" * len(set(self.capital_cohorts()) | {"primary"})),
+                (identifier, self.experiment_id, *sorted(set(self.capital_cohorts()) | {"primary"})),
             )
             if not rows:
                 raise PaperTradingError("PAPER position was not found")
@@ -972,7 +998,7 @@ class PortfolioOS:
                 "notional_usdt": position["notional_usdt"],
                 "market_type": position["market_type"],
             })
-        perp_wallet = self.store.wallet_summary(self.experiment_id, "primary")
+        perp_wallet = self._perp_wallet()
         spot = self.spot_wallet()
         equity = float(perp_wallet["equity"]) + spot["equity_usdt"]
         drawdown = self.drawdown()
@@ -1007,7 +1033,7 @@ class PortfolioOS:
         experiment = self.experiment()
         config = experiment["config"]
         positions = self.list_positions()
-        perp_wallet = self.store.wallet_summary(self.experiment_id, "primary")
+        perp_wallet = self._perp_wallet()
         spot = self.spot_wallet()
         economics = self.runtime.economics()
         perp_equity = float(perp_wallet["equity"])
@@ -1150,7 +1176,7 @@ class PortfolioOS:
         now = self._now()
         if not force and self._last_snapshot_at is not None and now - self._last_snapshot_at < timedelta(seconds=55):
             return None
-        perp_wallet = self.store.wallet_summary(self.experiment_id, "primary")
+        perp_wallet = self._perp_wallet()
         spot = self.spot_wallet()
         positions = self.list_positions(with_live=False)
         open_risk = sum(p["open_risk_usdt"] or 0.0 for p in positions if p["status"] == "open")
@@ -1223,6 +1249,8 @@ class PortfolioOS:
     def _perp_preview(self, req: dict[str, Any], *, source: str) -> dict[str, Any]:
         experiment = self.experiment()
         config = experiment["config"]
+        if config.get("strategy_engine") == "sleeves_v1":
+            raise PaperTradingError("SLEEVES_ENGINE: perpetual capital is held in engine-managed sleeve sub-accounts; manual perp tickets are disabled for this experiment")
         if config["market_data_mode"] == "binance_usdm":
             raise PaperTradingError(
                 "MANUAL_PERP_REQUIRES_GATE_OR_FIXTURE: manual perpetual PAPER orders use the Gate catalog; "
@@ -2841,7 +2869,7 @@ class PortfolioOS:
         meta = self._meta(ref) or {}
         config = self.experiment()["config"]
         settings = self.settings()
-        perp_wallet = self.store.wallet_summary(self.experiment_id, "primary")
+        perp_wallet = self._perp_wallet()
         spot_wallet = self.spot_wallet()
         equity = float(perp_wallet["equity"]) + spot_wallet["equity_usdt"]
         price, quote = self._current_price(kind, row)
@@ -3255,6 +3283,8 @@ class PortfolioOS:
             return []
         if experiment["status"] != "running" and not force:
             return []
+        if experiment["config"].get("strategy_engine") == "sleeves_v1":
+            return []  # the sleeves engine owns entries, exits and trails; no AI review (and no paid calls)
         now = (now or self._now()).astimezone(timezone.utc)
         self.sync_meta()
         positions = [p for p in self.list_positions() if p["status"] == "open"]
@@ -3364,7 +3394,7 @@ class PortfolioOS:
             "WHERE experiment_id=? AND timestamp>=? AND category IN ('FILL','OUTCOME') ORDER BY timestamp DESC LIMIT 5",
             (self.experiment_id, since),
         )
-        wallet = self.store.wallet_summary(self.experiment_id, "primary")
+        wallet = self._perp_wallet()
         spot = self.spot_wallet()
         return {
             "incidents": self.runtime.resilience.incidents(status="OPEN", limit=50),
@@ -3569,7 +3599,8 @@ class PortfolioOS:
         usdt_per_usd = economics_fx.get("usdt_per_usd") if economics_fx.get("mode") == "manual" else None
         created = 0
         closed_perps = [
-            p for p in self.store.list_positions(self.experiment_id, cohort="primary")
+            p for cohort in dict.fromkeys(["primary", *self.capital_cohorts()])
+            for p in self.store.list_positions(self.experiment_id, cohort=cohort)
             if p["status"] == "closed" and f"perp:{p['position_id']}" not in existing
         ]
         closed_spot = [h for h in self.spot_holdings(status="closed") if f"spot:{h['holding_id']}" not in existing]
@@ -4076,7 +4107,7 @@ class PortfolioOS:
         return summary
 
     def stream_state(self, *, since: str | None = None) -> dict[str, Any]:
-        perp_wallet = self.store.wallet_summary(self.experiment_id, "primary")
+        perp_wallet = self._perp_wallet()
         spot = self.spot_wallet()
         experiment = self.experiment()
         events = self.activity(since=since, limit=25)["events"] if since else []

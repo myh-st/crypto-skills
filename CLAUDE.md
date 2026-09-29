@@ -68,6 +68,7 @@ market snapshot (closed 15m bar + 1h/4h context)
   - Only the user changes authority.
   - Perp order requests never carry a quantity.
   - Confirmation-required actions return HTTP 409.
+- `sleeves.py` is the second strategy engine (`strategy_engine: "sleeves_v1"`, EXP-002): Donchian, TSMOM and XSMOM sleeves, each in its own cohort/wallet (`sleeve-don`, `sleeve-ts`, `sleeve-xs`), with a monthly `wallet_transfers` capital rebalance. Use `capital_cohorts(config)` wherever the code sums wallets or positions; never hard-code `"primary"`. See `docs/trend-sleeves-engine.md`.
 - `ai_cost.py` holds the AI usage/cost ledger, the versioned price book, and budget guards (`BLOCK_PAID_AI`, `FALLBACK_QUANT`, `JEV_ONLY`, `PAUSE_NEW_ENTRIES`). Paid calls fail closed when their price is unknown.
 
 ## Current baseline and canonical active goal

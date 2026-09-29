@@ -55,7 +55,7 @@ export function renderTradingStatusBar({ experiment, marketStream, portfolio, ne
     <div class="health-strip trading-status-bar" role="status" aria-label="Automation status">
       ${pill("Gate", feed, feedTone)}
       ${pill("Execution", "PAPER", "ok")}
-      ${pill(experiment?.experiment_id || "EXP", status, status === "RUNNING" ? "ok" : status === "PAUSED" ? "warn" : "idle")}
+      ${pill(experiment?.config?.label || experiment?.experiment_id || "EXP", status, status === "RUNNING" ? "ok" : status === "PAUSED" ? "warn" : "idle")}
       ${pill("Next scan", status === "RUNNING" ? next : "—", "idle")}
       ${portfolio ? pill("AI budget left", remaining === null || remaining === undefined ? "no limit" : usdCost(remaining, 2), budget.exhausted ? "bad" : (budget.utilization_today ?? 0) >= 0.8 ? "warn" : "ok") : ""}
       ${flags.join("")}

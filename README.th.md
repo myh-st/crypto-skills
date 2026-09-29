@@ -46,6 +46,7 @@ python3 -m crypto_eval paper-server            # http://127.0.0.1:8765/  (คร
 |---|---|---|
 | **Portfolio OS** | catalog Spot + Perp ของ Gate; บัญชี Spot แยก (ต้นทุนเฉลี่ย ค่าธรรมเนียม limit ที่ fill บางส่วน); order รวมศูนย์ที่ใช้ `client_request_id` กันส่งซ้ำ; โหมดอำนาจ; AI re-plan แบบมีโครงสร้างพร้อม diff ก่อน/หลัง; Portfolio Brain ที่ทำได้แค่ลดขนาดหรือบล็อก; คิวเรื่องที่ต้องดู; การเรียนรู้หลังปิดเทรด; tournament ที่รวมต้นทุน AI | [ai-portfolio-trading-os.md](docs/ai-portfolio-trading-os.md) |
 | **AI decision stack** | แท่ง 15m ที่ปิดแล้ว → features และ quant gate แบบ deterministic → Jev typed decision → escalation policy แบบมีเวอร์ชัน → GPT-6 Luna พร้อม skill นี้ (ไม่บังคับ) → intent ที่ผ่านการ validate AI กำหนดขนาดหรือ leverage เองไม่ได้ และข้าม risk ไม่ได้ มี budget guard พร้อม price book แบบมีเวอร์ชัน และ paid call จะ fail closed | [paper-futures-runtime.md](docs/paper-futures-runtime.md) |
+| **Trend sleeves engine** | EXP-002 (`sleeves_v1`) มี 3 กลยุทธ์ futures ที่เปิดได้ทั้ง long และ short แต่ละกลยุทธ์ใช้บัญชีย่อย PAPER ของตัวเอง ได้แก่ Donchian 4h breakout พร้อม trailing stop, time-series momentum 60 วัน และ cross-sectional momentum รายสัปดาห์ บน BTC, ETH, NEAR, SEI, SUI, AVAX และ ENA และปรับสัดส่วนทุนกลับเท่ากันทุกเดือน ผล replay 4 ปีผ่าน runtime จริงได้ Sharpe 1.32 (+37% ต่อปี) และ max drawdown 18.5% เมื่อคิดต้นทุน 2 เท่าได้ Sharpe 1.18 | [trend-sleeves-engine.md](docs/trend-sleeves-engine.md) |
 | **Execution safety** | สถานะตลาด (`NORMAL`, `VOLATILITY_ALERT`, `CRASH_MODE`, `RECOVERY`, `MARKET_DATA_UNTRUSTED`); กรอง print ผิดปกติ; execution planner (กรอบ slippage, แบ่งไม้, TTL, จำกัดความเร็วการขาย); kill switch 5 ระดับ; reconcile บัญชี; ลด position ฉุกเฉินเมื่อใกล้ liquidation; กันคำสั่งซ้ำ คำสั่งหมดอายุ และคำสั่งผิดฝั่ง | [crash-execution-safety.md](docs/crash-execution-safety.md) |
 | **Spot lifecycle** | สถานะรอบใหญ่แบบมีชนิด (สะสม → ถือ Core → เทรนด์ขยาย → ป้องกันกำไร → ทยอยขาย → ลด → ออก → ถือเงินสด); หลักฐาน regime แบบ point-in-time; ทยอยขายแทนขายหมดทีเดียว; ขาย Core เฉพาะเมื่อยืนยันการพังของโครงสร้าง; benchmark เทียบในเงื่อนไขเดียวกัน | [spot-cycle-lifecycle-manager.md](docs/spot-cycle-lifecycle-manager.md) |
 | **Resilience** | กู้สถานะตอนเริ่มก่อนระบบอัตโนมัติทำงาน; บันทึกรอบ scheduler (ช่วงที่พลาดบันทึกชัดเจน ไม่เติมข้อมูลย้อนหลัง); incident และ health; circuit breaker ของ provider; backup/restore ที่ตรวจสอบแล้วและไม่มี secret; ล็อกให้รันได้ instance เดียว; ปิดระบบอย่างเรียบร้อยเมื่อได้ SIGTERM; soak แบบเร่งเวลา | [continuous-paper-resilience.md](docs/continuous-paper-resilience.md) |
@@ -81,6 +82,8 @@ features + quant gate ─► Jev typed decision ─► escalation policy ─► 
 | 4 | Continuous PAPER resilience | ✅ merged |
 | 5 | Experiment promotion gates | ✅ merged |
 | 6 | Live execution gateway | ⛔ วางแผนเท่านั้น ปิดการเทรดจริง |
+
+**Strategy engine:** EXP-001 ใช้ 15m breakout ที่มี AI routing ส่วน EXP-002 ใช้ [trend sleeves engine](docs/trend-sleeves-engine.md) ทั้งสองตัวเป็น PAPER เท่านั้น
 
 **หยุดพัฒนาฟีเจอร์ใหม่แล้ว ขั้นต่อไปคือแคมเปญ PAPER:** ทุน PAPER 500 USDT, checkpoint วันที่ 7/30/60/90 และเป้าเทรดที่ปิดแล้ว 200–300 ครั้ง ดู [runbook แคมเปญ](docs/paper-500-campaign-runbook.md) และ [development train](docs/development-train.md)
 

@@ -298,6 +298,28 @@
       "minimum": 15,
       "maximum": 43200,
       "description": "minutes new entries pause after max_consecutive_losses; the streak resets when the pause expires"
+    },
+    "strategy_engine": {
+      "enum": [
+        "breakout_15m",
+        "sleeves_v1"
+      ],
+      "description": "breakout_15m = 15m breakout with AI routing (EXP-001); sleeves_v1 = trend sleeves engine (docs/trend-sleeves-engine.md)"
+    },
+    "sleeves": {
+      "type": [
+        "object",
+        "null"
+      ],
+      "description": "sleeves_v1 parameters (universe, per-sleeve leverage/sizing, catastrophe stop, capital_rebalance); validated by crypto_eval.sleeves.validate_sleeves"
+    },
+    "label": {
+      "type": [
+        "string",
+        "null"
+      ],
+      "pattern": "^[A-Za-z0-9][A-Za-z0-9 ._-]{0,39}$",
+      "description": "display name for the campaign (e.g. EXP-002); cosmetic, not part of the material manifest"
     }
   }
 }

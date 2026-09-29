@@ -2604,6 +2604,15 @@ body.drawer-open { overflow: hidden; }
 .campaign-grid span { font-size: 12px; color: var(--color-text-muted); }
 .campaign-bar { display: block; height: 6px; border-radius: 3px; background: var(--color-positive-bg); overflow: hidden; }
 .campaign-bar > span { display: block; height: 100%; background: var(--color-accent); }
+.sleeves-block { margin-top: 10px; overflow-x: auto; }
+.sleeve-tag { display: inline-block; margin-left: 6px; padding: 0 5px; border: 1px solid var(--color-border); border-radius: 4px; font-size: 10px; font-weight: 600; letter-spacing: .04em; color: var(--color-text-muted); vertical-align: middle; }
+.sleeves-table { width: 100%; border-collapse: collapse; }
+.sleeves-table caption { text-align: left; color: var(--color-text-muted); padding-bottom: 4px; }
+.sleeves-table th, .sleeves-table td { text-align: left; padding: 4px 8px; border-top: 1px solid var(--color-border); vertical-align: top; }
+.sleeves-table .num { text-align: right; font-variant-numeric: tabular-nums; white-space: nowrap; }
+.sleeves-table td.coins { min-width: 6ch; overflow-wrap: anywhere; }
+.sleeves-table td.positive { color: var(--color-positive-text, inherit); }
+.sleeves-table td.negative { color: var(--color-negative-text, inherit); }
 .campaign-warnings { margin: 8px 0 0; padding-left: 0; list-style: none; color: var(--color-caution-text); display: grid; gap: 2px; }
 @media (max-width: 840px) {
   .demo-topbar { height: auto; min-height: var(--topbar-height); flex-wrap: wrap; line-height: 1.35; padding: 6px 64px 6px 16px; }

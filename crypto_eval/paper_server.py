@@ -25,6 +25,7 @@ from .paper_runtime import PaperRuntime, PaperScheduler, PaperStore
 from .portfolio_os import ConfirmationRequired
 from .resilience import InstanceLock
 from .secret_store import CredentialResolver, default_secret_store
+from .sleeves import stream_symbols
 
 
 REPOSITORY_ROOT = Path(__file__).resolve().parents[1]
@@ -764,6 +765,8 @@ class PaperRequestHandler(BaseHTTPRequestHandler):
             if path == "/api/experiment":
                 body = self._read_json()
                 result = self.runtime.store.save_experiment(body)
+                if self.runtime.live_stream is not None:
+                    self.runtime.live_stream.set_symbols(stream_symbols(result["config"]))
                 self._send_json(
                     200,
                     {
@@ -965,8 +968,7 @@ def serve(
     resolver = CredentialResolver(default_secret_store())
     stream = None
     if live_stream:
-        symbols = store.experiment()["config"]["symbols"]
-        stream = GateLiveMarketStream(symbols, health_sink=store.record_stream_health)
+        stream = GateLiveMarketStream(stream_symbols(store.experiment()["config"]), health_sink=store.record_stream_health)
     runtime = PaperRuntime(store, resolver=resolver, live_stream=stream)
     if stream is not None:
         stream.start()

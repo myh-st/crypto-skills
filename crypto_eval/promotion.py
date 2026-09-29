@@ -326,8 +326,9 @@ class ExperimentGovernance:
 
         perp = [dict(r) for r in q(
             "SELECT symbol, realized_pnl, entry_fee, exit_fees, funding_paid, slippage_paid, market_regime, closed_at FROM positions "
-            "WHERE experiment_id=? AND cohort='primary' AND status='closed' AND closed_pnl_recorded AND closed_at>=? AND closed_at<=?",
-            (experiment_id, window, iso_utc(as_of)))]
+            "WHERE experiment_id=? AND cohort IN (%s) AND status='closed' AND closed_pnl_recorded AND closed_at>=? AND closed_at<=?"
+            % ",".join("?" * len(self.runtime.portfolio.capital_cohorts())),
+            (experiment_id, *self.runtime.portfolio.capital_cohorts(), window, iso_utc(as_of)))]
         spot = [dict(r) for r in q(
             "SELECT symbol, realized_pnl, fees_paid, slippage_paid, closed_at FROM spot_holdings "
             "WHERE experiment_id=? AND status='closed' AND closed_at>=? AND closed_at<=?", (experiment_id, window, iso_utc(as_of)))]
@@ -461,8 +462,9 @@ class ExperimentGovernance:
         elapsed = (now - parse_utc(start, "frozen_at")).total_seconds() / 86_400 if start else 0.0
         criteria = validate_criteria(self.runtime.portfolio.settings().get("promotion") or {})
         window = start or iso_utc(now)
-        perp = self.store._query("SELECT COUNT(*) AS n FROM positions WHERE experiment_id=? AND cohort='primary' AND status='closed' "
-                                 "AND closed_pnl_recorded AND closed_at>=?", (experiment_id, window))[0]["n"]
+        cohorts = self.runtime.portfolio.capital_cohorts()
+        perp = self.store._query("SELECT COUNT(*) AS n FROM positions WHERE experiment_id=? AND cohort IN (%s) AND status='closed' "
+                                 "AND closed_pnl_recorded AND closed_at>=?" % ",".join("?" * len(cohorts)), (experiment_id, *cohorts, window))[0]["n"]
         spot = self.store._query("SELECT COUNT(*) AS n FROM spot_holdings WHERE experiment_id=? AND status='closed' AND closed_at>=?",
                                  (experiment_id, window))[0]["n"]
         next_checkpoint = next(((name, day) for name, day in CHECKPOINTS if elapsed < day), None)
@@ -484,6 +486,9 @@ class ExperimentGovernance:
                 "name": next_checkpoint[0],
                 "due_at": iso_utc(parse_utc(start, "frozen_at") + timedelta(days=next_checkpoint[1])) if start else None},
             "completed_trades": perp + spot, "target_trades": criteria["min_completed_trades"], "min_days": criteria["min_days"],
+            "label": config.get("label"),
+            "engine": config.get("strategy_engine", "breakout_15m"),
+            "sleeves": self.runtime.sleeves.status(),
             "capital_usdt": {"perpetual": float(config["starting_balance_usdt"]),
                              "spot": float(self.runtime.portfolio.settings()["spot_starting_balance_usdt"])},
             "fx": {"configured": fx.get("mode") == "manual" and fx.get("usdt_per_usd") is not None, "usdt_per_usd": fx.get("usdt_per_usd")},

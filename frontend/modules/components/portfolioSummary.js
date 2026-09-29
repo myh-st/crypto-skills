@@ -154,7 +154,7 @@ export function renderPortfolioSummary(dashboard) {
   return `
     <div class="section-heading">
       <h2>Portfolio performance</h2>
-      <span class="demo-tag">PAPER · ${escapeHtml(originTag)} · ${escapeHtml(dashboard.experiment?.experiment_id || "")} ${escapeHtml(dashboard.experiment?.status || "")}</span>
+      <span class="demo-tag">PAPER · ${escapeHtml(originTag)} · ${escapeHtml(dashboard.experiment?.config?.label || dashboard.experiment?.experiment_id || "")} ${escapeHtml(dashboard.experiment?.status || "")}</span>
     </div>
     <div class="portfolio-kpis">
       ${kpi("Equity", usdt(equity), `Start ${usdt(start)}`)}
