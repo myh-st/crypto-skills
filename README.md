@@ -2,196 +2,127 @@
 
 ภาษา: English · [ไทย](README.th.md)
 
-Crypto-native Codex skills for evidence-based market analysis, execution planning, and risk-aware investment decisions, plus a local-only PAPER futures research lab.
+**An evidence-first crypto analysis skill plus a local AI Portfolio Trading OS that runs in PAPER mode only.**
 
-The repository ships one production skill, `crypto-market-trading-analysis`, and a separate local PAPER futures runtime. The runtime combines public Binance USD-M market data or deterministic fixtures, deterministic features and risk controls, typed Jev decisions, conditional Responses-compatible GPT escalation, isolated-margin paper fills, persistent evaluation arms, and secret-free exports. It has no real-money order endpoint.
+![PAPER only](https://img.shields.io/badge/execution-PAPER%20only-f5b301) ![Real-money orders](https://img.shields.io/badge/real--money%20orders-blocked%20by%20design-7c3aed) ![Python](https://img.shields.io/badge/python-3.11%2B%20stdlib%20only-3776ab) ![Frontend](https://img.shields.io/badge/frontend-vanilla%20ES%20modules-222) ![Status](https://img.shields.io/badge/status-feature%20freeze%20%C2%B7%20PAPER%20campaign%20next-2f6fed)
 
-## Design goals
+![Overview cockpit](docs/images/overview.png)
 
-- Separate observations from interpretation with an evidence ledger.
-- Treat price structure and spot participation as primary; use derivatives to explain fragility.
-- Make Bull and Bear challenge the same evidence instead of creating competing narratives.
-- Separate direction from timing: a bullish asset can still be `WAIT_FOR_PULLBACK`.
-- Ground entries, invalidations, and targets in observable levels and volatility.
-- Preserve point-in-time integrity for historical analysis and backtests.
-- Store decisions and outcomes so timing, leverage, and thesis quality can be reviewed later.
-- Keep the internal analysis deep while the default human response stays concise and decision-first.
-- Keep one canonical final decision-state vocabulary in `schemas/decision-state.schema.json`.
+The repository has two parts:
 
-## Architecture
+1. **`crypto-market-trading-analysis`**: a Codex / Claude / Gemini skill for evidence-based market analysis, execution planning, and risk-aware decisions.
+2. **A local PAPER trading lab**: a Spot + Perpetual portfolio cockpit that runs on real Gate public market data. It uses typed Jev decisions, optional GPT-6 Luna escalation, deterministic risk and execution safety, long-cycle Spot management, crash-safe recovery, and experiment promotion gates.
 
-```text
-Market / spot / derivatives / options / on-chain / tokenomics / macro
-                                │
-                                ▼
-                    Normalize + timestamp + quality-check
-                                │
-                                ▼
-                         Neutral evidence ledger
-                                │
-                         ┌──────┴──────┐
-                         ▼             ▼
-                    Bull thesis    Bear thesis
-                         └──────┬──────┘
-                                ▼
-                         Research judge
-                                ▼
-                         Execution planner
-                    entry / invalidation / targets
-                                ▼
-                   aggressive / neutral / conservative
-                              risk lenses
-                                ▼
-                         Portfolio decision
-                                ▼
-              concise answer + monitoring conditions + journal record
+> [!IMPORTANT]
+> **No real money moves.** Every fill is simulated. Gate order, amend, cancel, leverage, transfer, and withdrawal paths are blocked by design. Servers bind to loopback only, and credentials never reach SQLite, prompts, logs, API responses, or exports.
+
+## Quick start
+
+```bash
+git clone https://github.com/myh-st/crypto-skills.git && cd crypto-skills
+python3 -m crypto_eval paper-server            # http://127.0.0.1:8765/  (fixture data on first run)
 ```
 
-This is a logical decomposition inside one capable model, not a requirement to run separate agents.
+That's it. There is nothing to install: Python uses only the standard library and the frontend has no build step.
 
-### Local PAPER futures research
+- **Real market data:** switch the experiment to `gate_usdt` in *Research › Paper Trading Lab*. It uses public, unauthenticated Gate endpoints.
+- **Real AI (optional):** put the credentials in `.env`, then run `python3 -m crypto_eval paper-setup-real`. This moves them into the OS credential store and configures Jev and Azure AI Foundry. Then test each provider in Settings.
 
-```text
-Public futures bars or offline fixture
-              │
-              ▼
-Deterministic features + quant signal gate
-              │
-              ▼
-Jev atomic decisions ── deterministic escalation ──► Responses-compatible GPT + skill
-              └──────────────────────┬────────────────────┘
-                                     ▼
-                         Validated TradingIntent
-                                     ▼
-                 Deterministic sizing, fees, funding,
-                    isolated margin and liquidation
-                                     ▼
-               SQLite PAPER fills / portfolio / evaluation
-```
+## What you can do
 
-The runtime binds to loopback by default. Browser settings contain provider
-metadata and environment-variable references only; raw credentials are never
-returned by APIs or placed in SQLite, prompts, logs, or exports. Fixture mode
-uses local mocked providers and never sends external model requests. See
-[`docs/paper-futures-runtime.md`](docs/paper-futures-runtime.md) for setup,
-runtime controls, API boundaries, and validation.
+| | |
+|---|---|
+| **Automation, kill switch, and system health.** Pause or stop automation. Raise the kill switch instantly; lowering it needs confirmation and a passing reconciliation. Health covers the scheduler, monitor, feed, database, storage, AI providers, budget, and reconciliation. | ![Automation and health](docs/images/automation-health.png) |
+| **Trade.** A live Gate chart (1m to 4h) with PAPER entries and exits, quote, spread, and funding. A server-sized ticket (Perp quantity is derived from risk and stop, never typed), plus the current AI plan with one-click re-plan intents. | ![Trade](docs/images/trade.png) |
+| **Position manager.** Protection edits, reduce/close, and authority (`AUTO_PAPER`, `RECOMMEND_ONLY`, `MANUAL_OVERRIDE`, `PAUSED`). Live safety status, the Spot lifecycle state, and the Core/Tactical split. | ![Position manager](docs/images/position-manager.png) |
+| **Portfolio.** Spot and Perpetual in one allocation view, with exposure by asset, an equity curve, economics, orders, and a read-only mirror of the real account kept separate. | ![Portfolio](docs/images/portfolio.png) |
+| **Activity.** One journal of what the AI, you, and the system did: orders, fills, lifecycle reviews, safety events, and alerts. | ![Activity](docs/images/activity.png) |
+| **Promotion gate.** A frozen experiment manifest, reproducible day 7/30/60/90 checkpoints, and a deterministic verdict. A PASS never enables real-money execution. | ![Promotion gate](docs/images/promotion-gate.png) |
+| **Spot lifecycle benchmark.** Lifecycle management vs Buy & Hold, TP ladder, rebalance, grid, and trailing stop on the same bars, fees, and slippage. | ![Lifecycle benchmark](docs/images/lifecycle-benchmark.png) |
 
-### AI Portfolio Trading OS (PAPER)
+## Capabilities
 
-On top of that runtime, the local app is a portfolio-first cockpit for PAPER
-Spot and Perpetual trading. Its pages are Overview, Portfolio, Trade, Activity,
-Research, Evaluations, and Settings.
+| Area | What it does | Details |
+|---|---|---|
+| **Portfolio OS** | Gate Spot + Perp catalog; Spot accounting (average cost, fees, partial limit fills); unified orders with idempotent `client_request_id`; authority modes; structured AI re-plan with before/after diff; Portfolio Brain that can only shrink or block; attention queue; post-trade learning; strategy tournament with AI cost | [ai-portfolio-trading-os.md](docs/ai-portfolio-trading-os.md) |
+| **AI decision stack** | Closed 15m candle → deterministic features and quant gate → Jev typed decision → versioned escalation → optional GPT-6 Luna plus this skill → validated intent. AI never sets size or leverage and cannot override risk. Budget guard with a versioned price book; paid calls fail closed | [paper-futures-runtime.md](docs/paper-futures-runtime.md) |
+| **Execution safety** | Market states (`NORMAL`, `VOLATILITY_ALERT`, `CRASH_MODE`, `RECOVERY`, `MARKET_DATA_UNTRUSTED`); suspect-print filter; execution planner (slippage envelope, slicing, TTL, sell velocity); 5-level kill switch; ledger reconciliation; liquidation-emergency reduce; duplicate, stale, and wrong-side guards | [crash-execution-safety.md](docs/crash-execution-safety.md) |
+| **Spot lifecycle** | Typed long-cycle states (accumulate → hold Core → trend expansion → protect → distribute → reduce → exit → cash wait); point-in-time regime evidence; progressive distribution; Core sold only on a confirmed breakdown; aligned benchmark arms | [spot-cycle-lifecycle-manager.md](docs/spot-cycle-lifecycle-manager.md) |
+| **Resilience** | Startup recovery before automation; persisted scheduler slots (missed periods are explicit, never back-filled); incidents and health; provider circuit breaker; verified, secret-free backup/restore; single-instance lock; graceful SIGTERM; accelerated soak | [continuous-paper-resilience.md](docs/continuous-paper-resilience.md) |
+| **Promotion gates** | Frozen experiment manifest (a material change creates a new version; drift invalidates reviews); checkpoint reports with denominators; verdict `PASS` / `CONTINUE_COLLECTING_DATA` / `FAIL_*` / `INVALID_EXPERIMENT` | [experiment-promotion-gates.md](docs/experiment-promotion-gates.md) |
+| **Analysis skill** | Evidence ledger → Bull vs Bear → judge → execution plan → risk lenses → decision. Point-in-time safe; concise, decision-first answers | [SKILL.md](skills/crypto-market-trading-analysis/SKILL.md) |
 
-- **Instruments:** an exchange-backed Gate catalog.
-- **Spot:** its own accounting (average cost, fees, partial limit fills), not a
-  1x perpetual.
-- **Manual tickets:** go through the same deterministic risk and fill path as
-  AI trades.
-- **Positions:** a manager with protection, reduce/close, and explicit
-  authority (`AUTO_PAPER`, `RECOMMEND_ONLY`, `MANUAL_OVERRIDE`, `PAUSED`).
-- **AI re-plan:** structured, with a before/after diff.
-- **Portfolio Brain:** can shrink or block entries but never bypasses risk.
-- **Autonomous review:** a deterministic position-review queue.
-- **Journal:** a unified activity journal and attention queue.
-- **Learning:** post-trade reviews and a strategy tournament that includes AI
-  cost.
-
-- **Execution safety:** market safety states (crash, volatility, untrusted data),
-  suspect-print handling, a deterministic execution planner (slippage envelope,
-  slicing, sell velocity, Spot Core protection), a kill switch, and ledger
-  reconciliation. See [`docs/crash-execution-safety.md`](docs/crash-execution-safety.md).
-
-- **Spot lifecycle:** typed long-cycle states (accumulate, hold Core, trend
-  expansion, protect, distribute, reduce, exit), point-in-time regime evidence,
-  progressive distribution, Core exit only on confirmed breakdown, and aligned
-  benchmark arms. See [`docs/spot-cycle-lifecycle-manager.md`](docs/spot-cycle-lifecycle-manager.md).
-
-- **Continuous resilience:** startup recovery before automation, persisted scheduler
-  slots (missed periods explicit, never back-filled), incidents and health, provider
-  circuit breaker, verified secret-free backup/restore, single-instance lock, and an
-  accelerated soak (`paper-backup`, `paper-restore`, `paper-soak`). See
-  [`docs/continuous-paper-resilience.md`](docs/continuous-paper-resilience.md).
-
-- **Experiment promotion gates:** a frozen experiment manifest (material changes create
-  a new version; drift invalidates reviews), reproducible day 7/30/60/90 checkpoint
-  reports, and a deterministic gate (PASS / CONTINUE_COLLECTING_DATA / FAIL_* /
-  INVALID_EXPERIMENT) that never enables live execution. See
-  [`docs/experiment-promotion-gates.md`](docs/experiment-promotion-gates.md) and the
-  [PAPER 500 USDT campaign runbook](docs/paper-500-campaign-runbook.md).
-
-Real Gate money-moving writes remain blocked by design. See
-[`docs/ai-portfolio-trading-os.md`](docs/ai-portfolio-trading-os.md).
-
-### Interactive diagram
-
-[Open the interactive architecture diagram](docs/architecture.html)
-
-![Crypto Skills evidence-to-decision architecture](docs/architecture-preview.png)
-
-## Repository layout
+## How a PAPER decision flows
 
 ```text
-crypto-skills/
-├── README.md                           # English
-├── README.th.md                        # ภาษาไทย
-├── docs/
-│   ├── architecture.md                 # workflow and implementation boundaries
-│   ├── evaluation.md                   # harness, runtime, forward CLI, and data limits
-│   ├── paper-futures-runtime.md        # PAPER research runtime and safe local setup
-│   └── ai-portfolio-trading-os.md      # Spot + Perp PAPER cockpit, authority, re-plan, brain
-├── frontend/                           # local-first research and PAPER futures UI
-│   └── README.md                       # local startup, modes, and limitations
-├── schemas/
-│   ├── analysis-output.schema.json     # final decision contract
-│   ├── decision-state.schema.json      # canonical final decision states
-│   ├── decision-record.schema.json     # journal / outcome contract
-│   ├── evidence-ledger.schema.json     # fact ledger contract
-│   ├── eval-*.schema.json              # evaluation spec / case / prediction / outcome contracts
-│   ├── paper-*.schema.json             # strict PAPER intent/provider/experiment/order contracts
-│   └── (market|spot|position|portfolio|activity|attention|post-trade|learning)-*.schema.json
-├── examples/
-│   ├── analysis-output.yaml
-│   ├── decision-record.yaml
-│   └── evidence-ledger.yaml
-├── scripts/
-│   └── validate_repo.py                # dependency-free structural checks
-├── crypto_eval/                        # point-in-time harness + PAPER futures runtime/server
-├── eval/
-│   └── specs/crypto-market-v1.json     # versioned multi-asset walk-forward target
-├── tests/
-│   ├── test_contracts.py               # contract and evaluation regression tests
-│   ├── test_market_data.py             # mocked Binance Spot provider contracts
-│   ├── test_openai_runner.py           # mocked Responses API runner contracts
-│   ├── test_forward_runtime.py         # mocked runtime/API/lifecycle integration
-│   ├── test_paper_futures.py           # mocked-provider PAPER vertical slice tests
-│   ├── test_portfolio_os.py            # Spot, orders, authority, re-plan, brain, safety
-│   ├── test_portfolio_schemas.py       # live Portfolio OS output vs JSON Schemas
-│   └── test_frontend_smoke.py          # frontend structural smoke checks
-├── .github/workflows/
-│   └── validate.yml                     # PR/push contract gate
-└── skills/
-    └── crypto-market-trading-analysis/
-        ├── SKILL.md                    # complete Codex skill instructions
-        ├── agents/openai.yaml           # UI metadata and invocation policy
-        ├── examples/                    # skill-local examples
-        └── references/                   # progressively-loaded operating contracts
+Gate public data (REST + WebSocket)  ─►  closed 15m candle + 1h/4h context
+        │
+        ▼
+features + quant gate ─► Jev typed decision ─► escalation policy ─► (optional) GPT-6 Luna + skill
+        │                                                                   │
+        └──────────────────────────► validated TradingIntent ◄──────────────┘
+                                          │
+          RiskEngine sizing ─► Portfolio Brain (shrink/block) ─► crash & execution safety
+                                          │
+                     PAPER fills · funding · liquidation · Spot accounting
+                                          │
+        SQLite ledger ─► reconciliation ─► activity / attention ─► checkpoint & promotion gate
 ```
 
-## Install for Codex
+Authority order: **liquidation/accounting > risk engine > crash/price/liquidity guards > Portfolio Brain > AI/human.** A lower layer can shrink, defer, or block; it can never expand what a higher layer allows.
 
-From this checkout, link the skill into the local Codex skills directory:
+## Project status
+
+| Phase | Scope | State |
+|---|---|---|
+| 1 | AI Portfolio Trading OS | ✅ merged |
+| 2 | Crash, price, liquidity, and execution safety | ✅ merged |
+| 3 | Spot Cycle Lifecycle Manager | ✅ merged |
+| 4 | Continuous PAPER resilience | ✅ merged |
+| 5 | Experiment promotion gates | ✅ merged |
+| 6 | Live execution gateway | ⛔ planning only, live disabled |
+
+**Feature development is frozen. The PAPER campaign is next:** 500 USDT of PAPER capital, checkpoints at day 7/30/60/90, and a target of 200–300 completed trades. See the [campaign runbook](docs/paper-500-campaign-runbook.md) and the [development train](docs/development-train.md).
+
+## Command cheat sheet
+
+```bash
+python3 -m crypto_eval paper-server [--database P] [--no-live-stream]   # the app (loopback only)
+python3 -m crypto_eval paper-setup-real                                  # .env creds → OS credential store
+python3 -m crypto_eval paper-checkpoint [--database P] [--dry-run]       # checkpoint report + promotion gate
+python3 -m crypto_eval paper-backup [--database P]                       # verified, secret-free snapshot
+python3 -m crypto_eval paper-restore BACKUP [--database P] [--force]     # restore (server stopped)
+python3 -m crypto_eval paper-soak --database FRESH.sqlite3 --days 3      # accelerated restart/sleep soak
+python3 -m crypto_eval portfolio-real-check [--full-loop]                # REAL local acceptance (paid AI calls)
+python3 -m crypto_eval demo --out-dir reports/crypto-eval-demo           # offline evaluation-harness demo
+```
+
+## Tests
+
+```bash
+python3 scripts/validate_repo.py                  # schemas, examples, enums, skill structure
+python3 -m unittest discover -s tests -v          # 300+ deterministic tests (fixtures/fakes only)
+node --test frontend/tests/*.test.mjs             # frontend rendering tests
+find frontend -name '*.js' -exec node --check {} \;
+```
+
+CI (`.github/workflows/validate.yml`) runs all of the above plus the demo on every PR. CI never makes network or paid calls. Real Gate data and real Jev/Luna are exercised only by explicit local acceptance commands.
+
+---
+
+## The analysis skill
+
+### Install
 
 ```bash
 mkdir -p ~/.codex/skills
-ln -sfn "$PWD/skills/crypto-market-trading-analysis" \
-  ~/.codex/skills/crypto-market-trading-analysis
+ln -sfn "$PWD/skills/crypto-market-trading-analysis" ~/.codex/skills/crypto-market-trading-analysis
 ```
 
-If symlinks are not appropriate, copy the directory instead. The repository does not contain credentials and does not persist API keys; connect CoinMarketCap, exchange, options, or on-chain data sources through the runtime environment.
+For Claude Code use `~/.claude/skills/`; for Gemini CLI use `gemini skills link <path>`. The repository contains no credentials; connect market-data sources through your runtime environment.
 
-## One-shot setup prompt
-
-Copy the prompt below into Codex, Claude Code, Gemini CLI, or another capable AI agent. It is designed to detect the host, install the skill at the safest supported scope, validate it, and report exactly what changed. It never asks you to paste an API key into the repository or into a chat transcript.
+<details>
+<summary><b>One-shot setup prompt</b> (Codex, Claude Code, Gemini CLI, or another agent): detects the host, installs safely, validates, and reports</summary>
 
 ```text
 You are installing the Crypto Skills repository as a reusable crypto-market analysis skill.
@@ -273,143 +204,106 @@ Completion report (required):
 - warnings, missing permissions, or unsupported native integration
 ```
 
-Client-specific references: [Claude Code Skills](https://code.claude.com/docs/en/skills) · [Gemini CLI Agent Skills](https://github.com/google-gemini/gemini-cli/blob/main/docs/cli/using-agent-skills.md). The prompt is intentionally provider-aware but keeps the repository as the single source of truth.
+Client references: [Claude Code Skills](https://code.claude.com/docs/en/skills) · [Gemini CLI Agent Skills](https://github.com/google-gemini/gemini-cli/blob/main/docs/cli/using-agent-skills.md).
 
-## Invoke
+</details>
 
-Use the skill explicitly:
+### Use
 
 ```text
 $crypto-market-trading-analysis วิเคราะห์ SEI/USDT แบบ spot swing พร้อม buy zone, invalidation, targets และ risk
 ```
 
-The skill accepts missing optional context and states its assumptions. For large allocations, leverage, illiquid assets, major events, or multi-x targets, it escalates the internal analysis depth automatically.
+The default answer is short and decision-first:
 
-## Human-facing response contract
+1. decision state;
+2. preferred and secondary entry zones;
+3. invalidation;
+4. targets and horizon;
+5. three to five decisive reasons;
+6. one material risk or what would change the view.
 
-The default response is concise and follows this order:
+Ask for a detailed report to see the evidence ledger, scenario map, and decision object. The final decision vocabulary lives only in [`schemas/decision-state.schema.json`](schemas/decision-state.schema.json).
 
-1. Decision state
-2. Preferred and secondary entry zones
-3. Invalidation
-4. Targets and horizon
-5. Three to five decisive reasons
-6. One material risk / what would change the view
+<details>
+<summary><b>Design principles</b></summary>
 
-When the user asks for a detailed report, the skill can expose the market snapshot, evidence ledger, scenario map, decision object, and the conditions that would change its mind. It never treats an indicator, funding rate, headline, or model confidence as a guarantee.
+- Separate observations from interpretation with an evidence ledger.
+- Treat price structure and spot participation as primary; derivatives explain fragility.
+- Bull and Bear challenge the same evidence rather than telling competing stories.
+- Separate direction from timing: a bullish asset can still be `WAIT_FOR_PULLBACK`.
+- Ground entries, invalidations, and targets in observable levels and volatility.
+- Keep historical analysis point-in-time safe, with no observation later than `data_cutoff`.
+- Keep unavailable data explicitly unavailable; never zero-fill.
 
-## Data and safety boundaries
-
-- Timestamp every current-market observation with timezone, venue, and instrument.
-- Prefer exchange and project primary sources; use aggregators for cross-venue context.
-- Normalize mark/index/last price, USD-notional OI, contract type, and funding interval before comparison.
-- Keep unavailable or stale data explicitly unavailable; never zero-fill missing evidence.
-- Keep historical analysis point-in-time safe: no later candles, unlocks, news, or outcomes.
-- Treat API keys, private account data, order placement, and custody actions as outside this read-only skill.
-
-## Validate
-
-Run the repository checks after changing the skill:
-
-```bash
-python3 scripts/validate_repo.py
-python3 -m unittest discover -s tests -v
-uv run --with pyyaml python ~/.codex/skills/.system/skill-creator/scripts/quick_validate.py \
-  skills/crypto-market-trading-analysis
+```text
+Market / spot / derivatives / options / on-chain / tokenomics / macro
+        → normalize + timestamp + quality-check → neutral evidence ledger
+        → Bull thesis vs Bear thesis → research judge → execution planner
+        → aggressive / neutral / conservative risk lenses → portfolio decision
+        → concise answer + monitoring conditions + journal record
 ```
 
-The first command checks JSON/YAML examples against their schemas, canonical enum
-consistency, required references, and required TradingAgents-inspired sections.
-The second runs the schema/fixture regression tests. The third checks Codex skill
-frontmatter, naming, and scaffold hygiene.
-GitHub Actions also runs the deterministic synthetic evaluation pipeline on
-every PR and push to `main`; it is a harness check, not an accuracy claim.
+[Interactive architecture diagram](docs/architecture.html)
 
-## Evaluation harness
+![Crypto Skills evidence-to-decision architecture](docs/architecture-preview.png)
 
-### Validation != Accuracy Evaluation
+</details>
 
-`scripts/validate_repo.py` and the unit tests check repository structure, schemas,
-and deterministic behavior. They do **not** establish that the analysis skill is
-accurate, profitable, or better than a control.
+<details>
+<summary><b>Evaluation harness</b>: validation is not accuracy evidence</summary>
 
-Run the complete, offline fixture pipeline:
+#### Validation != Accuracy Evaluation
+
+`validate_repo.py` and the unit tests check structure and deterministic behavior. They do **not** show that the skill is accurate or profitable.
 
 ```bash
 python3 -m crypto_eval demo --out-dir reports/crypto-eval-demo
 ```
 
-It builds a dataset, freezes fixture predictions, scores separate outcomes,
-compares fixed baselines, and writes JSON/Markdown reports. The generated report
-must be read as **DEMO / HARNESS VALIDATION — NOT MARKET PERFORMANCE EVIDENCE**.
-The fixture runner does not invoke the analysis skill or any model. Use
-[`docs/evaluation.md`](docs/evaluation.md) for individual CLI commands, dataset
-contracts, metric denominators, and extension examples.
+The demo builds a point-in-time dataset, freezes fixture predictions, scores separate outcomes, and compares fixed baselines (Buy & Hold, BTC, EMA20/50, RSI14, naive, seeded random). Read its output as **DEMO / HARNESS VALIDATION, NOT MARKET PERFORMANCE EVIDENCE**.
 
-The versioned `eval/specs/crypto-market-v1.json` defines a chronological,
-no-shuffle dataset target for BTC, ETH, SOL, SUI, SEI, AVAX, and PYTH across bull,
-bear, range, and high-volatility regimes. Each case requires explicit
-`as_of`, `data_cutoff`, `asset`, `instrument`, `venue`, and `horizon`.
-Historical snapshots reject future observations; news requires a point-in-time
-archive timestamp. A sampling manifest reconciles scheduled, included, and
-excluded cases with declared exclusion rules. Predictions are frozen in an
-append-only log, outcomes are stored separately, and a wait whose trigger never
-occurs is not scored as a failed entry.
+`eval/specs/crypto-market-v1.json` defines a chronological, no-shuffle target across BTC, ETH, SOL, SUI, SEI, AVAX, and PYTH. Predictions are frozen before outcomes, and a wait whose trigger never fires is not scored as a failed entry. See [`docs/evaluation.md`](docs/evaluation.md).
 
-Reports include directional and trigger-aware decision metrics, BTC benchmark
-return/alpha when available, MFE/MAE, time-to-trigger/target, sample counts and
-intervals, plus fixed Buy & Hold, BTC, EMA20/EMA50, RSI14, naive, and seeded
-random comparators. Missing data stays unavailable. The drawdown result is an
-equal-weight decision-sequence proxy—not portfolio PnL; sizing, cash, fills,
-fees, slippage, and funding are not modeled.
+</details>
 
-The optional local runtime includes a read-only public Binance Spot klines
-provider and a server-side GPT-6 Luna Responses runner. It binds to loopback by
-default, reads `OPENAI_API_KEY` only from the server process environment, and
-keeps the static frontend in clearly labeled fixture mode when no runtime API
-is available. CI and unit tests use mocked transports only. See
-[`docs/evaluation.md`](docs/evaluation.md) for archive, startup, configuration,
-and forward-score commands.
+<details>
+<summary><b>Repository layout</b></summary>
 
-Historical model predictions are meaningful only when they were frozen before
-the outcome window was known; otherwise use forward paper evaluation. The
-earlier three-case paired pilot used synthetic snapshots and is not real market
-evidence. A skill-vs-control claim requires archived, same-model,
-same-configuration predictions on the same prospective cases and sufficient
-samples. The harness can compare such paired runs, but it cannot manufacture
-accuracy or performance evidence. The separate PAPER futures lab uses its own
-loopback server, provider references, deterministic risk controls, and simulated
-fills only; it does not submit real-money orders.
-
-### PAPER futures lab
-
-Start the local research application with:
-
-```bash
-python3 -m crypto_eval paper-server
+```text
+crypto-skills/
+├── skills/crypto-market-trading-analysis/   # SKILL.md, references/, examples/, agents/
+├── crypto_eval/                              # harness + PAPER runtime (stdlib only)
+│   ├── paper_runtime.py  paper_server.py     # scheduler, risk engine, store, HTTP API
+│   ├── paper_ai.py  ai_cost.py               # Jev / Luna adapters, cost ledger, budget guard
+│   ├── market_catalog.py  gate_*.py          # Gate catalog, REST, WebSocket, read-only account
+│   ├── portfolio_os.py  portfolio_brain.py   # orders, positions, authority, re-plan, brain
+│   ├── execution_safety.py                   # market states, planner, kill switch, reconciliation
+│   ├── spot_lifecycle.py  spot_benchmarks.py # lifecycle policy and benchmark arms
+│   ├── resilience.py  soak.py                # recovery, incidents, backup/restore, soak
+│   └── promotion.py                          # manifests, checkpoints, promotion gate
+├── frontend/                                 # vanilla ES-module cockpit (no build step)
+├── schemas/                                  # versioned JSON Schema contracts
+├── examples/                                 # analysis-output.yaml, decision-record.yaml, evidence-ledger.yaml
+├── docs/                                     # design docs, runbook, screenshots (docs/images)
+├── tests/                                    # deterministic Python tests (fixtures/fakes only)
+└── scripts/validate_repo.py                  # dependency-free structural checks
 ```
 
-Open `http://127.0.0.1:8765/`. **Overview** shows portfolio health and what
-needs attention; **Trade** runs manual PAPER Spot/Perpetual tickets; the
-experiment itself is configured in **Research › Paper Trading Lab**. EXP-001 starts with
-$100 USDT, 15m decisions, 1h/4h context, 3x primary leverage, 1% risk per
-trade, 3 primary positions, and 1x/2x/3x/5x/10x shadow cohorts. The first-run
-mode is deterministic fixtures; switching to Binance USD-M uses public
-unauthenticated market-data endpoints only. Provider inference is opt-in and
-requires a server-side environment-variable reference. Neither fixtures nor
-public market-data mode enable real-money execution.
+</details>
 
-The server runs the scheduler and model-free position monitor independently
-of the browser tab. SQLite state, cycles, provider metadata, simulated fills,
-funding, fees, and risk events persist across local restarts. Provider secret
-values are not accepted by the browser API. The smoke suite uses only fixtures
-and mocks:
+## Data and safety boundaries
 
-```bash
-python3 -m unittest discover -s tests -v
-node --test frontend/tests/*.test.mjs
-```
+- PAPER only. Real Gate money-moving writes are technically blocked (`DisabledLiveExecutionAdapter`).
+- Servers bind to loopback; `paper-server` rejects non-loopback hosts.
+- Credentials come only from the process environment, the repo `.env` (parsed, never evaluated), or the OS credential store. The browser never receives secret values.
+- Every observation is timestamped with venue and instrument. Missing or stale data stays unavailable, and stale feeds block entries.
+- A backup is rejected if any credential-like value is found.
 
 ## Contributing
 
-Keep reusable domain guidance in `SKILL.md` or a focused reference. Put machine-readable contracts in `schemas/`, examples in `examples/`, and deterministic checks in `scripts/`. Do not commit credentials, exchange secrets, private portfolio data, or generated market snapshots. Any new decision rule should explain its evidence, data-quality assumptions, and failure mode.
+During the PAPER campaign, only correctness, safety, reliability, observability, and methodology defects are in scope (see the [stop condition](docs/development-train.md)).
+
+- Put domain guidance in `SKILL.md` or a focused reference, contracts in `schemas/`, and deterministic checks in `scripts/`.
+- Update [`README.th.md`](README.th.md) together with this file.
+- Never commit credentials, exchange secrets, or private portfolio data.
