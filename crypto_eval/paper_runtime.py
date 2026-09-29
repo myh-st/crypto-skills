@@ -3836,32 +3836,27 @@ class PaperRuntime:
     def _risk_statistics(
         self, experiment_id: str, cohort: str = "primary"
     ) -> tuple[float, float, int]:
-        records = self.store.export_records(experiment_id)
+        """Daily loss, max drawdown, and consecutive-loss streak for a cohort.
+
+        Targeted indexed queries (not a full export) so a cycle's cost does not grow with the
+        experiment's history. Semantics match the previous full-scan implementation."""
+
         config = self.store.experiment()["config"]
         day_start = self._clock().astimezone(timezone.utc).replace(
             hour=0, minute=0, second=0, microsecond=0
         )
         day_end = day_start + timedelta(days=1)
-        cohort_equity = [
-            row
-            for row in records["equity"]
-            if row["cohort"] == cohort
-        ]
-        before_day = [
-            row
-            for row in cohort_equity
-            if parse_utc(row["as_of"], "equity.as_of") < day_start
-        ]
-        in_day = [
-            row
-            for row in cohort_equity
-            if day_start
-            <= parse_utc(row["as_of"], "equity.as_of")
-            < day_end
-        ]
+        before = self.store._query(
+            "SELECT equity FROM equity WHERE experiment_id=? AND cohort=? AND as_of < ? ORDER BY as_of DESC LIMIT 1",
+            (experiment_id, cohort, iso_utc(day_start)),
+        )
+        in_day = [] if before else self.store._query(
+            "SELECT equity FROM equity WHERE experiment_id=? AND cohort=? AND as_of >= ? AND as_of < ? ORDER BY as_of LIMIT 1",
+            (experiment_id, cohort, iso_utc(day_start), iso_utc(day_end)),
+        )
         daily_start_equity = (
-            float(before_day[-1]["equity"])
-            if before_day
+            float(before[0]["equity"])
+            if before
             else float(in_day[0]["equity"])
             if in_day
             else float(config["starting_balance_usdt"])
@@ -3872,34 +3867,28 @@ class PaperRuntime:
             if daily_start_equity > 0
             else 0.0
         )
-        series = [
-            row["equity"]
-            for row in records["equity"]
-            if row["cohort"] == cohort
-        ]
-        peak = -math.inf
-        drawdown = 0.0
-        for point in series:
-            peak = max(peak, float(point))
-            if peak > 0:
-                drawdown = max(drawdown, (peak - float(point)) / peak)
-        closed = sorted(
-            [
-                position
-                for position in records["positions"]
-                if position["cohort"] == cohort
-                and position["status"] == "closed"
-                and position["closed_pnl_recorded"]
-            ],
-            key=lambda item: item["closed_at"] or "",
-            reverse=True,
+        drawdown_row = self.store._query(
+            "SELECT MAX(CASE WHEN peak > 0 THEN (peak - equity) / peak ELSE 0 END) AS drawdown FROM ("
+            "SELECT equity, MAX(equity) OVER (ORDER BY as_of ROWS BETWEEN UNBOUNDED PRECEDING AND CURRENT ROW) AS peak "
+            "FROM equity WHERE experiment_id=? AND cohort=?)",
+            (experiment_id, cohort),
         )
+        drawdown = max(0.0, float(drawdown_row[0]["drawdown"] or 0.0)) if drawdown_row else 0.0
         streak = 0
-        for position in closed:
-            if float(position["realized_pnl"] or 0) >= 0:
-                break
-            streak += 1
-        return daily_loss, drawdown, streak
+        offset = 0
+        while True:
+            rows = self.store._query(
+                "SELECT realized_pnl FROM positions WHERE experiment_id=? AND cohort=? AND status='closed' "
+                "AND closed_pnl_recorded ORDER BY COALESCE(closed_at, '') DESC, opened_at, symbol LIMIT 100 OFFSET ?",
+                (experiment_id, cohort, offset),
+            )
+            for row in rows:
+                if float(row["realized_pnl"] or 0) >= 0:
+                    return daily_loss, drawdown, streak
+                streak += 1
+            if len(rows) < 100:
+                return daily_loss, drawdown, streak
+            offset += 100
 
     def _feature_history(
         self,

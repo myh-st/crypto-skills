@@ -228,6 +228,13 @@ class SchedulerDrills(ResilienceCase):
         rows = self.store._query("SELECT symbol, COUNT(*) AS n FROM cycles GROUP BY symbol")
         self.assertEqual({row["symbol"]: row["n"] for row in rows}, {"BTCUSDT": 1, "ETHUSDT": 1})
 
+    def test_cycle_cost_does_not_scan_full_history(self):
+        # Regression: risk statistics once exported every record per arm per cycle (O(history)).
+        self.store.export_records = lambda *_a, **_k: self.fail("a decision cycle must not export the full history")
+        self.clock.value = self.base
+        self.assertEqual(self.scheduler.cycle_tick(self.base)["status"], "ran")
+        self.assertEqual(self.store._query("SELECT COUNT(*) FROM cycles")[0][0], 1)
+
     def test_halt_and_idle_do_not_run(self):
         self.os.set_kill_switch("FULL_AUTOMATION_HALT")
         self.clock.value = self.base
