@@ -77,9 +77,6 @@ export function renderCotraderNav(activeRoute, params = []) {
           .map((item) => link(item, activeRoute, { secondary: true })).join("")}
       </nav>
     </details>
-    <div class="sidebar-footer">
-      <span class="demo-tag demo-tag--sidebar">Decision support only · you trade manually</span>
-    </div>
   `;
 }
 

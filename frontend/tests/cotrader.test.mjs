@@ -166,10 +166,10 @@ test("regime strip shows the label, breadth, BTC state, countdown and the Jev/Lu
   assert.match(html, /MIXED/);
   assert.match(html, /4\/7 in trend/);
   assert.match(html, /data-countdown="2026-09-30T00:00:00Z"/);
-  assert.match(html, /\$0\.47\* left today/);
-  assert.match(html, /Jev<\/span> 7 calls · \$0\.0040\*/);
-  assert.match(html, /Luna<\/span> 1 call · \$0\.0120\*/);
-  assert.match(html, /AI prices are placeholders, set real prices in Settings › Cost &amp; Budgets/);
+  assert.match(html, /\$0\.47<abbr[^>]*>\*<\/abbr> left today/);
+  assert.match(html, /Jev<\/span> 7 calls · \$0\.0040<abbr[^>]*>\*<\/abbr>/);
+  assert.match(html, /Luna<\/span> 1 call · \$0\.0120<abbr[^>]*>\*<\/abbr>/);
+  assert.match(html, /title="AI prices are placeholders, set real prices in Settings › Cost &amp; Budgets\.">\*<\/abbr>/);
   const blocked = renderRegimeStrip(overview({ ai: { enabled: true, blocked_reason: `daily cap ${HOSTILE}` } }));
   assert.match(blocked, /AI unavailable/);
   assert.doesNotMatch(blocked, /<img/);
