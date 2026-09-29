@@ -246,7 +246,7 @@ test("decision card: rule says, how much with a delta, how, and the AI", () => {
   assert.match(html, /NOT an intraday stop/);
   assert.match(html, /0\.1% fee \+ 5 bps/);
   assert.match(html, /SEI and ENA are thin on Gate/);
-  assert.match(html, /Ask AI \(≈\$0\.01–0\.03\)/);
+  assert.match(html, /Ask AI \(≈\$0\.20–0\.30\)/);
   assert.match(html, /not investment advice; you decide and trade manually/);
 });
 

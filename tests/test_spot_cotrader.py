@@ -40,6 +40,7 @@ from crypto_eval.spot_cotrader import (
     LEDGER_SCOPE,
     SWITCH_COST,
     CoTraderConfirmationRequired,
+    LUNA_OFF_REASON,
     CoTraderScheduler,
     GateSpotDailySource,
     SpotCoTrader,
@@ -798,7 +799,7 @@ class ScorecardJournalTests(CoTraderCase):
         self.assertAlmostEqual(agree["rule_same_7d"], 0.5)
         caution = next(r for r in rows if r["source"] == "luna" and r["stance"] == "caution")
         self.assertEqual((caution["n_7d"], caution["avg_ret_7d"], caution["hit_7d"]), (0, None, None))
-        self.assertEqual(len(rows), 9)
+        self.assertEqual(len(rows), 12)  # jev 6 + luna 3 + claude 3
 
     def test_scorecard_uses_closed_forward_bars(self):
         service = self.make()
@@ -1313,3 +1314,102 @@ class HealthFlagTests(CoTraderCase):
         base_url = self.serve(cotrader=False)
         _, health, _ = self.call(base_url, "/api/health")
         self.assertFalse(health["cotrader"])
+
+
+# ---------------------------------------------------------------------------
+# Claude routine narrator: context -> validated publish, Luna off, no API cost
+# ---------------------------------------------------------------------------
+
+
+def thai_review(stance="agree"):
+    return {"stance": stance, "conviction": "medium", "summary_th": "แนวโน้มยังขึ้น ถือต่อได้ แต่ระวังการย่อตัว",
+            "bull_points": ["ราคาอยู่เหนือค่าเฉลี่ย 100 วัน"], "bear_points": ["ขึ้นมาไกลจากค่าเฉลี่ย"],
+            "key_levels": {"support": [90.0], "resistance": [120.0], "invalidation": 85.0},
+            "risks": ["ตลาดผันผวน"], "change_my_mind": "ถ้าปิดต่ำกว่าเส้นแนวโน้ม"}
+
+
+def thai_briefing(coin="BTC"):
+    return {"stance_market": "risk_on", "summary_th": "ตลาดโดยรวมยังเป็นขาขึ้น แต่หลายเหรียญขึ้นมาไกลแล้ว",
+            "highlights": [{"coin": coin, "note": "ยังอยู่ในเทรนด์"}]}
+
+
+class ClaudeRoutineTests(CoTraderCase):
+    def ready(self):
+        service = self.make()
+        service.refresh()
+        service.update_settings({"narrator": "claude_routine"})
+        return service
+
+    def test_context_carries_inputs_instructions_contract_and_ladder(self):
+        service = self.ready()
+        context = service.routine_context()
+        self.assertEqual(context["schema_version"], "cotrader-routine.v1")
+        self.assertEqual(set(context["coins"]), set(UNIVERSE))
+        btc = context["coins"]["BTC"]
+        self.assertIn("daily_candles_ohlcv", btc)
+        self.assertIn("ladder", btc)
+        self.assertLessEqual(max(row[0] for row in btc["daily_candles_ohlcv"]) + DAY,
+                             int(datetime.fromisoformat(context["data_cutoff"].replace("Z", "+00:00")).timestamp()))
+        self.assertIn("never change", context["instructions"]["review"])
+        self.assertEqual(context["output_contract"]["review"]["required"][0], "stance")
+        self.assertEqual(context["briefing_input"]["data_cutoff"], context["data_cutoff"])
+
+    def test_publish_is_validated_idempotent_and_shown_as_the_narration(self):
+        service = self.ready()
+        cutoff = service.routine_context()["data_cutoff"]
+        body = {"model": "claude-opus-5-5", "data_cutoff": cutoff, "briefing": thai_briefing(),
+                "reviews": {"BTC": thai_review(), "NEAR": thai_review("caution")}}
+        out = service.publish_routine(body)
+        self.assertEqual(out["published"]["reviews"], ["BTC", "NEAR"])
+        service.publish_routine(body)  # same close again replaces, never duplicates
+        rows = self.store._query("SELECT COUNT(*) AS n FROM cotrader_analyses WHERE source='claude'")[0]["n"]
+        self.assertEqual(rows, 3)
+        overview = service.overview()
+        self.assertEqual(overview["briefing"]["stance_market"], "risk_on")
+        self.assertEqual(overview["briefing"]["cost_usd"], 0.0)
+        near = next(coin for coin in overview["coins"] if coin["base"] == "NEAR")
+        self.assertEqual(near["last_ai"]["stance"], "caution")
+        detail = service.coin_detail("NEAR")
+        self.assertIn("claude", {a["source"] for a in detail["analyses"]})
+        self.assertEqual(overview["ai"]["routine"]["model"], "claude-opus-5-5")
+        self.assertEqual(overview["ai"]["narrator"], "claude_routine")
+
+    def test_publish_rejects_stale_cutoff_bad_json_unknown_coin_and_english_summary(self):
+        service = self.ready()
+        cutoff = service.routine_context()["data_cutoff"]
+        good = {"model": "claude", "data_cutoff": cutoff, "briefing": thai_briefing(), "reviews": {}}
+        with self.assertRaisesRegex(PaperTradingError, "data_cutoff must be the current close"):
+            service.publish_routine({**good, "data_cutoff": "2020-01-01T00:00:00Z"})
+        with self.assertRaisesRegex(PaperTradingError, "briefing rejected"):
+            service.publish_routine({**good, "briefing": {"stance_market": "moon"}})
+        with self.assertRaisesRegex(PaperTradingError, "outside today's context"):
+            service.publish_routine({**good, "reviews": {"DOGE": thai_review()}})
+        english = {**thai_review(), "summary_th": "Looks fine"}
+        with self.assertRaisesRegex(PaperTradingError, "review for BTC rejected"):
+            service.publish_routine({**good, "reviews": {"BTC": english}})
+        with self.assertRaisesRegex(PaperTradingError, "model must be"):
+            service.publish_routine({**good, "model": "x" * 200})
+        self.assertEqual(self.store._query("SELECT COUNT(*) AS n FROM cotrader_analyses WHERE source='claude'")[0]["n"], 0)
+
+    def test_luna_is_never_called_when_the_routine_narrates(self):
+        service = self.ready()
+        self.assertEqual(service.review("BTC", trigger="manual")["blocked_reason"], LUNA_OFF_REASON)
+        self.assertIsNone(service.daily_briefing()["briefing"])
+        service.jev_daily()  # a Jev "disagree" would normally escalate to Luna
+        self.assertEqual(self.gpt.reviews, [])
+        self.assertEqual(self.gpt.briefings, [])
+        self.assertEqual(self.store._query("SELECT COUNT(*) AS n FROM cotrader_analyses WHERE source='luna'")[0]["n"], 0)
+        with self.assertRaisesRegex(PaperTradingError, "narrator must be"):
+            service.update_settings({"narrator": "gpt"})
+
+    def test_routine_endpoints_round_trip(self):
+        self.ready()
+        base_url = EndpointTests.serve(self)
+        status, context, _ = EndpointTests.call(self, base_url, "/api/cotrader/routine/context")
+        self.assertEqual(status, 200)
+        body = {"model": "claude", "data_cutoff": context["data_cutoff"], "briefing": thai_briefing(),
+                "reviews": {"ETH": thai_review()}}
+        status, out, _ = EndpointTests.call(self, base_url, "/api/cotrader/routine/publish", body)
+        self.assertEqual(status, 200, out)
+        status, out, _ = EndpointTests.call(self, base_url, "/api/cotrader/routine/publish", {**body, "data_cutoff": "x"})
+        self.assertEqual(status, 400)

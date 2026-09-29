@@ -8,7 +8,8 @@ import { fmtPct, fmtPrice, isoDate, stanceChip } from "./cotraderBits.js";
 
 export const MIN_SAMPLES = 20;
 export const PRICING_FALLBACK_NOTE = "AI prices are placeholders, set real prices in Settings › Cost & Budgets.";
-export const ASK_AI_LABEL = "Ask AI (≈$0.01–0.03)";
+export const ASK_AI_LABEL = "Ask AI (≈$0.20–0.30)";
+export const ROUTINE_NOTE_TH = "Claude อัปเดตบทวิเคราะห์ให้อัตโนมัติทุกเช้า (~07:40 น.) ถ้าอยากถามเพิ่ม ถามใน Claude ได้เลย";
 
 const TIMING = {
   good_now: "Entry: good now",
@@ -29,13 +30,16 @@ const AGREEMENT = {
   disagree: { label: "Jev disagrees", glyph: "✕", tone: "disagree" },
 };
 
+const SOURCE_LABEL = { jev: "Jev", luna: "Luna", claude: "Claude" };
+
 export function sourceOf(analysis) {
-  return String(analysis?.source || "luna").toLowerCase() === "jev" ? "jev" : "luna";
+  const source = String(analysis?.source || "luna").toLowerCase();
+  return SOURCE_LABEL[source] ? source : "luna";
 }
 
 export function sourceChip(source) {
-  const jev = source === "jev";
-  return `<span class="cot-source cot-source--${jev ? "jev" : "luna"}">${jev ? "Jev" : "Luna"}</span>`;
+  const key = SOURCE_LABEL[source] ? source : "luna";
+  return `<span class="cot-source cot-source--${key}">${SOURCE_LABEL[key]}</span>`;
 }
 
 function asTime(value) {
@@ -43,9 +47,10 @@ function asTime(value) {
   return Number.isFinite(ms) ? ms : -Infinity;
 }
 
-/** Newest analysis from `source` ("luna" includes entries without a source). */
+/** Newest analysis from `source` (a name or a list; "luna" includes entries without a source). */
 export function latestAnalysis(analyses, source = "luna") {
-  const list = (analyses || []).filter((a) => sourceOf(a) === source);
+  const wanted = Array.isArray(source) ? source : [source];
+  const list = (analyses || []).filter((a) => wanted.includes(sourceOf(a)));
   if (!list.length) return null;
   return list.reduce((best, a) => (asTime(a.as_of) > asTime(best.as_of) ? a : best));
 }
@@ -73,11 +78,14 @@ function keyLevelsHtml(levels) {
  * "AI says" (Luna). `analysis` is the newest Luna analysis or null; `lastAi` (the coin's summary) is
  * shown when no full analysis is available; `blockedReason` shows "AI unavailable: <reason>".
  */
-export function renderAiCard(analysis, { blockedReason = null, lastAi = null, base = "", pricingFallback = false } = {}) {
+export function renderAiCard(analysis, { blockedReason = null, lastAi = null, base = "", pricingFallback = false, narrator = "luna" } = {}) {
   const shown = analysis || null;
+  const routine = narrator === "claude_routine";
+  const who = shown ? SOURCE_LABEL[sourceOf(shown)] : routine ? "Claude" : "Luna";
   const head = shown ? stanceChip(shown.stance, shown.conviction) : lastAi ? stanceChip(lastAi.stance, lastAi.conviction) : stanceChip(null);
   const meta = shown
-    ? [shown.trigger && `trigger: ${shown.trigger}`, shown.as_of && relativeTime(shown.as_of), shown.model, num(shown.cost_usd) !== null && `$${num(shown.cost_usd).toFixed(4)}${pricingFallback ? "*" : ""}`].filter(Boolean).join(" · ")
+    ? [shown.trigger && `trigger: ${shown.trigger}`, shown.as_of && relativeTime(shown.as_of), shown.model,
+      sourceOf(shown) === "claude" ? "no API cost (subscription)" : num(shown.cost_usd) !== null && `$${num(shown.cost_usd).toFixed(4)}${pricingFallback ? "*" : ""}`].filter(Boolean).join(" · ")
     : "";
   const blocked = blockedReason ? `<p class="cot-ai-blocked" role="status"><span aria-hidden="true">⚠</span> AI unavailable: ${escapeHtml(blockedReason)}</p>` : "";
   let body;
@@ -95,17 +103,19 @@ export function renderAiCard(analysis, { blockedReason = null, lastAi = null, ba
     body = `${lastAi.summary_th ? `<p class="cot-thai" lang="th">${escapeHtml(lastAi.summary_th)}</p>` : ""}
       <p class="muted small">Summary from ${escapeHtml(lastAi.trigger || "a review")} ${escapeHtml(relativeTime(lastAi.as_of))}.</p>`;
   } else {
-    body = `<p class="muted">No AI analysis for ${escapeHtml(base || "this coin")} yet. Luna reviews a coin automatically when the rule changes state; you can also ask now.</p>`;
+    body = routine
+      ? `<p class="muted" lang="th">ยังไม่มีบทวิเคราะห์ของ ${escapeHtml(base || "เหรียญนี้")} วันนี้ รอ Claude routine รอบเช้า</p>`
+      : `<p class="muted">No AI analysis for ${escapeHtml(base || "this coin")} yet. Luna reviews a coin automatically when the rule changes state; you can also ask now.</p>`;
   }
   return `<div class="cot-ai" data-cot-ai>
-    <div class="cot-sub-head"><h3>AI says <small class="muted">(Luna)</small></h3>${head}</div>
+    <div class="cot-sub-head"><h3>AI says <small class="muted">(${escapeHtml(who)})</small></h3>${head}</div>
     ${meta ? `<p class="muted small">${escapeHtml(meta)}</p>` : ""}
     ${blocked}
     ${body}
-    <div class="paper-inline-actions cot-ask">
+    ${routine ? `<p class="small muted cot-routine-note" lang="th">${escapeHtml(ROUTINE_NOTE_TH)}</p>` : `<div class="paper-inline-actions cot-ask">
       <button type="button" class="btn btn--primary btn--small" data-cot-ask>${escapeHtml(ASK_AI_LABEL)}</button>
       <span class="small muted" data-cot-ask-feedback role="status" aria-live="polite"></span>
-    </div>
+    </div>`}
     <p class="muted small">Advisory text only — the AI never changes the rule's action or sizing.${pricingFallback ? ` * ${escapeHtml(PRICING_FALLBACK_NOTE)}` : ""}</p>
   </div>`;
 }
