@@ -356,6 +356,12 @@ export function createPaperApi(fetcher = globalThis.fetch) {
     async cotraderJournal(entry) {
       return (await request("/cotrader/journal", { method: "POST", body: entry })).json();
     },
+    async cotraderSettings() {
+      return (await request("/cotrader/settings")).json();
+    },
+    async cotraderWatchlist(change) {
+      return (await request("/cotrader/watchlist", { method: "POST", body: change })).json();
+    },
     async saveCotraderSettings(patch) {
       return (await request("/cotrader/settings", { method: "POST", body: patch })).json();
     },

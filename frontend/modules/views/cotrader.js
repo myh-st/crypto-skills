@@ -2,7 +2,7 @@
 // (BUY / SELL / HOLD / WAIT / IN / OUT, with the trigger price and the size); Jev scores every coin
 // daily and Luna explains on events or on demand, as advisory text only. Routes:
 //   #/cotrader            regime strip, daily briefing, coin grid, AI scorecard
-//   #/cotrader/holdings   what the user holds (manual + read-only Gate sync) and sizing settings
+//   #/cotrader/watchlist  the coins the rule follows (add / remove), spot capital and sizing
 //   #/cotrader/<BASE>     coin detail: chart, decision card, AI, journal, the rule's trade history
 // PAPER decision support only: nothing here places, amends or cancels any order.
 import { escapeHtml, relativeTime } from "../format.js";
@@ -22,7 +22,8 @@ import {
 } from "../components/cotraderAi.js";
 import { chartLevels, equitySummary, mountCotraderChart, mountEquityChart, priceChartSummary, toUnix } from "../components/cotraderChart.js";
 import { cdcChip, ladderLevels, renderEvidence, renderLadderDetail, renderLadderRow } from "../components/cotraderLadder.js";
-import { mountHoldings, renderHoldingsShell } from "./cotraderHoldings.js";
+import { mountWatchlist, renderWatchlistShell } from "./cotraderWatchlist.js";
+import { renderNextStepsTh } from "../components/cotraderSummary.js";
 
 const REFRESH_MS = 60_000;
 const THIN_COINS = new Set(["SEI", "ENA"]);
@@ -129,6 +130,7 @@ export function renderCoinGrid(coins) {
 export function renderCotraderOverview(d, { scorecard = null, scorecardError = null } = {}) {
   if (!d) return skeleton(5);
   return `
+    ${renderNextStepsTh(d)}
     ${renderRegimeStrip(d)}
     ${renderBriefing(d.briefing)}
     <section class="cot-section">
@@ -161,7 +163,7 @@ export function renderSizing(coin) {
   const line = sizingLine(s, base);
   if (line.kind === "unset") {
     return `<div class="cot-sizing cot-sizing--unset"><p><strong>Set your spot capital</strong> to see how much to buy or sell.</p>
-      <p class="small"><a href="#/cotrader/holdings">Holdings › Co-Trader sizing</a> — or sync your Gate holdings to use their total.</p></div>`;
+      <p class="small"><a href="#/cotrader/watchlist">Watchlist › Spot capital &amp; sizing</a></p></div>`;
   }
   const target = num(s.target_usdt);
   const weight = num(s.weight);
@@ -323,7 +325,7 @@ function shell(activeTab, body) {
   const tab = (id, href, label) => `<a href="${href}" class="cot-tab${activeTab === id ? " is-active" : ""}"${activeTab === id ? ' aria-current="page"' : ""}>${label}</a>`;
   return `<div class="view view--cotrader">
     <header class="page-header"><div><h1>Co-Trader</h1><p>Spot trend rule + AI second opinion · decide on the daily close</p></div>${autoRefreshBar(REFRESH_MS)}</header>
-    <nav class="cot-tabs" aria-label="Co-Trader sections">${tab("signals", "#/cotrader", "Signals")}${tab("holdings", "#/cotrader/holdings", "Holdings")}</nav>
+    <nav class="cot-tabs" aria-label="Co-Trader sections">${tab("signals", "#/cotrader", "Signals")}${tab("watchlist", "#/cotrader/watchlist", "Watchlist")}</nav>
     <p class="cot-disclaimer" role="note"><span aria-hidden="true">ⓘ</span> ${escapeHtml(DISCLAIMER)}</p>
     ${body}
   </div>`;
@@ -350,14 +352,14 @@ function renderOverviewPage(root, api) {
   }, { intervalMs: REFRESH_MS });
 }
 
-function renderHoldingsPage(root, api) {
-  root.innerHTML = shell("holdings", `<div data-cot-holdings>${renderHoldingsShell()}</div>`);
+function renderWatchlistPage(root, api) {
+  root.innerHTML = shell("watchlist", `<div data-cot-watchlist>${renderWatchlistShell()}</div>`);
   const view = root.firstElementChild;
-  const holdings = mountHoldings(view.querySelector("[data-cot-holdings]"), { api });
-  const stop = startAutoRefresh(view, holdings.refresh, { intervalMs: REFRESH_MS });
+  const watchlist = mountWatchlist(view.querySelector("[data-cot-watchlist]"), { api });
+  const stop = startAutoRefresh(view, watchlist.refresh, { intervalMs: REFRESH_MS });
   return () => {
     stop();
-    holdings.dispose();
+    watchlist.dispose();
   };
 }
 
@@ -403,14 +405,15 @@ function renderDetailPage(root, api, base) {
   }
 
   async function run() {
-    const [detail, holdings] = await Promise.allSettled([api.cotraderCoin(base), api.holdings()]);
+    // Holdings are tracked in the user's own exchange app; the co-trader only follows the watchlist.
+    const [detail] = await Promise.allSettled([api.cotraderCoin(base)]);
     if (detail.status === "rejected") {
       if (!state.detail) q("[data-cot-head]").innerHTML = unavailableHtml(detail.reason);
       throw detail.reason;
     }
     const d = detail.value;
     state.detail = d;
-    state.holding = holdings.status === "fulfilled" ? (holdings.value.holdings || []).find((h) => h.base === base) || null : null;
+    state.holding = null;
     q("[data-cot-head]").innerHTML = renderDetailHead(d, state.holding);
     const analysis = paintDecision();
     q("[data-cot-jev]").innerHTML = renderJevPanel(d.jev, d.analyses);
@@ -453,7 +456,7 @@ function renderDetailPage(root, api, base) {
         if (!error?.confirmation) throw error;
         const ok = await confirmAction({
           title: "Extra paid AI review",
-          message: `You have used today's manual AI reviews for ${base} (3 per day). Another review is billed to the AI budget, about $0.01–0.03.`,
+          message: `You have used today's manual AI reviews for ${base} (3 per day). Another review is billed to the AI budget, about $0.20–0.30 at the current placeholder prices.`,
           confirmLabel: "Ask AI anyway",
           tone: "primary",
         });
@@ -517,7 +520,7 @@ function renderDetailPage(root, api, base) {
 
 export function render(root, ctx = {}, api = paperApi) {
   const param = ctx.params?.[0] ? decodeURIComponent(ctx.params[0]) : "";
-  if (param === "holdings") return renderHoldingsPage(root, api);
+  if (param === "watchlist" || param === "holdings") return renderWatchlistPage(root, api);
   if (param && /^[A-Za-z0-9]{1,20}$/.test(param)) return renderDetailPage(root, api, param.toUpperCase());
   return renderOverviewPage(root, api);
 }

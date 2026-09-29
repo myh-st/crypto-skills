@@ -4,6 +4,17 @@
 // module never synthesizes continuation candles.
 import { escapeHtml } from "../format.js";
 
+/** A theme colour from the CSS custom properties (dark/light), with a fallback outside a browser. */
+function themeVar(name, fallback) {
+  try {
+    const value = getComputedStyle(document.documentElement).getPropertyValue(name).trim();
+    return value || fallback;
+  } catch {
+    return fallback;
+  }
+}
+
+
 export const CHART_LIBRARY_URL = "../../vendor/lightweight-charts-5.2.1/lightweight-charts.standalone.production.mjs";
 export const CHART_INTERVALS = ["1m", "5m", "15m", "1h", "4h"];
 export const STREAM_STATES = ["LIVE", "RECONNECTING", "STALE", "OFFLINE"];
@@ -260,10 +271,10 @@ export async function mountLiveChart(host, {
     canvas.innerHTML = "";
     state.chart = lib.createChart(canvas, {
       autoSize: true,
-      layout: { background: { color: "#ffffff" }, textColor: "#1c2230", attributionLogo: true },
-      grid: { vertLines: { color: "#eef1f4" }, horzLines: { color: "#eef1f4" } },
-      rightPriceScale: { borderColor: "#e1e4e9" },
-      timeScale: { borderColor: "#e1e4e9", timeVisible: true, secondsVisible: false },
+      layout: { background: { color: themeVar("--chart-bg", "#ffffff") }, textColor: themeVar("--chart-text", "#1c2230"), attributionLogo: true },
+      grid: { vertLines: { color: themeVar("--chart-grid", "#eef1f4") }, horzLines: { color: themeVar("--chart-grid", "#eef1f4") } },
+      rightPriceScale: { borderColor: themeVar("--color-border", "#e1e4e9") },
+      timeScale: { borderColor: themeVar("--color-border", "#e1e4e9"), timeVisible: true, secondsVisible: false },
       crosshair: { mode: 0 },
     });
     state.series = state.chart.addSeries(lib.CandlestickSeries, {

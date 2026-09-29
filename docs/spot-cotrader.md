@@ -47,7 +47,12 @@ python3 -m crypto_eval paper-server --database ~/paper-cotrader.sqlite3 --port 8
 ## Universe and data
 
 - Universe: BTC, ETH, NEAR, SEI, SUI, AVAX, ENA (Gate spot `*_USDT`). Configurable with
-  `POST /api/cotrader/settings {"universe": [...]}` (2–20 coins).
+  `POST /api/cotrader/settings {"universe": [...]}` (2–20 coins), or one coin at a time with the
+  Watchlist page (`POST /api/cotrader/watchlist {"add": "SOL"}` / `{"remove": "SEI"}`). An added coin
+  must be listed on Gate spot as `<BASE>_USDT` (public tickers; stablecoins are refused), its daily
+  history is fetched immediately, and the reply flags a thin coin (24h quote volume below 5M USDT)
+  or less than 365 daily bars (no evidence verdict yet). At most 20 coins; at least one stays.
+  No exchange account or API key is involved.
 - `GateSpotDailySource` reuses `GateSpotMarketDataProvider` (approved-host allowlist, GET only,
   fail-closed errors) for `/spot/candlesticks?interval=1d` and `/spot/tickers`.
 - Closed candles are cached in `cotrader_candles`. The first load fetches up to 1,000 days; later
@@ -328,3 +333,26 @@ jev_max_output_tokens}}`. Returns `{settings}`. POST routes keep the server's or
 - Secrets never reach SQLite, prompts, logs or responses. Loopback only.
 - Closed bars only for signals. Missing data is `null` with a reason, never zero-filled.
 - AI output is advisory text. It never changes a rule state, a ladder state or any position.
+
+
+## Web app (co-trader mode)
+
+`/api/health` reports `"cotrader": true` on a `--cotrader` server. The frontend then becomes the
+Spot Co-Trader app: the navigation shows only **Signals**, **Watchlist** and **AI · Settings**, the
+old futures lab menus sit under a collapsed "Futures lab (old)" group, `#/cotrader` is the default
+route and the futures runtime stream is not opened. Servers without the flag keep the lab navigation.
+
+- **"ทำอะไรต่อ" (what to do next).** A short Thai summary at the top of Signals. It is built only
+  from the ladder: today's fresh actions (start / add / trim / sell all, with the USDT amount when
+  spot capital is set), what to keep holding (full / half), what stays in cash, and the three
+  nearest trigger levels. It uses no AI text, so it is always available and never billed.
+- **Holdings are not shown.** Profit and position tracking stay in the user's own exchange app; the
+  co-trader follows the watchlist. The Holdings backend (`docs/holdings.md`) remains available but
+  is dormant without a stored key.
+- **Theme.** Dark by default; the topbar toggle stores `light`/`dark` in this browser only
+  (`frontend/theme.js`, loaded in `<head>` so there is no flash). Charts read the theme colours.
+
+AI retries: a Jev/Luna attempt blocked by the **budget** is final for its trigger (never re-billed),
+but one blocked by **provider setup** (`fixture_provider`, `provider_unavailable`,
+`provider_unsupported`) is retried after the normal 10-minute spacing, so configuring the real
+providers scores the same close without a restart.

@@ -71,6 +71,10 @@ TICKER_TTL_SECONDS = 30
 SCORECARD_HORIZONS = (7, 30)
 SCORECARD_MIN_SAMPLES = 20
 THIN_LIQUIDITY = ("SEI", "ENA")
+STABLECOINS = ("USDT", "USDC", "DAI", "FDUSD", "TUSD", "USDE")
+MAX_UNIVERSE = 20
+PROVIDER_SETUP_REASONS = ("fixture_provider", "provider_unavailable", "provider_unsupported")
+THIN_QUOTE_VOLUME_USDT = 5_000_000.0  # below this 24h Gate spot volume, fills can slip; warn
 BASE_RE = re.compile(r"[A-Z0-9]{1,20}")
 COTRADER_BUDGET_DEFAULTS: dict[str, Any] = {
     "daily_usd": 0.5,
@@ -743,7 +747,8 @@ class GateSpotDailySource:
         for pair, row in self.provider.tickers().items():
             change = _num(row.get("change_percentage"))
             result[pair] = {"price": _num(row.get("last"), positive=True),
-                            "change_24h": None if change is None else change / 100}
+                            "change_24h": None if change is None else change / 100,
+                            "quote_volume": _num(row.get("quote_volume"))}
         return result
 
 
@@ -877,6 +882,52 @@ class SpotCoTrader:
             self._put_settings(updates)
         return self.settings_view()
 
+    def update_watchlist(self, body: dict[str, Any]) -> dict[str, Any]:
+        """Add or remove one coin. An added coin must be listed on Gate spot as <BASE>_USDT (public
+        tickers); its daily candles are fetched right away. Thin coins are added with a warning."""
+
+        if not isinstance(body, dict) or len(body) != 1 or not set(body) <= {"add", "remove"}:
+            raise PaperTradingError("watchlist accepts exactly one of add or remove")
+        universe = self.universe()
+        if "remove" in body:
+            base = normalize_base(body["remove"])
+            if base not in universe:
+                raise CoTraderNotFound("coin is not in the watchlist")
+            if len(universe) <= 1:
+                raise PaperTradingError("the watchlist needs at least one coin")
+            self._put_settings({"universe": [item for item in universe if item != base]})
+            return {"universe": self.universe(), "removed": base}
+        base = normalize_base(body["add"])
+        if base in STABLECOINS:
+            raise PaperTradingError("stablecoins are cash, not a watchlist coin")
+        if base in universe:
+            raise PaperTradingError(f"{base} is already in the watchlist")
+        if len(universe) >= MAX_UNIVERSE:
+            raise PaperTradingError(f"the watchlist holds at most {MAX_UNIVERSE} coins; remove one first")
+        try:
+            tickers = self.source.tickers()
+        except Exception:
+            raise PaperTradingError("cannot check Gate spot listings right now; try again") from None
+        row = tickers.get(f"{base}_USDT")
+        if not row or row.get("price") is None:
+            raise PaperTradingError(f"{base}_USDT is not listed on Gate spot")
+        volume = row.get("quote_volume")
+        self._put_settings({"universe": [*universe, base]})
+        self._tickers = None  # the next overview fetches live prices for the new coin
+        fetched = self.refresh(bases=[base])["coins"].get(base, {})
+        bars = len(self._candles(base))
+        return {
+            "universe": self.universe(),
+            "added": {
+                "base": base,
+                "quote_volume_24h_usdt": _r(volume, 0),
+                "thin": volume is None or volume < THIN_QUOTE_VOLUME_USDT,
+                "daily_bars": bars,
+                "history_ok": bars >= EVIDENCE_MIN_BARS,
+                "fetch_error": None if fetched.get("ok") else fetched.get("error"),
+            },
+        }
+
     def config(self) -> dict[str, Any]:
         return self.store.experiment()["config"]
 
@@ -895,13 +946,13 @@ class SpotCoTrader:
         return [{"t": row["t"], "o": row["open"], "h": row["high"], "l": row["low"], "c": row["close"],
                  "v": row["volume"]} for row in rows]
 
-    def refresh(self, now: datetime | None = None) -> dict[str, Any]:
+    def refresh(self, now: datetime | None = None, *, bases: list[str] | None = None) -> dict[str, Any]:
         """Fetch closed daily candles (public GET). Only the latest few days are refetched."""
 
         now = (now or self.now()).astimezone(timezone.utc)
         boundary = _floor_day(now)
         coins: dict[str, Any] = {}
-        for base in self.universe():
+        for base in (self.universe() if bases is None else bases):
             latest = self.store._query("SELECT MAX(t) AS t FROM cotrader_candles WHERE base=?", (base,))[0]["t"]
             start = boundary - INITIAL_HISTORY_DAYS * DAY if latest is None else int(latest) - REFETCH_DAYS * DAY
             try:
@@ -1099,16 +1150,19 @@ class SpotCoTrader:
         rows = self._analysis_rows(
             "SELECT * FROM cotrader_analyses WHERE trigger_key=? ORDER BY as_of DESC, rowid DESC", (key,)
         )
-        final = next((row for row in rows if row["status"] in {"ok", "blocked"}), None)
+        # A budget block is final for this trigger; a provider-setup block (fixture, unavailable,
+        # unsupported) is not, so fixing the provider lets the same close be scored without a restart.
+        final = next((row for row in rows if row["status"] == "ok" or (
+            row["status"] == "blocked" and not str(row["reason"] or "").startswith(PROVIDER_SETUP_REASONS))), None)
         if final is not None:
             return False, final
         failed = [row for row in rows if row["status"] == "failed"]
         if len(failed) >= MAX_FAILED_ATTEMPTS:
             return False, failed[0]
-        if failed:
-            last = datetime.fromisoformat(failed[0]["as_of"].replace("Z", "+00:00"))
+        if rows:  # the latest attempt was a failure or a provider-setup block: space the retries
+            last = datetime.fromisoformat(rows[0]["as_of"].replace("Z", "+00:00"))
             if (now - last).total_seconds() < RETRY_SPACING_SECONDS:
-                return False, failed[0]
+                return False, rows[0]
         return True, None
 
     def _record(self, **fields: Any) -> dict[str, Any]:

@@ -8,6 +8,17 @@ import { num } from "./ui.js";
 import { fmtPct, fmtPrice } from "./cotraderBits.js";
 import { LADDER_ACTIONS, cdcRibbon, ladderLevels, ladderTransitions } from "./cotraderLadder.js";
 
+/** A theme colour from the CSS custom properties (dark/light), with a fallback outside a browser. */
+function themeVar(name, fallback) {
+  try {
+    const value = getComputedStyle(document.documentElement).getPropertyValue(name).trim();
+    return value || fallback;
+  } catch {
+    return fallback;
+  }
+}
+
+
 const FALLBACK = {
   up: "#1f7a4d", down: "#a3352a", trend: "#2f6fed", sma: "#8a94a3", avg: "#6b21a8",
   support: "#1f7a4d", resistance: "#a3352a", invalidation: "#8a5a08", hold: "rgba(31, 122, 77, 0.08)",
@@ -190,10 +201,10 @@ async function loadLibrary() {
 function baseOptions() {
   return {
     autoSize: true,
-    layout: { background: { color: "#ffffff" }, textColor: "#1c2230", attributionLogo: true },
-    grid: { vertLines: { color: "#eef1f4" }, horzLines: { color: "#eef1f4" } },
-    rightPriceScale: { borderColor: "#e1e4e9" },
-    timeScale: { borderColor: "#e1e4e9", timeVisible: false },
+    layout: { background: { color: themeVar("--chart-bg", "#ffffff") }, textColor: themeVar("--chart-text", "#1c2230"), attributionLogo: true },
+    grid: { vertLines: { color: themeVar("--chart-grid", "#eef1f4") }, horzLines: { color: themeVar("--chart-grid", "#eef1f4") } },
+    rightPriceScale: { borderColor: themeVar("--color-border", "#e1e4e9") },
+    timeScale: { borderColor: themeVar("--color-border", "#e1e4e9"), timeVisible: false },
     crosshair: { mode: 0 },
   };
 }
@@ -273,7 +284,7 @@ export async function mountEquityChart(host, equity) {
   }
   const colors = palette();
   host.innerHTML = "";
-  const chart = lib.createChart(host, { ...baseOptions(), rightPriceScale: { borderColor: "#e1e4e9", mode: 1 } });
+  const chart = lib.createChart(host, { ...baseOptions(), rightPriceScale: { borderColor: themeVar("--color-border", "#e1e4e9"), mode: 1 } });
   const buyHold = chart.addSeries(lib.LineSeries, { color: colors.buyHold, lineWidth: 2, title: "Buy & hold", priceLineVisible: false });
   const rule = chart.addSeries(lib.LineSeries, { color: colors.rule, lineWidth: 2, title: "Rule", priceLineVisible: false });
   let fitted = false;
