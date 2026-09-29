@@ -1,0 +1,321 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "spot-holding.schema.json",
+  "title": "PAPER Spot holding (unified view, Spot variant)",
+  "type": "object",
+  "additionalProperties": true,
+  "required": [
+    "allocation_pct",
+    "available_quantity",
+    "avg_cost",
+    "base",
+    "closed_at",
+    "cost_basis_usdt",
+    "current_value_usdt",
+    "display_symbol",
+    "entry_price",
+    "exit_reason",
+    "fees_usdt",
+    "funding_usdt",
+    "holding_id",
+    "initial_risk_usdt",
+    "instrument_id",
+    "last_ai_review_at",
+    "last_user_override_at",
+    "leverage",
+    "liquidation_price",
+    "live_price",
+    "management_mode",
+    "mark_price",
+    "market_type",
+    "next_ai_review_at",
+    "notional_usdt",
+    "open_risk_usdt",
+    "opened_at",
+    "owner_source",
+    "pending_proposal",
+    "plan_version",
+    "portfolio_weight_pct",
+    "position_ref",
+    "quantity",
+    "quote",
+    "r_multiple",
+    "realized_pnl_usdt",
+    "reserved_quantity",
+    "schema_version",
+    "side",
+    "slippage_usdt",
+    "source",
+    "status",
+    "stop_price",
+    "symbol",
+    "targets",
+    "thesis_status",
+    "total_bought",
+    "total_sold",
+    "unrealized_pnl_usdt"
+  ],
+  "properties": {
+    "schema_version": {
+      "enum": [
+        "unified-position-view.v1"
+      ]
+    },
+    "position_ref": {
+      "type": "string",
+      "minLength": 6
+    },
+    "market_type": {
+      "enum": [
+        "spot"
+      ]
+    },
+    "instrument_id": {
+      "type": "string",
+      "minLength": 10
+    },
+    "symbol": {
+      "type": "string"
+    },
+    "display_symbol": {
+      "type": "string"
+    },
+    "base": {
+      "type": "string"
+    },
+    "side": {
+      "enum": [
+        "long"
+      ]
+    },
+    "status": {
+      "enum": [
+        "open",
+        "closed"
+      ]
+    },
+    "source": {
+      "enum": [
+        "AI",
+        "USER",
+        "SYSTEM"
+      ]
+    },
+    "quantity": {
+      "type": "number"
+    },
+    "entry_price": {
+      "type": "number"
+    },
+    "mark_price": {
+      "type": "number"
+    },
+    "live_price": {
+      "type": [
+        "number",
+        "null"
+      ]
+    },
+    "notional_usdt": {
+      "type": "number"
+    },
+    "unrealized_pnl_usdt": {
+      "type": "number"
+    },
+    "realized_pnl_usdt": {
+      "type": "number"
+    },
+    "stop_price": {
+      "type": [
+        "number",
+        "null"
+      ]
+    },
+    "targets": {
+      "type": "array",
+      "maxItems": 6,
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "price",
+          "fraction",
+          "quantity",
+          "final",
+          "hit"
+        ],
+        "properties": {
+          "price": {
+            "type": "number"
+          },
+          "fraction": {
+            "type": "number"
+          },
+          "quantity": {
+            "type": [
+              "number",
+              "null"
+            ]
+          },
+          "final": {
+            "type": "boolean"
+          },
+          "hit": {
+            "type": "boolean"
+          },
+          "hit_at": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "format": "date-time"
+          }
+        }
+      }
+    },
+    "open_risk_usdt": {
+      "type": [
+        "number",
+        "null"
+      ]
+    },
+    "initial_risk_usdt": {
+      "type": [
+        "number",
+        "null"
+      ]
+    },
+    "r_multiple": {
+      "type": [
+        "number",
+        "null"
+      ]
+    },
+    "leverage": {
+      "type": "null"
+    },
+    "liquidation_price": {
+      "type": "null"
+    },
+    "funding_usdt": {
+      "type": "null"
+    },
+    "management_mode": {
+      "enum": [
+        "AUTO_PAPER",
+        "RECOMMEND_ONLY",
+        "MANUAL_OVERRIDE",
+        "PAUSED",
+        "UNASSIGNED"
+      ]
+    },
+    "owner_source": {
+      "enum": [
+        "AI",
+        "USER",
+        "SYSTEM"
+      ]
+    },
+    "thesis_status": {
+      "enum": [
+        "intact",
+        "weakening",
+        "broken",
+        "unknown"
+      ]
+    },
+    "plan_version": {
+      "type": "integer",
+      "minimum": 1
+    },
+    "last_ai_review_at": {
+      "type": [
+        "string",
+        "null"
+      ],
+      "format": "date-time"
+    },
+    "next_ai_review_at": {
+      "type": [
+        "string",
+        "null"
+      ],
+      "format": "date-time"
+    },
+    "last_user_override_at": {
+      "type": [
+        "string",
+        "null"
+      ],
+      "format": "date-time"
+    },
+    "pending_proposal": {
+      "type": [
+        "object",
+        "null"
+      ]
+    },
+    "opened_at": {
+      "type": "string",
+      "format": "date-time"
+    },
+    "closed_at": {
+      "type": [
+        "string",
+        "null"
+      ],
+      "format": "date-time"
+    },
+    "exit_reason": {
+      "type": [
+        "string",
+        "null"
+      ]
+    },
+    "holding_id": {
+      "type": "string"
+    },
+    "quote": {
+      "type": "string"
+    },
+    "avg_cost": {
+      "type": "number"
+    },
+    "current_value_usdt": {
+      "type": "number"
+    },
+    "cost_basis_usdt": {
+      "type": "number"
+    },
+    "reserved_quantity": {
+      "type": "number"
+    },
+    "available_quantity": {
+      "type": "number"
+    },
+    "allocation_pct": {
+      "type": [
+        "number",
+        "null"
+      ]
+    },
+    "portfolio_weight_pct": {
+      "type": [
+        "number",
+        "null"
+      ]
+    },
+    "fees_usdt": {
+      "type": "number"
+    },
+    "slippage_usdt": {
+      "type": "number"
+    },
+    "total_bought": {
+      "type": "number"
+    },
+    "total_sold": {
+      "type": "number"
+    }
+  }
+}

@@ -1,0 +1,139 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "post-trade-review.schema.json",
+  "title": "Post-trade review",
+  "description": "Hypotheses are candidates for a future experiment version; the active strategy is never rewritten automatically.",
+  "type": "object",
+  "additionalProperties": true,
+  "required": [
+    "schema_version",
+    "review_id",
+    "position_ref",
+    "market_type",
+    "symbol",
+    "outcome",
+    "tags",
+    "realized_pnl_usdt",
+    "lesson",
+    "auto_applied_to_strategy"
+  ],
+  "properties": {
+    "schema_version": {
+      "enum": [
+        "post-trade-review.v1"
+      ]
+    },
+    "review_id": {
+      "type": "string"
+    },
+    "position_ref": {
+      "type": "string"
+    },
+    "market_type": {
+      "enum": [
+        "spot",
+        "perpetual"
+      ]
+    },
+    "symbol": {
+      "type": "string"
+    },
+    "side": {
+      "enum": [
+        "long",
+        "short"
+      ]
+    },
+    "outcome": {
+      "enum": [
+        "WIN",
+        "LOSS",
+        "BREAKEVEN"
+      ]
+    },
+    "tags": {
+      "type": "array",
+      "items": {
+        "$ref": "learning-tag.schema.json"
+      }
+    },
+    "realized_pnl_usdt": {
+      "type": "number"
+    },
+    "r_multiple": {
+      "type": [
+        "number",
+        "null"
+      ]
+    },
+    "initial_risk_usdt": {
+      "type": [
+        "number",
+        "null"
+      ]
+    },
+    "mfe_r": {
+      "type": [
+        "number",
+        "null"
+      ]
+    },
+    "mae_r": {
+      "type": [
+        "number",
+        "null"
+      ]
+    },
+    "path_status": {
+      "enum": [
+        "observed",
+        "unavailable"
+      ]
+    },
+    "exit_reason": {
+      "type": "string"
+    },
+    "ai_cost_usd": {
+      "type": [
+        "number",
+        "null"
+      ]
+    },
+    "ai_cost_usdt": {
+      "type": [
+        "number",
+        "null"
+      ]
+    },
+    "decision_stack": {
+      "type": "object"
+    },
+    "management_actions": {
+      "type": "array"
+    },
+    "user_overrides": {
+      "type": "integer",
+      "minimum": 0
+    },
+    "counterfactual_gross_pnl": {
+      "type": [
+        "number",
+        "null"
+      ]
+    },
+    "lesson": {
+      "type": "string"
+    },
+    "hypothesis": {
+      "type": [
+        "string",
+        "null"
+      ]
+    },
+    "auto_applied_to_strategy": {
+      "enum": [
+        false
+      ]
+    }
+  }
+}

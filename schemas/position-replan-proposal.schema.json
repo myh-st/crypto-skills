@@ -1,0 +1,337 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "position-replan-proposal.schema.json",
+  "title": "Structured position re-plan proposal",
+  "description": "Typed fields only; no chain-of-thought. Blocked proposals carry code/reason and no diff. RECOMMEND_ONLY never auto-applies.",
+  "type": "object",
+  "additionalProperties": true,
+  "required": [
+    "schema_version",
+    "proposal_id",
+    "position_ref",
+    "market_type",
+    "origin",
+    "status",
+    "created_at"
+  ],
+  "properties": {
+    "schema_version": {
+      "enum": [
+        "position-replan-proposal.v1"
+      ]
+    },
+    "proposal_id": {
+      "type": "string"
+    },
+    "position_ref": {
+      "type": "string"
+    },
+    "market_type": {
+      "enum": [
+        "spot",
+        "perpetual"
+      ]
+    },
+    "symbol": {
+      "type": "string"
+    },
+    "origin": {
+      "enum": [
+        "user",
+        "autonomous"
+      ]
+    },
+    "intent": {
+      "enum": [
+        "tighten_risk",
+        "protect_profit",
+        "give_more_room",
+        "reduce_exposure",
+        "exit_if_thesis_weakened",
+        "reassess",
+        null
+      ]
+    },
+    "status": {
+      "enum": [
+        "proposed",
+        "no_change",
+        "blocked",
+        "applied",
+        "rejected",
+        "superseded",
+        "expired"
+      ]
+    },
+    "created_at": {
+      "type": "string",
+      "format": "date-time"
+    },
+    "source": {
+      "enum": [
+        "deterministic",
+        "jev+deterministic",
+        "luna",
+        "fixture_gpt"
+      ]
+    },
+    "proposal": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "action",
+        "stop_price",
+        "target_prices",
+        "reduce_fraction",
+        "thesis_status",
+        "reason_codes"
+      ],
+      "properties": {
+        "action": {
+          "enum": [
+            "hold",
+            "adjust",
+            "reduce",
+            "close"
+          ]
+        },
+        "stop_price": {
+          "type": [
+            "number",
+            "null"
+          ]
+        },
+        "target_prices": {
+          "type": "array",
+          "maxItems": 3,
+          "items": {
+            "type": "number"
+          }
+        },
+        "reduce_fraction": {
+          "type": [
+            "number",
+            "null"
+          ]
+        },
+        "thesis_status": {
+          "enum": [
+            "intact",
+            "weakening",
+            "broken"
+          ]
+        },
+        "reason_codes": {
+          "type": "array",
+          "maxItems": 5,
+          "items": {
+            "enum": [
+              "MOMENTUM_INTACT",
+              "MOMENTUM_WEAKENED",
+              "BTC_RISK_INCREASED",
+              "REGIME_SHIFT",
+              "VOLATILITY_EXPANSION",
+              "VOLATILITY_CONTRACTION",
+              "PROTECT_PROFIT",
+              "THESIS_INTACT",
+              "THESIS_WEAKENED",
+              "THESIS_BROKEN",
+              "NEAR_STOP",
+              "NEAR_TARGET",
+              "REDUCE_EXPOSURE",
+              "PORTFOLIO_CONCENTRATION",
+              "FUNDING_ADVERSE",
+              "GIVE_ROOM",
+              "TIGHTEN_RISK",
+              "NO_CHANGE_NEEDED",
+              "USER_REQUEST",
+              "AI_BUDGET_BLOCK",
+              "AI_UNAVAILABLE"
+            ]
+          }
+        },
+        "summary": {
+          "type": "string"
+        }
+      }
+    },
+    "current": {
+      "type": "object",
+      "required": [
+        "stop_price",
+        "targets",
+        "remaining_pct",
+        "quantity",
+        "risk_usdt",
+        "exposure_pct",
+        "management_mode",
+        "locked_pnl_at_stop_usdt"
+      ],
+      "properties": {
+        "stop_price": {
+          "type": [
+            "number",
+            "null"
+          ]
+        },
+        "targets": {
+          "type": "array",
+          "items": {
+            "type": "number"
+          }
+        },
+        "remaining_pct": {
+          "type": "number"
+        },
+        "quantity": {
+          "type": "number"
+        },
+        "risk_usdt": {
+          "type": "number"
+        },
+        "exposure_pct": {
+          "type": [
+            "number",
+            "null"
+          ]
+        },
+        "locked_pnl_at_stop_usdt": {
+          "type": [
+            "number",
+            "null"
+          ]
+        }
+      }
+    },
+    "proposed": {
+      "type": "object",
+      "required": [
+        "stop_price",
+        "targets",
+        "remaining_pct",
+        "quantity",
+        "risk_usdt",
+        "exposure_pct",
+        "management_mode",
+        "locked_pnl_at_stop_usdt"
+      ],
+      "properties": {
+        "stop_price": {
+          "type": [
+            "number",
+            "null"
+          ]
+        },
+        "targets": {
+          "type": "array",
+          "items": {
+            "type": "number"
+          }
+        },
+        "remaining_pct": {
+          "type": "number"
+        },
+        "quantity": {
+          "type": "number"
+        },
+        "risk_usdt": {
+          "type": "number"
+        },
+        "exposure_pct": {
+          "type": [
+            "number",
+            "null"
+          ]
+        },
+        "locked_pnl_at_stop_usdt": {
+          "type": [
+            "number",
+            "null"
+          ]
+        }
+      }
+    },
+    "risk_before_usdt": {
+      "type": "number"
+    },
+    "risk_after_usdt": {
+      "type": "number"
+    },
+    "risk_increased": {
+      "type": "boolean"
+    },
+    "portfolio_exposure_before": {
+      "type": [
+        "number",
+        "null"
+      ]
+    },
+    "portfolio_exposure_after": {
+      "type": [
+        "number",
+        "null"
+      ]
+    },
+    "changes": {
+      "type": "array",
+      "items": {
+        "type": "string"
+      }
+    },
+    "headline": {
+      "type": "string"
+    },
+    "reason_codes": {
+      "type": "array",
+      "items": {
+        "enum": [
+          "MOMENTUM_INTACT",
+          "MOMENTUM_WEAKENED",
+          "BTC_RISK_INCREASED",
+          "REGIME_SHIFT",
+          "VOLATILITY_EXPANSION",
+          "VOLATILITY_CONTRACTION",
+          "PROTECT_PROFIT",
+          "THESIS_INTACT",
+          "THESIS_WEAKENED",
+          "THESIS_BROKEN",
+          "NEAR_STOP",
+          "NEAR_TARGET",
+          "REDUCE_EXPOSURE",
+          "PORTFOLIO_CONCENTRATION",
+          "FUNDING_ADVERSE",
+          "GIVE_ROOM",
+          "TIGHTEN_RISK",
+          "NO_CHANGE_NEEDED",
+          "USER_REQUEST",
+          "AI_BUDGET_BLOCK",
+          "AI_UNAVAILABLE"
+        ]
+      }
+    },
+    "evidence": {
+      "type": "object",
+      "required": [
+        "data_cutoff",
+        "price"
+      ]
+    },
+    "ai": {
+      "type": "object",
+      "required": [
+        "jev",
+        "luna",
+        "budget_block"
+      ]
+    },
+    "auto_applied": {
+      "type": "boolean"
+    },
+    "code": {
+      "type": "string"
+    },
+    "reason": {
+      "type": "string"
+    }
+  }
+}

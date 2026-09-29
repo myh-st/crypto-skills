@@ -1,0 +1,275 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "unified-position-view.schema.json",
+  "title": "Unified PAPER position / holding view",
+  "description": "Spot holdings and perpetual positions share this view; Spot sets leverage, liquidation_price, and funding_usdt to null.",
+  "type": "object",
+  "additionalProperties": true,
+  "required": [
+    "base",
+    "closed_at",
+    "display_symbol",
+    "entry_price",
+    "exit_reason",
+    "funding_usdt",
+    "initial_risk_usdt",
+    "instrument_id",
+    "last_ai_review_at",
+    "last_user_override_at",
+    "leverage",
+    "liquidation_price",
+    "live_price",
+    "management_mode",
+    "mark_price",
+    "market_type",
+    "next_ai_review_at",
+    "notional_usdt",
+    "open_risk_usdt",
+    "opened_at",
+    "owner_source",
+    "pending_proposal",
+    "plan_version",
+    "position_ref",
+    "quantity",
+    "r_multiple",
+    "realized_pnl_usdt",
+    "schema_version",
+    "side",
+    "source",
+    "status",
+    "stop_price",
+    "symbol",
+    "targets",
+    "thesis_status",
+    "unrealized_pnl_usdt"
+  ],
+  "properties": {
+    "schema_version": {
+      "enum": [
+        "unified-position-view.v1"
+      ]
+    },
+    "position_ref": {
+      "type": "string",
+      "minLength": 6
+    },
+    "market_type": {
+      "enum": [
+        "spot",
+        "perpetual"
+      ]
+    },
+    "instrument_id": {
+      "type": "string",
+      "minLength": 10
+    },
+    "symbol": {
+      "type": "string"
+    },
+    "display_symbol": {
+      "type": "string"
+    },
+    "base": {
+      "type": "string"
+    },
+    "side": {
+      "enum": [
+        "long",
+        "short"
+      ]
+    },
+    "status": {
+      "enum": [
+        "open",
+        "closed"
+      ]
+    },
+    "source": {
+      "enum": [
+        "AI",
+        "USER",
+        "SYSTEM"
+      ]
+    },
+    "quantity": {
+      "type": "number"
+    },
+    "entry_price": {
+      "type": "number"
+    },
+    "mark_price": {
+      "type": "number"
+    },
+    "live_price": {
+      "type": [
+        "number",
+        "null"
+      ]
+    },
+    "notional_usdt": {
+      "type": "number"
+    },
+    "unrealized_pnl_usdt": {
+      "type": "number"
+    },
+    "realized_pnl_usdt": {
+      "type": "number"
+    },
+    "stop_price": {
+      "type": [
+        "number",
+        "null"
+      ]
+    },
+    "targets": {
+      "type": "array",
+      "maxItems": 6,
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "price",
+          "fraction",
+          "quantity",
+          "final",
+          "hit"
+        ],
+        "properties": {
+          "price": {
+            "type": "number"
+          },
+          "fraction": {
+            "type": "number"
+          },
+          "quantity": {
+            "type": [
+              "number",
+              "null"
+            ]
+          },
+          "final": {
+            "type": "boolean"
+          },
+          "hit": {
+            "type": "boolean"
+          },
+          "hit_at": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "format": "date-time"
+          }
+        }
+      }
+    },
+    "open_risk_usdt": {
+      "type": [
+        "number",
+        "null"
+      ]
+    },
+    "initial_risk_usdt": {
+      "type": [
+        "number",
+        "null"
+      ]
+    },
+    "r_multiple": {
+      "type": [
+        "number",
+        "null"
+      ]
+    },
+    "leverage": {
+      "type": [
+        "integer",
+        "null"
+      ]
+    },
+    "liquidation_price": {
+      "type": [
+        "number",
+        "null"
+      ]
+    },
+    "funding_usdt": {
+      "type": [
+        "number",
+        "null"
+      ]
+    },
+    "management_mode": {
+      "enum": [
+        "AUTO_PAPER",
+        "RECOMMEND_ONLY",
+        "MANUAL_OVERRIDE",
+        "PAUSED",
+        "UNASSIGNED"
+      ]
+    },
+    "owner_source": {
+      "enum": [
+        "AI",
+        "USER",
+        "SYSTEM"
+      ]
+    },
+    "thesis_status": {
+      "enum": [
+        "intact",
+        "weakening",
+        "broken",
+        "unknown"
+      ]
+    },
+    "plan_version": {
+      "type": "integer",
+      "minimum": 1
+    },
+    "last_ai_review_at": {
+      "type": [
+        "string",
+        "null"
+      ],
+      "format": "date-time"
+    },
+    "next_ai_review_at": {
+      "type": [
+        "string",
+        "null"
+      ],
+      "format": "date-time"
+    },
+    "last_user_override_at": {
+      "type": [
+        "string",
+        "null"
+      ],
+      "format": "date-time"
+    },
+    "pending_proposal": {
+      "type": [
+        "object",
+        "null"
+      ]
+    },
+    "opened_at": {
+      "type": "string",
+      "format": "date-time"
+    },
+    "closed_at": {
+      "type": [
+        "string",
+        "null"
+      ],
+      "format": "date-time"
+    },
+    "exit_reason": {
+      "type": [
+        "string",
+        "null"
+      ]
+    }
+  }
+}

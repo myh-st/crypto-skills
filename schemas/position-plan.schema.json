@@ -1,0 +1,128 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "position-plan.schema.json",
+  "title": "Position plan and management metadata",
+  "type": "object",
+  "additionalProperties": true,
+  "required": [
+    "created_at",
+    "experiment_id",
+    "initial_risk",
+    "instrument_id",
+    "last_ai_review_at",
+    "last_user_override_at",
+    "management_mode",
+    "market_type",
+    "next_ai_review_at",
+    "owner_source",
+    "plan_version",
+    "position_ref",
+    "review_count",
+    "review_exposure",
+    "stop_price",
+    "targets_json",
+    "thesis_status",
+    "updated_at"
+  ],
+  "properties": {
+    "position_ref": {
+      "type": "string"
+    },
+    "experiment_id": {
+      "type": "string"
+    },
+    "market_type": {
+      "enum": [
+        "spot",
+        "perpetual"
+      ]
+    },
+    "instrument_id": {
+      "type": [
+        "string",
+        "null"
+      ]
+    },
+    "management_mode": {
+      "enum": [
+        "AUTO_PAPER",
+        "RECOMMEND_ONLY",
+        "MANUAL_OVERRIDE",
+        "PAUSED"
+      ]
+    },
+    "owner_source": {
+      "enum": [
+        "AI",
+        "USER",
+        "SYSTEM"
+      ]
+    },
+    "plan_version": {
+      "type": "integer",
+      "minimum": 1
+    },
+    "stop_price": {
+      "type": [
+        "number",
+        "null"
+      ]
+    },
+    "targets_json": {
+      "type": "string"
+    },
+    "thesis_status": {
+      "enum": [
+        "intact",
+        "weakening",
+        "broken",
+        "unknown"
+      ]
+    },
+    "last_ai_review_at": {
+      "type": [
+        "string",
+        "null"
+      ],
+      "format": "date-time"
+    },
+    "next_ai_review_at": {
+      "type": [
+        "string",
+        "null"
+      ],
+      "format": "date-time"
+    },
+    "last_user_override_at": {
+      "type": [
+        "string",
+        "null"
+      ],
+      "format": "date-time"
+    },
+    "review_exposure": {
+      "type": [
+        "number",
+        "null"
+      ]
+    },
+    "initial_risk": {
+      "type": [
+        "number",
+        "null"
+      ]
+    },
+    "review_count": {
+      "type": "integer",
+      "minimum": 0
+    },
+    "created_at": {
+      "type": "string",
+      "format": "date-time"
+    },
+    "updated_at": {
+      "type": "string",
+      "format": "date-time"
+    }
+  }
+}

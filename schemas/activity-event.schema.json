@@ -1,0 +1,105 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "activity-event.schema.json",
+  "title": "Unified activity event",
+  "type": "object",
+  "additionalProperties": true,
+  "required": [
+    "category",
+    "event_id",
+    "experiment_id",
+    "instrument_id",
+    "market_type",
+    "payload_ref",
+    "position_ref",
+    "schema_version",
+    "severity",
+    "source",
+    "summary",
+    "symbol",
+    "timestamp",
+    "title"
+  ],
+  "properties": {
+    "schema_version": {
+      "enum": [
+        "activity-event.v1"
+      ]
+    },
+    "event_id": {
+      "type": "string"
+    },
+    "experiment_id": {
+      "type": "string"
+    },
+    "timestamp": {
+      "type": "string",
+      "format": "date-time"
+    },
+    "instrument_id": {
+      "type": [
+        "string",
+        "null"
+      ]
+    },
+    "symbol": {
+      "type": [
+        "string",
+        "null"
+      ]
+    },
+    "market_type": {
+      "enum": [
+        "spot",
+        "perpetual",
+        null
+      ]
+    },
+    "position_ref": {
+      "type": [
+        "string",
+        "null"
+      ]
+    },
+    "source": {
+      "enum": [
+        "AI",
+        "USER",
+        "SYSTEM"
+      ]
+    },
+    "category": {
+      "enum": [
+        "SIGNAL",
+        "DECISION",
+        "RISK",
+        "ORDER",
+        "FILL",
+        "MANAGEMENT",
+        "COST",
+        "ALERT",
+        "OUTCOME"
+      ]
+    },
+    "severity": {
+      "enum": [
+        "INFO",
+        "WATCH",
+        "ACTION",
+        "CRITICAL"
+      ]
+    },
+    "title": {
+      "type": "string"
+    },
+    "summary": {
+      "type": "string"
+    },
+    "payload_ref": {
+      "type": [
+        "string",
+        "null"
+      ]
+    }
+  }
+}

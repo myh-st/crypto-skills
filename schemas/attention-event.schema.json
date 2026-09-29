@@ -1,0 +1,128 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "attention-event.schema.json",
+  "title": "Attention item",
+  "description": "Deduplicated by dedupe_key; auto-resolved (condition_cleared) when the underlying condition clears.",
+  "type": "object",
+  "additionalProperties": true,
+  "required": [
+    "action",
+    "attention_id",
+    "category",
+    "dedupe_key",
+    "experiment_id",
+    "first_seen_at",
+    "instrument_id",
+    "kind",
+    "last_seen_at",
+    "occurrences",
+    "position_ref",
+    "resolution",
+    "resolved_at",
+    "schema_version",
+    "severity",
+    "status",
+    "summary",
+    "symbol",
+    "title"
+  ],
+  "properties": {
+    "schema_version": {
+      "enum": [
+        "attention-event.v1"
+      ]
+    },
+    "attention_id": {
+      "type": "string"
+    },
+    "experiment_id": {
+      "type": "string"
+    },
+    "dedupe_key": {
+      "type": "string"
+    },
+    "kind": {
+      "type": "string"
+    },
+    "severity": {
+      "enum": [
+        "INFO",
+        "WATCH",
+        "ACTION",
+        "CRITICAL"
+      ]
+    },
+    "category": {
+      "enum": [
+        "SIGNAL",
+        "DECISION",
+        "RISK",
+        "ORDER",
+        "FILL",
+        "MANAGEMENT",
+        "COST",
+        "ALERT",
+        "OUTCOME"
+      ]
+    },
+    "title": {
+      "type": "string"
+    },
+    "summary": {
+      "type": "string"
+    },
+    "instrument_id": {
+      "type": [
+        "string",
+        "null"
+      ]
+    },
+    "symbol": {
+      "type": [
+        "string",
+        "null"
+      ]
+    },
+    "position_ref": {
+      "type": [
+        "string",
+        "null"
+      ]
+    },
+    "action": {
+      "type": "object"
+    },
+    "status": {
+      "enum": [
+        "open",
+        "acknowledged",
+        "resolved"
+      ]
+    },
+    "occurrences": {
+      "type": "integer",
+      "minimum": 1
+    },
+    "first_seen_at": {
+      "type": "string",
+      "format": "date-time"
+    },
+    "last_seen_at": {
+      "type": "string",
+      "format": "date-time"
+    },
+    "resolved_at": {
+      "type": [
+        "string",
+        "null"
+      ],
+      "format": "date-time"
+    },
+    "resolution": {
+      "type": [
+        "string",
+        "null"
+      ]
+    }
+  }
+}

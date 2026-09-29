@@ -1,0 +1,195 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "paper-order-preview.schema.json",
+  "title": "Server-authoritative PAPER order preview",
+  "type": "object",
+  "additionalProperties": true,
+  "required": [
+    "schema_version",
+    "market_type",
+    "instrument_id",
+    "action",
+    "order_type",
+    "allowed",
+    "code",
+    "reason",
+    "quantity",
+    "warnings",
+    "server_authoritative",
+    "execution_mode",
+    "as_of"
+  ],
+  "properties": {
+    "schema_version": {
+      "enum": [
+        "paper-order-preview.v1"
+      ]
+    },
+    "market_type": {
+      "enum": [
+        "spot",
+        "perpetual"
+      ]
+    },
+    "instrument_id": {
+      "type": "string",
+      "minLength": 10
+    },
+    "display_symbol": {
+      "type": "string"
+    },
+    "symbol": {
+      "type": "string"
+    },
+    "action": {
+      "enum": [
+        "long",
+        "short",
+        "buy",
+        "sell"
+      ]
+    },
+    "order_type": {
+      "enum": [
+        "market",
+        "limit"
+      ]
+    },
+    "allowed": {
+      "type": "boolean"
+    },
+    "code": {
+      "type": "string"
+    },
+    "reason": {
+      "type": "string"
+    },
+    "quantity": {
+      "type": "number"
+    },
+    "leverage": {
+      "type": [
+        "integer",
+        "null"
+      ]
+    },
+    "liquidation_price": {
+      "type": [
+        "number",
+        "null"
+      ]
+    },
+    "stop_price": {
+      "type": [
+        "number",
+        "null"
+      ]
+    },
+    "targets": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "price",
+          "fraction",
+          "quantity",
+          "final",
+          "hit"
+        ],
+        "properties": {
+          "price": {
+            "type": "number"
+          },
+          "fraction": {
+            "type": "number"
+          },
+          "quantity": {
+            "type": [
+              "number",
+              "null"
+            ]
+          },
+          "final": {
+            "type": "boolean"
+          },
+          "hit": {
+            "type": "boolean"
+          },
+          "hit_at": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "format": "date-time"
+          }
+        }
+      }
+    },
+    "quote": {
+      "type": "object"
+    },
+    "portfolio_brain": {
+      "type": [
+        "object",
+        "null"
+      ]
+    },
+    "warnings": {
+      "type": "array",
+      "items": {
+        "type": "string"
+      }
+    },
+    "server_authoritative": {
+      "enum": [
+        true
+      ]
+    },
+    "execution_mode": {
+      "enum": [
+        "PAPER"
+      ]
+    },
+    "as_of": {
+      "type": "string",
+      "format": "date-time"
+    },
+    "notional_usdt": {
+      "type": [
+        "number",
+        "null"
+      ]
+    },
+    "margin_usdt": {
+      "type": [
+        "number",
+        "null"
+      ]
+    },
+    "max_loss_usdt": {
+      "type": [
+        "number",
+        "null"
+      ]
+    },
+    "estimated_entry_fee_usdt": {
+      "type": [
+        "number",
+        "null"
+      ]
+    },
+    "estimated_slippage_usdt": {
+      "type": [
+        "number",
+        "null"
+      ]
+    },
+    "liquidation_buffer_pct": {
+      "type": [
+        "number",
+        "null"
+      ]
+    }
+  }
+}

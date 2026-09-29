@@ -1,0 +1,63 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "position-protection-update.schema.json",
+  "title": "Position protection update result",
+  "description": "Risk-increasing changes require explicit confirmation from the user and are forbidden for AI.",
+  "type": "object",
+  "additionalProperties": true,
+  "required": [
+    "audit_event_id",
+    "new",
+    "position_ref",
+    "previous",
+    "risk_after_usdt",
+    "risk_before_usdt",
+    "risk_increased",
+    "snapshot",
+    "source"
+  ],
+  "properties": {
+    "position_ref": {
+      "type": "string"
+    },
+    "previous": {
+      "type": "object",
+      "required": [
+        "stop_price",
+        "targets"
+      ]
+    },
+    "new": {
+      "type": "object",
+      "required": [
+        "stop_price",
+        "targets"
+      ]
+    },
+    "risk_before_usdt": {
+      "type": "number"
+    },
+    "risk_after_usdt": {
+      "type": "number"
+    },
+    "risk_increased": {
+      "type": "boolean"
+    },
+    "snapshot": {
+      "type": "object",
+      "required": [
+        "price"
+      ]
+    },
+    "audit_event_id": {
+      "type": "integer",
+      "minimum": 1
+    },
+    "source": {
+      "enum": [
+        "AI",
+        "USER"
+      ]
+    }
+  }
+}
