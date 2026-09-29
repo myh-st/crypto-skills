@@ -2,157 +2,127 @@
 
 ภาษา: [English](README.md) · ไทย
 
-ชุด Codex skills สำหรับวิเคราะห์ตลาดคริปโต วางแผนการเข้าออก และบริหารความเสี่ยงจากข้อมูลที่ตรวจสอบได้
+**Skill วิเคราะห์คริปโตที่ยึดหลักฐานเป็นหลัก พร้อม AI Portfolio Trading OS ที่รันบนเครื่องตัวเองในโหมด PAPER เท่านั้น**
 
-repository นี้มี production skill หลักชื่อ `crypto-market-trading-analysis` โดยนำ workflow แบบ analyst → bull/bear research → trader → risk committee → portfolio decision มาปรับให้เหมาะกับตลาดคริปโต ซึ่งต้องดู spot flow, leverage, funding, liquidation, tokenomics และ regime ของ BTC ร่วมกัน
+![PAPER only](https://img.shields.io/badge/execution-PAPER%20only-f5b301) ![Real-money orders](https://img.shields.io/badge/real--money%20orders-blocked%20by%20design-7c3aed) ![Python](https://img.shields.io/badge/python-3.11%2B%20stdlib%20only-3776ab) ![Frontend](https://img.shields.io/badge/frontend-vanilla%20ES%20modules-222) ![Status](https://img.shields.io/badge/status-feature%20freeze%20%C2%B7%20PAPER%20campaign%20next-2f6fed)
 
-## เป้าหมายการออกแบบ
+![หน้า Overview](docs/images/overview.png)
 
-- แยกข้อเท็จจริงออกจากการตีความด้วย evidence ledger
-- ให้ price structure และ spot participation เป็นแกนหลัก แล้วใช้ derivatives อธิบายความเปราะบางของราคา
-- ให้ Bull และ Bear โต้แย้งจาก evidence ชุดเดียวกัน ไม่สร้าง narrative คนละชุด
-- แยก “ทิศทาง” ออกจาก “จังหวะเข้า” เพราะสินทรัพย์อาจ bullish แต่จังหวะปัจจุบันยังควร `WAIT_FOR_PULLBACK`
-- กำหนด entry, invalidation และ target จากระดับราคา/สภาพคล่อง/volatility ที่สังเกตได้จริง
-- รักษา point-in-time integrity สำหรับการวิเคราะห์ย้อนหลังและ backtest
-- บันทึก decision และ outcome เพื่อเรียนรู้ว่า timing, leverage และ thesis แบบใดทำงานใน regime ใด
-- วิเคราะห์เชิงลึกภายใน แต่ตอบผู้ใช้แบบสั้น กระชับ และเริ่มจาก decision
-- ใช้ vocabulary ของ final decision state จาก `schemas/decision-state.schema.json` เพียงชุดเดียว
+repository นี้มี 2 ส่วน:
 
-## Architecture
+1. **`crypto-market-trading-analysis`**: skill สำหรับ Codex / Claude / Gemini ใช้วิเคราะห์ตลาดจากหลักฐาน วางแผนการเข้าออก และตัดสินใจโดยคำนึงถึงความเสี่ยง
+2. **แล็บเทรด PAPER บนเครื่อง**: cockpit สำหรับพอร์ต Spot + Perpetual ที่ใช้ข้อมูลตลาดสาธารณะจริงของ Gate ใช้ Jev แบบ typed decision และส่งต่อให้ GPT-6 Luna เมื่อจำเป็น (ไม่บังคับ) มี risk และ execution safety แบบ deterministic มีการจัดการ Spot รอบใหญ่ กู้คืนระบบได้เมื่อ crash และมี gate สำหรับเลื่อนขั้นการทดลอง
 
-```text
-Market / spot / derivatives / options / on-chain / tokenomics / macro
-                                │
-                                ▼
-                    Normalize + timestamp + quality-check
-                                │
-                                ▼
-                         Neutral evidence ledger
-                                │
-                         ┌──────┴──────┐
-                         ▼             ▼
-                    Bull thesis    Bear thesis
-                         └──────┬──────┘
-                                ▼
-                         Research judge
-                                ▼
-                         Execution planner
-                    entry / invalidation / targets
-                                ▼
-                   aggressive / neutral / conservative
-                              risk lenses
-                                ▼
-                         Portfolio decision
-                                ▼
-              concise answer + monitoring conditions + journal record
+> [!IMPORTANT]
+> **ไม่มีการใช้เงินจริง** ทุก fill เป็นการจำลอง เส้นทางส่งคำสั่ง แก้คำสั่ง ยกเลิกคำสั่ง เปลี่ยน leverage โอน และถอนบน Gate ถูกบล็อกโดยการออกแบบ server ผูกกับ loopback เท่านั้น และ credential ไม่ถูกเก็บใน SQLite, prompt, log, API response หรือไฟล์ export
+
+## เริ่มใช้งาน
+
+```bash
+git clone https://github.com/myh-st/crypto-skills.git && cd crypto-skills
+python3 -m crypto_eval paper-server            # http://127.0.0.1:8765/  (ครั้งแรกใช้ข้อมูล fixture)
 ```
 
-นี่เป็นการแบ่งบทบาทเชิงตรรกะภายในโมเดลเดียว ไม่ได้บังคับให้ต้องรันหลาย agent แยกกัน
+ไม่ต้องติดตั้งอะไรเพิ่ม Python ใช้แค่ standard library และ frontend ไม่มีขั้นตอน build
 
-### Interactive diagram
+- **ข้อมูลตลาดจริง:** เปลี่ยน experiment เป็น `gate_usdt` ที่ *Research › Paper Trading Lab* (ใช้ endpoint สาธารณะของ Gate ไม่ต้องล็อกอิน)
+- **AI จริง (ไม่บังคับ):** ใส่ credential ใน `.env` แล้วรัน `python3 -m crypto_eval paper-setup-real` คำสั่งนี้ย้าย credential เข้า OS credential store และตั้งค่า Jev กับ Azure AI Foundry จากนั้นกดทดสอบ provider แต่ละตัวในหน้า Settings
 
-[เปิด architecture diagram แบบ interactive](docs/architecture.html)
+## ทำอะไรได้บ้าง
 
-![สถาปัตยกรรมจาก evidence ถึง decision ของ Crypto Skills](docs/architecture-preview.png)
+| | |
+|---|---|
+| **Automation, kill switch และ system health:** หยุดหรือพักระบบอัตโนมัติได้ ยก kill switch ได้ทันที แต่การลดระดับต้องยืนยันและ reconciliation ต้องผ่าน health แสดงสถานะ scheduler, monitor, feed, ฐานข้อมูล, พื้นที่ดิสก์, AI provider, งบ AI และ reconciliation | ![Automation และ health](docs/images/automation-health.png) |
+| **Trade:** กราฟ Gate แบบ live (1m ถึง 4h) พร้อมจุดเข้าออก PAPER, quote, spread และ funding ticket ให้ server คำนวณขนาดเอง (Perp คิดขนาดจาก risk และ stop ไม่ต้องพิมพ์จำนวน) และแผน AI ปัจจุบันที่สั่ง re-plan ได้ในคลิกเดียว | ![Trade](docs/images/trade.png) |
+| **จัดการ position:** แก้ stop/เป้า ลดหรือปิด position และกำหนดอำนาจ (`AUTO_PAPER`, `RECOMMEND_ONLY`, `MANUAL_OVERRIDE`, `PAUSED`) แสดงสถานะความปลอดภัยแบบ live, สถานะ lifecycle ของ Spot และสัดส่วน Core/Tactical | ![Position manager](docs/images/position-manager.png) |
+| **Portfolio:** รวม Spot และ Perpetual ในมุมมองการจัดสรรเดียว มี exposure รายสินทรัพย์ กราฟ equity ตัวเลขเศรษฐศาสตร์ และคำสั่งซื้อขาย ส่วน mirror ของบัญชีจริงแยกไว้และอ่านได้อย่างเดียว | ![Portfolio](docs/images/portfolio.png) |
+| **Activity:** บันทึกรวมทุกอย่างที่ AI, คุณ และระบบทำ ทั้ง order, fill, lifecycle review, safety event และ alert | ![Activity](docs/images/activity.png) |
+| **Promotion gate:** manifest ของการทดลองถูกตรึงไว้ มี checkpoint วันที่ 7/30/60/90 ที่สร้างซ้ำได้ และคำตัดสินแบบ deterministic ถึงได้ PASS ก็ไม่เปิดการเทรดเงินจริง | ![Promotion gate](docs/images/promotion-gate.png) |
+| **Spot lifecycle benchmark:** เทียบการจัดการ lifecycle กับ Buy & Hold, TP ladder, rebalance, grid และ trailing stop บนแท่งเทียน ค่าธรรมเนียม และ slippage ชุดเดียวกัน | ![Lifecycle benchmark](docs/images/lifecycle-benchmark.png) |
 
-## AI Portfolio Trading OS (PAPER)
+## ความสามารถ
 
-เริ่มแอปบนเครื่องด้วย `python3 -m crypto_eval paper-server` แล้วเปิด
-`http://127.0.0.1:8765/` แอปเป็น cockpit สำหรับพอร์ต PAPER ทั้ง Spot และ
-Perpetual มีหน้า Overview, Portfolio, Trade, Activity, Research, Evaluations
-และ Settings
+| ด้าน | ทำอะไร | เอกสาร |
+|---|---|---|
+| **Portfolio OS** | catalog Spot + Perp ของ Gate; บัญชี Spot แยก (ต้นทุนเฉลี่ย ค่าธรรมเนียม limit ที่ fill บางส่วน); order รวมศูนย์ที่ใช้ `client_request_id` กันส่งซ้ำ; โหมดอำนาจ; AI re-plan แบบมีโครงสร้างพร้อม diff ก่อน/หลัง; Portfolio Brain ที่ทำได้แค่ลดขนาดหรือบล็อก; คิวเรื่องที่ต้องดู; การเรียนรู้หลังปิดเทรด; tournament ที่รวมต้นทุน AI | [ai-portfolio-trading-os.md](docs/ai-portfolio-trading-os.md) |
+| **AI decision stack** | แท่ง 15m ที่ปิดแล้ว → features และ quant gate แบบ deterministic → Jev typed decision → escalation policy แบบมีเวอร์ชัน → GPT-6 Luna พร้อม skill นี้ (ไม่บังคับ) → intent ที่ผ่านการ validate AI กำหนดขนาดหรือ leverage เองไม่ได้ และข้าม risk ไม่ได้ มี budget guard พร้อม price book แบบมีเวอร์ชัน และ paid call จะ fail closed | [paper-futures-runtime.md](docs/paper-futures-runtime.md) |
+| **Execution safety** | สถานะตลาด (`NORMAL`, `VOLATILITY_ALERT`, `CRASH_MODE`, `RECOVERY`, `MARKET_DATA_UNTRUSTED`); กรอง print ผิดปกติ; execution planner (กรอบ slippage, แบ่งไม้, TTL, จำกัดความเร็วการขาย); kill switch 5 ระดับ; reconcile บัญชี; ลด position ฉุกเฉินเมื่อใกล้ liquidation; กันคำสั่งซ้ำ คำสั่งหมดอายุ และคำสั่งผิดฝั่ง | [crash-execution-safety.md](docs/crash-execution-safety.md) |
+| **Spot lifecycle** | สถานะรอบใหญ่แบบมีชนิด (สะสม → ถือ Core → เทรนด์ขยาย → ป้องกันกำไร → ทยอยขาย → ลด → ออก → ถือเงินสด); หลักฐาน regime แบบ point-in-time; ทยอยขายแทนขายหมดทีเดียว; ขาย Core เฉพาะเมื่อยืนยันการพังของโครงสร้าง; benchmark เทียบในเงื่อนไขเดียวกัน | [spot-cycle-lifecycle-manager.md](docs/spot-cycle-lifecycle-manager.md) |
+| **Resilience** | กู้สถานะตอนเริ่มก่อนระบบอัตโนมัติทำงาน; บันทึกรอบ scheduler (ช่วงที่พลาดบันทึกชัดเจน ไม่เติมข้อมูลย้อนหลัง); incident และ health; circuit breaker ของ provider; backup/restore ที่ตรวจสอบแล้วและไม่มี secret; ล็อกให้รันได้ instance เดียว; ปิดระบบอย่างเรียบร้อยเมื่อได้ SIGTERM; soak แบบเร่งเวลา | [continuous-paper-resilience.md](docs/continuous-paper-resilience.md) |
+| **Promotion gates** | manifest การทดลองถูกตรึง (เปลี่ยนสาระสำคัญต้องสร้างเวอร์ชันใหม่ ถ้าเปลี่ยนโดยไม่บันทึก รีวิวจะเป็น invalid); รายงาน checkpoint พร้อมตัวหาร; คำตัดสิน `PASS` / `CONTINUE_COLLECTING_DATA` / `FAIL_*` / `INVALID_EXPERIMENT` | [experiment-promotion-gates.md](docs/experiment-promotion-gates.md) |
+| **Analysis skill** | evidence ledger → Bull vs Bear → judge → แผนเข้าออก → มุมมองความเสี่ยง → การตัดสินใจ ปลอดภัยแบบ point-in-time และตอบสั้นโดยให้คำตัดสินก่อน | [SKILL.md](skills/crypto-market-trading-analysis/SKILL.md) |
 
-- **สินทรัพย์:** เลือกจาก catalog ของ Gate จริง
-- **Spot:** มีบัญชีแยก (ต้นทุนเฉลี่ย ค่าธรรมเนียม และ limit ที่ fill บางส่วน)
-  ไม่ใช่ futures ที่ leverage 1 เท่า
-- **Ticket ที่ผู้ใช้ส่งเอง:** ผ่าน RiskEngine และเส้นทาง fill เดียวกับการเทรดของ AI
-- **จัดการ position:** แก้ stop/เป้า ลด/ปิด และกำหนดอำนาจชัดเจน
-  (`AUTO_PAPER`, `RECOMMEND_ONLY`, `MANUAL_OVERRIDE`, `PAUSED`)
-- **AI re-plan:** แบบมีโครงสร้าง แสดงค่าก่อน/หลัง ให้ Apply / Edit / Reject
-- **Portfolio Brain:** ลดขนาดหรือบล็อกได้ แต่ข้าม RiskEngine ไม่ได้
-- **ตรวจ position อัตโนมัติ:** คิวรีวิวที่เริ่มจากเงื่อนไขแบบ deterministic
-  ไม่เรียก AI ทุก tick
-- **บันทึก:** Activity รวม AI/USER/SYSTEM และคิวเรื่องที่ต้องดู
-- **การเรียนรู้:** post-trade review และ strategy tournament ที่รวมต้นทุน AI
-
-- **ความปลอดภัยในการ execute:** สถานะตลาด (crash, ผันผวน, ข้อมูลไม่น่าเชื่อถือ)
-  การจัดการ print ผิดปกติ ตัววางแผน execute แบบ deterministic (กรอบ slippage,
-  แบ่งไม้, จำกัดความเร็วการขาย, ปกป้อง Spot Core) kill switch และการ reconcile บัญชี
-  ดู [`docs/crash-execution-safety.md`](docs/crash-execution-safety.md)
-
-- **Spot lifecycle:** สถานะรอบใหญ่แบบมีชนิด (สะสม, ถือ Core, เทรนด์ขยาย, ป้องกันกำไร,
-  ทยอยขาย, ลด, ออก) หลักฐาน regime แบบ point-in-time ทยอยขายแทนขายหมดทีเดียว
-  ขาย Core เฉพาะเมื่อยืนยันการพังของโครงสร้าง และมี benchmark เทียบแบบเงื่อนไขเดียวกัน
-  ดู [`docs/spot-cycle-lifecycle-manager.md`](docs/spot-cycle-lifecycle-manager.md)
-
-- **ความทนทานสำหรับรันต่อเนื่อง:** กู้สถานะตอนเริ่มก่อนระบบอัตโนมัติทำงาน บันทึกรอบ scheduler
-  (ช่วงที่พลาดถูกบันทึกชัดเจน ไม่เติมข้อมูลปลอม) incident และ health, circuit breaker ของ AI
-  provider, backup/restore ที่ตรวจสอบแล้วและไม่มี secret, ล็อกให้รันได้ instance เดียว และ soak
-  แบบเร่งเวลา (`paper-backup`, `paper-restore`, `paper-soak`) ดู
-  [`docs/continuous-paper-resilience.md`](docs/continuous-paper-resilience.md)
-
-- **Experiment promotion gates:** manifest ของการทดลองถูกตรึง (เปลี่ยนสาระสำคัญต้องสร้างเวอร์ชันใหม่
-  ถ้าเปลี่ยนโดยไม่บันทึกเวอร์ชัน รีวิวจะเป็น INVALID) รายงาน checkpoint วันที่ 7/30/60/90 ที่สร้างซ้ำได้
-  และ gate แบบ deterministic (PASS / CONTINUE_COLLECTING_DATA / FAIL_* / INVALID_EXPERIMENT)
-  ที่ไม่เปิดการเทรดเงินจริงเด็ดขาด ดู [`docs/experiment-promotion-gates.md`](docs/experiment-promotion-gates.md)
-  และ [runbook แคมเปญ PAPER 500 USDT](docs/paper-500-campaign-runbook.md)
-
-การเขียนคำสั่งเงินจริงไปยัง Gate ยังถูกบล็อกโดยการออกแบบ รายละเอียดอยู่ที่
-[`docs/ai-portfolio-trading-os.md`](docs/ai-portfolio-trading-os.md)
-
-## โครงสร้าง repository
+## เส้นทางการตัดสินใจ PAPER
 
 ```text
-crypto-skills/
-├── README.md                           # English
-├── README.th.md                        # ภาษาไทย
-├── docs/
-│   ├── architecture.md                 # workflow และขอบเขตการทำงาน
-│   ├── evaluation.md                   # CLI, metric, ขอบเขตข้อมูล และ experiment
-│   ├── paper-futures-runtime.md        # runtime PAPER futures และการตั้งค่าอย่างปลอดภัย
-│   └── ai-portfolio-trading-os.md      # cockpit PAPER Spot + Perp, อำนาจ, re-plan, brain
-├── schemas/
-│   ├── analysis-output.schema.json     # สัญญา output ของ decision
-│   ├── decision-state.schema.json      # canonical final decision states
-│   ├── decision-record.schema.json     # สัญญา journal / outcome
-│   ├── evidence-ledger.schema.json     # สัญญาของ fact ledger
-│   └── eval-*.schema.json              # สัญญา evaluation spec / case / prediction / outcome
-├── examples/
-│   ├── analysis-output.yaml
-│   ├── decision-record.yaml
-│   └── evidence-ledger.yaml
-├── scripts/
-│   └── validate_repo.py                # ตรวจโครงสร้างโดยไม่พึ่ง dependency
-├── crypto_eval/                        # evaluation harness และ fixture CLI
-├── eval/
-│   └── specs/crypto-market-v1.json     # เป้าหมาย walk-forward หลายสินทรัพย์
-├── tests/
-│   └── test_contracts.py               # regression tests ของ contract/evaluation
-├── .github/workflows/
-│   └── validate.yml                     # gate สำหรับ PR/push
-└── skills/
-    └── crypto-market-trading-analysis/
-        ├── SKILL.md                    # คำสั่งของ Codex skill ฉบับเต็ม
-        ├── agents/openai.yaml           # UI metadata และ invocation policy
-        ├── examples/                    # ตัวอย่างเฉพาะ skill
-        └── references/                   # operating contracts แบบ progressive disclosure
+ข้อมูลสาธารณะ Gate (REST + WebSocket)  ─►  แท่ง 15m ที่ปิดแล้ว + บริบท 1h/4h
+        │
+        ▼
+features + quant gate ─► Jev typed decision ─► escalation policy ─► (ถ้าเปิด) GPT-6 Luna + skill
+        │                                                                   │
+        └──────────────────────────► TradingIntent ที่ validate แล้ว ◄──────┘
+                                          │
+          RiskEngine คำนวณขนาด ─► Portfolio Brain (ลด/บล็อก) ─► crash & execution safety
+                                          │
+                     PAPER fills · funding · liquidation · บัญชี Spot
+                                          │
+        SQLite ledger ─► reconciliation ─► activity / attention ─► checkpoint & promotion gate
 ```
 
-## ติดตั้งสำหรับ Codex
+ลำดับอำนาจ: **liquidation/บัญชี > risk engine > crash/price/liquidity guard > Portfolio Brain > AI/มนุษย์** ชั้นที่ต่ำกว่าลดขนาด เลื่อน หรือบล็อกได้ แต่ขยายสิ่งที่ชั้นบนอนุญาตไม่ได้
 
-จาก checkout นี้ ให้ link skill เข้าโฟลเดอร์ skills ของ Codex:
+## สถานะโปรเจกต์
+
+| Phase | ขอบเขต | สถานะ |
+|---|---|---|
+| 1 | AI Portfolio Trading OS | ✅ merged |
+| 2 | Crash, price, liquidity และ execution safety | ✅ merged |
+| 3 | Spot Cycle Lifecycle Manager | ✅ merged |
+| 4 | Continuous PAPER resilience | ✅ merged |
+| 5 | Experiment promotion gates | ✅ merged |
+| 6 | Live execution gateway | ⛔ วางแผนเท่านั้น ปิดการเทรดจริง |
+
+**หยุดพัฒนาฟีเจอร์ใหม่แล้ว ขั้นต่อไปคือแคมเปญ PAPER:** ทุน PAPER 500 USDT, checkpoint วันที่ 7/30/60/90 และเป้าเทรดที่ปิดแล้ว 200–300 ครั้ง ดู [runbook แคมเปญ](docs/paper-500-campaign-runbook.md) และ [development train](docs/development-train.md)
+
+## คำสั่งที่ใช้บ่อย
+
+```bash
+python3 -m crypto_eval paper-server [--database P] [--no-live-stream]   # แอป (loopback เท่านั้น)
+python3 -m crypto_eval paper-setup-real                                  # ย้าย credential จาก .env เข้า OS credential store
+python3 -m crypto_eval paper-checkpoint [--database P] [--dry-run]       # รายงาน checkpoint + promotion gate
+python3 -m crypto_eval paper-backup [--database P]                       # snapshot ที่ตรวจสอบแล้วและไม่มี secret
+python3 -m crypto_eval paper-restore BACKUP [--database P] [--force]     # กู้คืน (ต้องหยุด server ก่อน)
+python3 -m crypto_eval paper-soak --database FRESH.sqlite3 --days 3      # soak แบบเร่งเวลา (restart/sleep)
+python3 -m crypto_eval portfolio-real-check [--full-loop]                # ทดสอบ local กับของจริง (มีค่าใช้จ่าย AI)
+python3 -m crypto_eval demo --out-dir reports/crypto-eval-demo           # demo evaluation harness แบบ offline
+```
+
+## การทดสอบ
+
+```bash
+python3 scripts/validate_repo.py                  # ตรวจ schema, ตัวอย่าง, enum และโครงสร้าง skill
+python3 -m unittest discover -s tests -v          # เทสต์ deterministic 300+ ตัว (ใช้ fixture/fake เท่านั้น)
+node --test frontend/tests/*.test.mjs             # เทสต์การ render ของ frontend
+find frontend -name '*.js' -exec node --check {} \;
+```
+
+CI (`.github/workflows/validate.yml`) รันทั้งหมดข้างบนพร้อม demo ในทุก PR และไม่เรียก network หรือ API ที่มีค่าใช้จ่าย ข้อมูล Gate จริงและ Jev/Luna จริงจะถูกใช้เฉพาะคำสั่ง local acceptance ที่เรียกเองเท่านั้น
+
+---
+
+## Analysis skill
+
+### ติดตั้ง
 
 ```bash
 mkdir -p ~/.codex/skills
-ln -sfn "$PWD/skills/crypto-market-trading-analysis" \
-  ~/.codex/skills/crypto-market-trading-analysis
+ln -sfn "$PWD/skills/crypto-market-trading-analysis" ~/.codex/skills/crypto-market-trading-analysis
 ```
 
-ถ้าไม่สะดวกใช้ symlink สามารถ copy directory ได้ repository นี้ไม่มี credential และไม่เก็บ API key เชื่อมต่อ CoinMarketCap, exchange, options หรือ on-chain data ผ่าน runtime environment แทน
+Claude Code ใช้ `~/.claude/skills/` ส่วน Gemini CLI ใช้ `gemini skills link <path>` repository นี้ไม่มี credential ใด ๆ ให้เชื่อมต่อแหล่งข้อมูลตลาดผ่าน runtime environment ของคุณ
 
-## Prompt ติดตั้งแบบครั้งเดียว
-
-คัดลอก prompt ด้านล่างไปวางใน Codex, Claude Code, Gemini CLI หรือ AI Agent ที่รองรับ เพื่อให้ agent ตรวจ client, ติดตั้ง/อัปเดต skill ใน scope ที่เหมาะสม, ตรวจสอบผล และรายงาน path ที่ติดตั้งจริง โดย prompt จะไม่ขอให้คุณแปะ API key ลงใน repository หรือบทสนทนา
+<details>
+<summary><b>Prompt ติดตั้งแบบครั้งเดียว</b> (Codex, Claude Code, Gemini CLI หรือ agent อื่น): ตรวจ client ติดตั้งอย่างปลอดภัย validate และรายงานผล</summary>
 
 ```text
 คุณกำลังติดตั้ง repository Crypto Skills เป็น skill สำหรับวิเคราะห์ตลาดคริปโตที่ใช้ซ้ำได้
@@ -229,102 +199,106 @@ ln -sfn "$PWD/skills/crypto-market-trading-analysis" \
 - warning, permission ที่ขาด หรือ native integration ที่ไม่รองรับ
 ```
 
-เอกสารอ้างอิงตาม client: [Claude Code Skills](https://code.claude.com/docs/en/skills) · [Gemini CLI Agent Skills](https://github.com/google-gemini/gemini-cli/blob/main/docs/cli/using-agent-skills.md) โดย prompt จะใช้ repository นี้เป็น source of truth เดียวและปรับขั้นตอนตาม client ที่ตรวจพบ
+เอกสารอ้างอิงตาม client: [Claude Code Skills](https://code.claude.com/docs/en/skills) · [Gemini CLI Agent Skills](https://github.com/google-gemini/gemini-cli/blob/main/docs/cli/using-agent-skills.md)
 
-## วิธีเรียกใช้
+</details>
 
-เรียก skill โดยตรง:
+### วิธีเรียกใช้
 
 ```text
 $crypto-market-trading-analysis วิเคราะห์ SEI/USDT แบบ spot swing พร้อม buy zone, invalidation, targets และ risk
 ```
 
-ถ้าข้อมูลบางช่องเป็น optional skill จะระบุ assumption แล้ววิเคราะห์ต่อ ไม่หยุดงานโดยไม่จำเป็น สำหรับเงินก้อนใหญ่, leverage, เหรียญสภาพคล่องต่ำ, event สำคัญ หรือเป้าหมายหลายเท่า ระบบจะเพิ่มความลึกของการวิเคราะห์ภายในให้อัตโนมัติ
+คำตอบเริ่มต้นจะสั้นและให้คำตัดสินก่อน:
 
-## รูปแบบคำตอบสำหรับผู้ใช้
+1. สถานะการตัดสินใจ;
+2. โซนเข้าหลักและโซนสำรอง;
+3. จุด invalidation;
+4. เป้าหมายและกรอบเวลา;
+5. เหตุผลชี้ขาด 3–5 ข้อ;
+6. ความเสี่ยงสำคัญหนึ่งข้อ หรือสิ่งที่จะทำให้เปลี่ยนมุมมอง
 
-คำตอบปกติจะสั้นและเรียงตามนี้:
+ถ้าขอรายงานละเอียดจะเห็น evidence ledger, scenario map และ decision object คำศัพท์สถานะการตัดสินใจสุดท้ายนิยามไว้ที่ [`schemas/decision-state.schema.json`](schemas/decision-state.schema.json) ที่เดียว
 
-1. สถานะ decision
-2. โซนเข้าหลักและโซนเข้ารอง
-3. Invalidation
-4. Targets และ horizon
-5. เหตุผลสำคัญ 3–5 ข้อ
-6. ความเสี่ยงหลัก / เงื่อนไขที่ทำให้มุมมองเปลี่ยน
+<details>
+<summary><b>หลักการออกแบบ</b></summary>
 
-ถ้าผู้ใช้ขอ deep dive จึงค่อยแสดง market snapshot, evidence ledger, scenario map, decision object และเงื่อนไขที่ทำให้เปลี่ยนใจ ระบบจะไม่ถือ indicator, funding, headline หรือ model confidence เป็นคำรับประกันผลตอบแทน
+- แยกข้อเท็จจริงออกจากการตีความด้วย evidence ledger
+- ให้โครงสร้างราคาและการมีส่วนร่วมของ spot เป็นหลัก ส่วน derivatives ใช้อธิบายความเปราะบาง
+- ให้ Bull และ Bear โต้แย้งบนหลักฐานชุดเดียวกัน แทนที่จะเล่าเรื่องแข่งกัน
+- แยกทิศทางออกจากจังหวะ: สินทรัพย์ขาขึ้นก็ยังอาจเป็น `WAIT_FOR_PULLBACK` ได้
+- กำหนดจุดเข้า invalidation และเป้าหมายจากระดับราคาและความผันผวนที่สังเกตได้จริง
+- ใช้ข้อมูลแบบ point-in-time กับการวิเคราะห์ย้อนหลัง: ห้ามมีข้อมูลใดหลัง `data_cutoff`
+- ข้อมูลที่ไม่มีต้องระบุว่าไม่มี ห้ามเติมเป็นศูนย์
 
-## ขอบเขตข้อมูลและความปลอดภัย
-
-- ใส่ timestamp, timezone, venue และ instrument ให้ข้อมูลตลาดปัจจุบันทุกครั้ง
-- ให้ความสำคัญกับข้อมูลจาก exchange/project โดยตรง และใช้ aggregator สำหรับภาพรวมข้ามตลาด
-- Normalize mark/index/last price, OI แบบ USD notional, contract type และ funding interval ก่อนเปรียบเทียบ
-- ข้อมูลที่หายหรือ stale ต้องระบุเป็น unavailable/partial ไม่เติมศูนย์และไม่ตีความเป็นสัญญาณ
-- การวิเคราะห์ย้อนหลังต้องไม่เห็น candle, unlock, ข่าว หรือ outcome ที่เกิดภายหลัง cutoff
-- API key, private account data, การส่งคำสั่ง และ custody อยู่นอกขอบเขตของ read-only skill นี้
-
-## ตรวจสอบการเปลี่ยนแปลง
-
-หลังแก้ skill ให้รัน:
-
-```bash
-python3 scripts/validate_repo.py
-python3 -m unittest discover -s tests -v
-uv run --with pyyaml python ~/.codex/skills/.system/skill-creator/scripts/quick_validate.py \
-  skills/crypto-market-trading-analysis
+```text
+Market / spot / derivatives / options / on-chain / tokenomics / macro
+        → normalize + timestamp + quality-check → neutral evidence ledger
+        → Bull thesis vs Bear thesis → research judge → execution planner
+        → aggressive / neutral / conservative risk lenses → portfolio decision
+        → concise answer + monitoring conditions + journal record
 ```
 
-คำสั่งแรกตรวจ JSON/YAML examples เทียบกับ schema, enum canonical, references ที่จำเป็น
-และ section สำคัญของ workflow คำสั่งที่สองรัน regression tests ของ schema/fixture
-ส่วนคำสั่งที่สามตรวจ frontmatter, naming และ scaffold hygiene ของ Codex skill
-GitHub Actions จะรัน deterministic synthetic evaluation pipeline เพิ่มเติมทุก PR
-และทุก push ไป `main` ซึ่งเป็นเพียงการตรวจ harness ไม่ใช่ข้อสรุปเรื่องความแม่นยำ
+[Interactive architecture diagram](docs/architecture.html)
 
-## Evaluation harness
+![Crypto Skills evidence-to-decision architecture](docs/architecture-preview.png)
 
-### Validation != Accuracy Evaluation
+</details>
 
-`scripts/validate_repo.py` และ unit tests ตรวจโครงสร้าง repository, schema และ
-พฤติกรรมที่ทำซ้ำได้เท่านั้น ไม่ได้พิสูจน์ว่า analysis skill แม่นยำ ทำกำไร
-หรือดีกว่า control
+<details>
+<summary><b>Evaluation harness</b>: การ validate ไม่ใช่หลักฐานความแม่นยำ</summary>
 
-รัน fixture pipeline แบบ offline ครบทุกขั้นตอน:
+#### Validation != Accuracy Evaluation
+
+`validate_repo.py` และ unit test ตรวจแค่โครงสร้างและพฤติกรรมแบบ deterministic **ไม่ได้**พิสูจน์ว่า skill แม่นยำหรือทำกำไรได้
 
 ```bash
 python3 -m crypto_eval demo --out-dir reports/crypto-eval-demo
 ```
 
-คำสั่งนี้สร้าง dataset, freeze fixture predictions, ให้คะแนนจาก outcomes
-ที่แยกไฟล์, เปรียบเทียบ baseline และสร้างรายงาน JSON/Markdown รายงานต้องระบุว่า
-**DEMO / HARNESS VALIDATION — NOT MARKET PERFORMANCE EVIDENCE** เพราะ fixture
-runner ไม่ได้เรียกใช้ analysis skill หรือ model จริง อ่าน
-[`docs/evaluation.md`](docs/evaluation.md) สำหรับ CLI แยกแต่ละขั้นตอน,
-data contract, denominator ของ metric และวิธีต่อยอด
+demo จะสร้าง dataset แบบ point-in-time, ตรึง prediction จาก fixture, ให้คะแนนจาก outcome ที่แยกเก็บ และเทียบกับ baseline คงที่ (Buy & Hold, BTC, EMA20/50, RSI14, naive, seeded random) ให้อ่านผลลัพธ์เป็น **DEMO / HARNESS VALIDATION, NOT MARKET PERFORMANCE EVIDENCE**
 
-`eval/specs/crypto-market-v1.json` ระบุเป้าหมาย dataset แบบ chronological
-ไม่ shuffle ครอบคลุม BTC, ETH, SOL, SUI, SEI, AVAX และ PYTH ใน regime
-bull, bear, range และ high volatility ทุก case ต้องมี `as_of`, `data_cutoff`,
-`asset`, `instrument`, `venue` และ `horizon` ชัดเจน snapshot ย้อนหลังจะปฏิเสธ
-ข้อมูลอนาคต และข่าวต้องมีเวลา archive ที่ตรวจสอบได้ predictions ถูก freeze
-ใน append-only log และ outcomes เก็บแยกกัน sampling manifest ต้องนับ case
-ที่กำหนดไว้/included/excluded ให้ครบ พร้อมเหตุผลและ exclusion rule ที่ประกาศไว้
-การรอ pullback/breakout ที่ไม่เคย trigger จะไม่ถูกนับเป็น entry ที่ล้มเหลว
+`eval/specs/crypto-market-v1.json` กำหนดเป้าหมายแบบเรียงตามเวลาและไม่สลับลำดับ ครอบคลุม BTC, ETH, SOL, SUI, SEI, AVAX และ PYTH prediction ถูกตรึงก่อนรู้ outcome และ wait ที่ trigger ไม่เคยเกิดจะไม่ถูกนับเป็นการเข้าที่ล้มเหลว ดู [`docs/evaluation.md`](docs/evaluation.md)
 
-รายงานประกอบด้วย directional/trigger-aware metrics, BTC benchmark return/alpha
-เมื่อมีข้อมูล, MFE/MAE, เวลาถึง trigger/target, จำนวนตัวอย่างและช่วงความเชื่อมั่น
-พร้อม baseline แบบ fixed ได้แก่ Buy & Hold, BTC, EMA20/EMA50, RSI14, naive
-และ seeded random ข้อมูลที่ขาดต้องแสดง unavailable ไม่เติมศูนย์ ค่า drawdown
-เป็น proxy จากลำดับผลการตัดสินใจแบบน้ำหนักเท่ากัน ไม่ใช่ portfolio PnL
-เพราะยังไม่จำลอง sizing, cash, fills, fees, slippage หรือ funding
+</details>
 
-มีเพียง interface สำหรับต่อ model runner และ read-only data provider เท่านั้น
-ไม่มี live market adapter, credential, paid API หรือการเรียก model จริง
-ผลย้อนหลังมีความหมายเมื่อ prediction ถูก freeze ก่อนรู้ outcome เท่านั้น
-มิฉะนั้นควรใช้ forward paper evaluation การอ้างว่า skill ดีกว่า control
-ต้องมี predictions ที่ archive จาก model/config เดียวกัน ใช้ out-of-sample
-ตามเวลาและ case เดียวกัน พร้อมจำนวนตัวอย่างเพียงพอ harness เปรียบเทียบ
-paired run เหล่านั้นได้ แต่สร้างผลจาก model ให้เองไม่ได้
+<details>
+<summary><b>โครงสร้าง repository</b></summary>
+
+```text
+crypto-skills/
+├── skills/crypto-market-trading-analysis/   # SKILL.md, references/, examples/, agents/
+├── crypto_eval/                              # harness + PAPER runtime (stdlib only)
+│   ├── paper_runtime.py  paper_server.py     # scheduler, risk engine, store, HTTP API
+│   ├── paper_ai.py  ai_cost.py               # Jev / Luna adapters, cost ledger, budget guard
+│   ├── market_catalog.py  gate_*.py          # Gate catalog, REST, WebSocket, read-only account
+│   ├── portfolio_os.py  portfolio_brain.py   # orders, positions, authority, re-plan, brain
+│   ├── execution_safety.py                   # market states, planner, kill switch, reconciliation
+│   ├── spot_lifecycle.py  spot_benchmarks.py # lifecycle policy และ benchmark arms
+│   ├── resilience.py  soak.py                # recovery, incidents, backup/restore, soak
+│   └── promotion.py                          # manifests, checkpoints, promotion gate
+├── frontend/                                 # cockpit แบบ vanilla ES modules (ไม่มี build step)
+├── schemas/                                  # JSON Schema contracts แบบมีเวอร์ชัน
+├── examples/                                 # analysis-output.yaml, decision-record.yaml, evidence-ledger.yaml
+├── docs/                                     # เอกสารออกแบบ, runbook, ภาพหน้าจอ (docs/images)
+├── tests/                                    # Python tests แบบ deterministic (fixture/fake เท่านั้น)
+└── scripts/validate_repo.py                  # ตรวจโครงสร้างโดยไม่พึ่ง dependency
+```
+
+</details>
+
+## ขอบเขตข้อมูลและความปลอดภัย
+
+- เป็น PAPER เท่านั้น การเขียนคำสั่งที่เคลื่อนย้ายเงินจริงบน Gate ถูกบล็อกในระดับโค้ด (`DisabledLiveExecutionAdapter`)
+- server ผูกกับ loopback และ `paper-server` ปฏิเสธ host ที่ไม่ใช่ loopback
+- credential มาจาก environment ของ process, `.env` ของ repo (อ่านแบบ key=value ไม่ execute) หรือ OS credential store เท่านั้น browser ไม่เคยได้รับค่า secret
+- ทุกข้อมูลมี timestamp พร้อม venue และ instrument ข้อมูลที่ขาดหรือเก่าจะถูกระบุว่าไม่มี และ feed ที่เก่าจะบล็อกการเข้าใหม่
+- backup จะถูกปฏิเสธถ้าพบค่าที่มีลักษณะเป็น credential
 
 ## แนวทาง contribution
 
-ใส่ domain guidance ที่ใช้ซ้ำได้ไว้ใน `SKILL.md` หรือ reference ที่เจาะจง เก็บ machine-readable contracts ไว้ใน `schemas/`, ตัวอย่างไว้ใน `examples/` และ deterministic checks ไว้ใน `scripts/` ห้าม commit credential, exchange secret, private portfolio data หรือ market snapshot ที่ generate ขึ้นมา กฎ decision ใหม่ควรอธิบาย evidence, สมมติฐานด้าน data quality และ failure mode เสมอ
+ระหว่างแคมเปญ PAPER รับเฉพาะงานแก้ข้อบกพร่องด้าน correctness, safety, reliability, observability และ methodology (ดู [stop condition](docs/development-train.md))
+
+- เก็บ domain guidance ไว้ใน `SKILL.md` หรือ reference เฉพาะเรื่อง ส่วน contract ไว้ใน `schemas/` และการตรวจแบบ deterministic ไว้ใน `scripts/`
+- แก้ [`README.md`](README.md) ไปพร้อมกับไฟล์นี้เสมอ
+- ห้าม commit credential, secret ของ exchange หรือข้อมูลพอร์ตส่วนตัว
