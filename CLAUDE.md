@@ -57,16 +57,16 @@ market snapshot (closed 15m bar + 1h/4h context)
 
 ## Current baseline and canonical active goal
 
-This branch is planning-only until `feature/crash-execution-safety` is completed, merged to main, and this branch is synchronized onto that final main.
+This branch is planning-only until `feature/spot-cycle-lifecycle-manager` is completed, merged to main, and this branch is synchronized onto that final main.
 
 The canonical active goal is:
 
-- `.goals/spot-cycle-lifecycle-manager/goal.md`
-- `.goals/spot-cycle-lifecycle-manager/status.json`
-- `docs/spot-cycle-lifecycle-manager-plan.md`
+- `.goals/continuous-paper-resilience/goal.md`
+- `.goals/continuous-paper-resilience/status.json`
+- `docs/continuous-paper-resilience-plan.md`
 - `docs/development-train.md`
 
-Do not implement from the initial planning snapshot. Preserve completed Portfolio OS and Crash Safety behavior when this phase begins.
+Keep the platform local-first and simple. This phase is reliability hardening, not a distributed-infrastructure rewrite.
 
 ## Safety boundaries (enforced by design, keep them)
 
