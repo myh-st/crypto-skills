@@ -123,7 +123,7 @@ test("withConfirmation passes through success and rethrows non-confirmation erro
 
 // ------------------------------------------------------------------ navigation
 test("navigation is portfolio-first with research tools grouped", () => {
-  assert.deepEqual(PRIMARY_NAV.map((item) => item.route), ["overview", "today", "experiments", "portfolio", "trade", "activity", "research", "evaluations", "settings"]);
+  assert.deepEqual(PRIMARY_NAV.map((item) => item.route), ["overview", "cotrader", "today", "experiments", "portfolio", "trade", "activity", "research", "evaluations", "settings"]);
   assert.ok(RESEARCH_NAV.some((item) => item.route === "paper-trading"));
   assert.ok(RESEARCH_NAV.some((item) => item.route === "strategy-search"));
   assert.equal(new Set(NAV_ITEMS.map((item) => item.route)).size, NAV_ITEMS.length);

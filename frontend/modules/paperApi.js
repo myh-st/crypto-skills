@@ -23,8 +23,10 @@ export function createPaperApi(fetcher = globalThis.fetch) {
       try {
         const payload = await response.json();
         if (typeof payload.error === "string") message = payload.error;
-        if (payload.confirmation_required === true && typeof payload.code === "string") {
-          confirmation = { code: payload.code, details: payload.details || {} };
+        // Portfolio OS answers with `code`; the co-trader's analyze cap answers with `reason`.
+        const code = typeof payload.code === "string" ? payload.code : typeof payload.reason === "string" ? payload.reason : null;
+        if (payload.confirmation_required === true && code) {
+          confirmation = { code, details: payload.details || {} };
         }
       } catch {
         // Keep network failure details bounded and credential-free.
@@ -335,6 +337,47 @@ export function createPaperApi(fetcher = globalThis.fetch) {
           body: {},
         })
       ).json();
+    },
+    // ---- Spot AI Co-Trader (decision support only; no exchange write path) ----
+    async cotrader() {
+      return (await request("/cotrader")).json();
+    },
+    async cotraderCoin(base) {
+      return (await request(`/cotrader/${encodeURIComponent(base)}`)).json();
+    },
+    // 409 {confirmation_required, reason: "manual_cap"} surfaces as error.confirmation; a budget block
+    // is HTTP 200 {analysis: null, blocked_reason}.
+    async cotraderAnalyze(base, { confirm = false } = {}) {
+      return (await request(`/cotrader/${encodeURIComponent(base)}/analyze`, { method: "POST", body: { confirm: Boolean(confirm) } })).json();
+    },
+    async cotraderScorecard() {
+      return (await request("/cotrader/scorecard")).json();
+    },
+    async cotraderJournal(entry) {
+      return (await request("/cotrader/journal", { method: "POST", body: entry })).json();
+    },
+    async saveCotraderSettings(patch) {
+      return (await request("/cotrader/settings", { method: "POST", body: patch })).json();
+    },
+    // ---- Holdings (manual entries + read-only Gate spot sync) ----
+    async holdings() {
+      return (await request("/holdings")).json();
+    },
+    async saveManualHolding(entry) {
+      return (await request("/holdings/manual", { method: "POST", body: entry })).json();
+    },
+    async deleteManualHolding(id) {
+      return (await request(`/holdings/manual/${encodeURIComponent(id)}/delete`, { method: "POST", body: {} })).json();
+    },
+    async syncHoldings(accountId = null) {
+      return (await request("/holdings/sync", { method: "POST", body: accountId ? { account_id: accountId } : {} })).json();
+    },
+    // Read-only check of the stored Gate key (presence, auth, spot read). No key value is sent or returned.
+    async validateGateKey(accountId = null) {
+      return (await request("/holdings/gate/validate", { method: "POST", body: accountId ? { account_id: accountId } : {} })).json();
+    },
+    async saveHoldingsSettings(settings) {
+      return (await request("/holdings/settings", { method: "POST", body: settings })).json();
     },
     async candles(symbol, interval, limit = 300) {
       const query = new URLSearchParams({ symbol, interval, limit: String(limit) });

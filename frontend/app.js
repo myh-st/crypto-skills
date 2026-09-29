@@ -25,6 +25,7 @@ import * as paperTrading from "./modules/views/paperTrading.js";
 import * as today from "./modules/views/today.js";
 import * as experiments from "./modules/views/experiments.js";
 import * as strategySearch from "./modules/views/strategySearch.js";
+import * as cotrader from "./modules/views/cotrader.js";
 
 const store = createStore(buildSeedData());
 
@@ -46,6 +47,8 @@ const routeRenderers = {
   today: today.render,
   experiments: experiments.render,
   "strategy-search": strategySearch.render,
+  // "cotrader" (grid), "cotrader/holdings" (Holdings tab), "cotrader/<BASE>" (coin detail).
+  cotrader: cotrader.render,
 };
 
 const routeTables = Object.fromEntries(NAV_ITEMS.map(({ route }) => [route, true]));
