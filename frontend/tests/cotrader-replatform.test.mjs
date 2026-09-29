@@ -18,11 +18,12 @@ function coin(base, state, action = "HOLD", { fresh = false, price = 100, trim =
 
 test("co-trader navigation shows only the spot essentials and hides the futures lab", () => {
   const html = renderNav("cotrader", { mode: "cotrader", params: [] });
-  assert.match(html, /SPOT CO-TRADER/);
+  assert.match(html, /Spot Co-Trader/);
+  assert.doesNotMatch(html.split("<details")[0], /[◎★⚙]/); // SVG icons, no glyph icons
   const primary = html.split("<details")[0];
   assert.deepEqual([...primary.matchAll(/class="nav-label">([^<]+)</g)].map((m) => m[1]), ["Signals", "Watchlist", "AI · Settings"]);
   assert.match(html, /<details class="sidebar-group sidebar-group--lab">/); // collapsed
-  assert.doesNotMatch(primary, /Experiments|Portfolio|Trade/);
+  assert.doesNotMatch(primary, /Experiments|Portfolio|>Trade</);
   const watch = renderNav("cotrader", { mode: "cotrader", params: ["watchlist"] });
   assert.match(watch, /href="#\/cotrader\/watchlist" class="nav-link nav-link--active"/);
   assert.match(renderNav("experiments", { mode: "cotrader" }), /sidebar-group--lab" open/);
@@ -91,4 +92,32 @@ test("watchlist helpers normalise symbols, render rows safely and explain warnin
   assert.match(msg, /เพิ่ม NEWC แล้ว/);
   assert.match(msg, /\$120,000/);
   assert.match(msg, /90 วัน/);
+});
+
+// ---------------------------------------------------------------- MYH layout: coin list + icons
+import { nextLevel, renderCoinTable, sortCoins } from "../modules/components/cotraderTable.js";
+import { ICON_NAMES, icon } from "../modules/components/icons.js";
+
+test("coin list: fresh actions first, next level is the nearest change, rows are links and escaped", () => {
+  const coins = [
+    coin("OUTC", "OUT", "HOLD", { price: 10, add: 11 }),
+    coin("FULLC", "FULL", "HOLD", { price: 100, trim: 90, exit: 70 }),
+    coin("NEWC", "STARTER", "BUY_STARTER", { fresh: true, price: 5, add: 5.5, exit: 4 }),
+  ];
+  assert.deepEqual(sortCoins(coins).map((c) => c.base), ["NEWC", "FULLC", "OUTC"]);
+  assert.deepEqual(nextLevel(coins[1]).kind, "trim");
+  assert.equal(nextLevel(coins[0]).kind, "add");
+  assert.ok(Math.abs(nextLevel(coins[2]).move - 0.1) < 1e-9); // add at +10% is nearer than exit at -20%
+  const html = renderCoinTable(coins);
+  assert.match(html, /href="#\/cotrader\/NEWC"[^]*Today: BUY STARTER/);
+  assert.match(html, /Trim below[^]*90\.00/);
+  assert.match(html, /No Jev score yet/);
+  assert.doesNotMatch(renderCoinTable([coin(HOSTILE, "FULL")]), /<img/);
+  assert.match(renderCoinTable([]), /No coins yet/);
+});
+
+test("icons are one SVG family, decorative unless labelled", () => {
+  for (const name of ICON_NAMES) assert.match(icon(name), /^<svg class="icon"[^>]*aria-hidden="true"/);
+  assert.match(icon("refresh", { label: "Refresh" }), /role="img" aria-label="Refresh"/);
+  assert.equal(icon("nope"), "");
 });

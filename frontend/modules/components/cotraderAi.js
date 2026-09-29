@@ -118,7 +118,7 @@ export function jevScore(entry, key) {
   return Math.max(0, Math.min(1, value));
 }
 
-function miniBar(label, value, tone) {
+export function miniBar(label, value, tone) {
   if (value === null) return `<span class="cot-mini cot-mini--none"><span class="cot-mini-label">${escapeHtml(label)}</span> <span class="cot-mini-val">—</span></span>`;
   const pctValue = Math.round(value * 100);
   return `<span class="cot-mini cot-mini--${tone}" role="meter" aria-valuemin="0" aria-valuemax="100" aria-valuenow="${pctValue}" aria-label="${escapeHtml(label)} ${pctValue} of 100">

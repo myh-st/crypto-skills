@@ -2,6 +2,8 @@
 // (analysis runs, decisions, watchlist, data sources, the PAPER experiment lab) are grouped
 // under Research so they support trading without dominating it.
 
+import { icon } from "./icons.js";
+
 export const PRIMARY_NAV = [
   { route: "overview", label: "Overview", icon: "◧" },
   { route: "cotrader", label: "Co-Trader", icon: "◎" },
@@ -28,9 +30,9 @@ export const RESEARCH_NAV = [
 // Spot Co-Trader server (`paper-server --cotrader`): only what a manual spot trader needs.
 // The futures PAPER lab stays reachable under a collapsed "Futures lab" group.
 export const COTRADER_NAV = [
-  { route: "cotrader", sub: "", label: "Signals", icon: "◎" },
-  { route: "cotrader", sub: "watchlist", label: "Watchlist", icon: "★" },
-  { route: "settings", sub: "", label: "AI · Settings", icon: "⚙" },
+  { route: "cotrader", sub: "", label: "Signals", svg: "signals" },
+  { route: "cotrader", sub: "watchlist", label: "Watchlist", svg: "watchlist" },
+  { route: "settings", sub: "", label: "AI · Settings", svg: "settings" },
 ];
 
 export const NAV_ITEMS = [...PRIMARY_NAV, ...RESEARCH_NAV];
@@ -52,26 +54,26 @@ function link({ route, label, icon }, activeRoute, { secondary = false } = {}) {
   `;
 }
 
-function cotraderLink({ route, sub, label, icon }, activeRoute, params) {
+function cotraderLink({ route, sub, label, svg }, activeRoute, params) {
   const activeSub = activeRoute === "cotrader" && params?.[0] === "watchlist" ? "watchlist" : "";
   const isActive = activeRoute === route && (route !== "cotrader" || activeSub === sub);
   const href = sub ? `#/${route}/${sub}` : `#/${route}`;
   return `<a href="${href}" class="nav-link${isActive ? " nav-link--active" : ""}" aria-current="${isActive ? "page" : "false"}" data-route="${route}">
-      <span class="nav-icon" aria-hidden="true">${icon}</span><span class="nav-label">${label}</span></a>`;
+      <span class="nav-icon">${icon(svg)}</span><span class="nav-label">${label}</span></a>`;
 }
 
 export function renderCotraderNav(activeRoute, params = []) {
   const inLab = activeRoute !== "cotrader" && activeRoute !== "settings";
   return `
     <div class="sidebar-brand">
-      <span class="brand-mark" aria-hidden="true">◎</span>
-      <span class="brand-name">SPOT CO-TRADER</span>
+      <span class="brand-mark brand-mark--svg">${icon("signals", { size: 16 })}</span>
+      <span class="brand-name">Spot Co-Trader</span>
     </div>
     <nav class="sidebar-nav" aria-label="Primary destinations">
       ${COTRADER_NAV.map((item) => cotraderLink(item, activeRoute, params)).join("")}
     </nav>
     <details class="sidebar-group sidebar-group--lab"${inLab ? " open" : ""}>
-      <summary>Futures lab (old)</summary>
+      <summary>${icon("lab", { size: 14 })} Futures lab (old)</summary>
       <nav class="sidebar-nav sidebar-nav--secondary" aria-label="Futures lab">
         ${[...PRIMARY_NAV.filter(({ route }) => !["cotrader", "settings"].includes(route)), ...RESEARCH_NAV]
           .map((item) => link(item, activeRoute, { secondary: true })).join("")}
