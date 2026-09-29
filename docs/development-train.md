@@ -41,8 +41,14 @@ After the phases below, development shifts to evidence gathering, PAPER operatio
 | 2 | `feature/crash-execution-safety` | MERGED (PR #4, `ca34171`) | `docs/crash-execution-safety.md`; 238 Python / 71 frontend tests; 10 torture scenarios on fixtures; browser QA; real Gate public-data safety acceptance PASS; live crash event NOT_VERIFIED (none occurred) |
 | 3 | `feature/spot-cycle-lifecycle-manager` | MERGED (PR #5, `e21f91f`) | `docs/spot-cycle-lifecycle-manager.md`; 264 Python / 74 frontend tests; 8 lifecycle scenarios; browser QA; real Gate 4h regime + benchmark acceptance PASS; AI lifecycle recommendation via Jev/Luna NOT_VERIFIED (deterministic policy only) |
 | 4 | `feature/continuous-paper-resilience` | MERGED (PR #6, `504604a`) | `docs/continuous-paper-resilience.md`; 288 Python / 75 frontend tests; recovery drills; 7-day accelerated soak PASS (13 restarts, 0 duplicates); real process kill/TERM/lock/backup acceptance PASS; cycle-cost growth fixed; real-time multi-day soak NOT_VERIFIED |
-| 5 | `feature/experiment-promotion-gates` | COMPLETE, PR pending | `docs/experiment-promotion-gates.md`, `docs/paper-500-campaign-runbook.md`; 303 Python / 76 frontend tests; gate rehearsal of every status; browser QA; real-provider manifest + checkpoint acceptance PASS |
+| 5 | `feature/experiment-promotion-gates` | MERGED (PR #7, `dfa18fc`) | `docs/experiment-promotion-gates.md`, `docs/paper-500-campaign-runbook.md`; 303 Python / 76 frontend tests; gate rehearsal of every status; browser QA; real-provider manifest + checkpoint acceptance PASS |
 | 6 | `feature/live-execution-gateway` | PLANNING_ONLY_LIVE_DISABLED | — |
+
+**Program state (2026-09-29): FEATURE DEVELOPMENT FROZEN — PAPER CAMPAIGN NEXT.** Phases 1–5
+are merged. The next activity is the PAPER 500 USDT campaign in
+`docs/paper-500-campaign-runbook.md`. **LIVE EXECUTION NOT IMPLEMENTED / STILL DISABLED:**
+phase 6 stays `PLANNING_ONLY_LIVE_DISABLED` until a completed campaign passes the promotion gate
+*and* a separate human review approves it.
 
 ## Dependency Rule
 

@@ -72,29 +72,19 @@ market snapshot (closed 15m bar + 1h/4h context)
 
 ## Current baseline and canonical active goal
 
-The implementation baseline is `main` after Phase 4 (Continuous PAPER Resilience, PR #6). It includes:
-- real Gate Spot and Perp market data;
-- backend SSE;
-- real Jev and Azure Foundry integration;
-- deterministic PAPER risk and execution;
-- the AI cost ledger and budget guard;
-- read-only Gate account sync;
-- the Portfolio OS: catalog, Spot, unified orders, position manager, authority modes, re-plan, Portfolio Brain, activity and attention, learning. See `docs/ai-portfolio-trading-os.md`.
-- crash, price, liquidity and execution safety: market safety states, suspect prints, execution planner, kill switch, reconciliation, Spot Core protection. See `docs/crash-execution-safety.md`.
-- the Spot lifecycle manager: typed lifecycle states, point-in-time regime evidence, Core/Tactical policy, aligned benchmark arms. See `docs/spot-cycle-lifecycle-manager.md`.
-- continuous resilience: startup recovery, persisted scheduler slots, incidents/health, provider circuits, backup/restore, instance lock, soak. See `docs/continuous-paper-resilience.md`.
+The implementation baseline is `main` after Phase 5 (Experiment Promotion Gates, PR #7). Phases 1–5 are merged:
+- Portfolio OS (`docs/ai-portfolio-trading-os.md`);
+- crash, price, liquidity and execution safety (`docs/crash-execution-safety.md`);
+- the Spot lifecycle manager (`docs/spot-cycle-lifecycle-manager.md`);
+- continuous resilience (`docs/continuous-paper-resilience.md`);
+- experiment manifests, checkpoints and the promotion gate (`docs/experiment-promotion-gates.md`).
 
-The fixed phase order and campaign rules are in `docs/development-train.md`.
+**FEATURE DEVELOPMENT FROZEN — PAPER CAMPAIGN NEXT.** The canonical active activity is the PAPER 500 USDT campaign:
 
-The canonical active files for this branch (Phase 5) are:
+- `docs/paper-500-campaign-runbook.md`
+- `docs/development-train.md` (phase status, stop condition, live capital gate)
 
-- `.goals/experiment-promotion-gates/goal.md`
-- `.goals/experiment-promotion-gates/status.json`
-- `docs/experiment-promotion-gates-plan.md`
-
-`docs/paper-futures-runtime.md`, `docs/ai-portfolio-trading-os.md`, `docs/crash-execution-safety.md`, `docs/spot-cycle-lifecycle-manager.md` and `docs/continuous-paper-resilience.md` are implementation references, not active goals. Preserve their behavior; do not build duplicate subsystems.
-
-This phase prevents experiment drift and premature promotion. It must not add new strategy scope or automatically enable real trading.
+During the campaign, only correctness, safety, reliability, observability, experiment-methodology, or evidence-backed strategy defects are in scope. Do not start new feature branches. `feature/live-execution-gateway` stays `PLANNING_ONLY_LIVE_DISABLED`: do not implement it; a gate PASS never enables real execution.
 
 CI and unit tests remain offline and fake-only. Real Gate money-moving writes remain blocked by design.
 
