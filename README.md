@@ -112,6 +112,13 @@ Research, Evaluations, and Settings.
   accelerated soak (`paper-backup`, `paper-restore`, `paper-soak`). See
   [`docs/continuous-paper-resilience.md`](docs/continuous-paper-resilience.md).
 
+- **Experiment promotion gates:** a frozen experiment manifest (material changes create
+  a new version; drift invalidates reviews), reproducible day 7/30/60/90 checkpoint
+  reports, and a deterministic gate (PASS / CONTINUE_COLLECTING_DATA / FAIL_* /
+  INVALID_EXPERIMENT) that never enables live execution. See
+  [`docs/experiment-promotion-gates.md`](docs/experiment-promotion-gates.md) and the
+  [PAPER 500 USDT campaign runbook](docs/paper-500-campaign-runbook.md).
+
 Real Gate money-moving writes remain blocked by design. See
 [`docs/ai-portfolio-trading-os.md`](docs/ai-portfolio-trading-os.md).
 

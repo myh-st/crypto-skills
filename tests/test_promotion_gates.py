@@ -126,6 +126,14 @@ class GovernanceTests(PortfolioCase):
         self.runtime.resume()
         self.assertEqual(self.gov.status()["version"], 1)  # idempotent
 
+    def test_running_experiment_without_manifest_is_frozen_at_restart(self):
+        with self.store.transaction() as db:
+            db.execute("DELETE FROM experiment_manifests")
+        self.assertIsNone(self.gov.frozen())
+        actions = self.runtime.recover_on_startup(disk_usage=lambda _p: __import__("collections").namedtuple("U", "total used free")(2**40, 0, 2**40))
+        self.assertTrue(actions["manifest_frozen_at_restart"])
+        self.assertIn("predates experiment manifests", self.gov.frozen()["reason"])
+
     def test_material_settings_change_needs_confirmation_and_versions(self):
         with self.assertRaises(ConfirmationRequired) as raised:
             self.os.update_settings({"brain": {"max_asset_risk_pct": 0.02}})

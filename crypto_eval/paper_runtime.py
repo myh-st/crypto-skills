@@ -3430,6 +3430,11 @@ class PaperRuntime:
             self._escalate("NO_NEW_ENTRIES", "STORAGE_LOW: free disk below the configured minimum")
         reconciliation = self.portfolio.reconcile(escalate=True)
         actions["reconciliation_ok"] = reconciliation["ok"]
+        if self.store.experiment()["status"] == "running" and self.governance.frozen() is None:
+            # Upgrade path: an experiment already running before manifests existed is frozen now;
+            # its evaluation window starts here and earlier history is not claimed as covered.
+            self.governance.freeze(reason="frozen at restart; earlier history predates experiment manifests")
+            actions["manifest_frozen_at_restart"] = True
         res.open_incident("PROCESS_RESTART", severity="INFO", experiment_id=experiment_id, resolved=True,
                           summary="startup recovery completed", detail=actions)
         res.heartbeat("process", detail={"clean_shutdown": False, "started_at": iso_utc(self._clock()), "pid": os.getpid()})

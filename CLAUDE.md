@@ -36,6 +36,7 @@ python3 -m crypto_eval real-integration-check --symbol BTCUSDT   # REAL paid/ext
 python3 -m crypto_eval paper-setup-real                          # moves .env creds into the OS credential store
 python3 -m crypto_eval paper-backup [--database P]              # verified, secret-free snapshot (restore: paper-restore)
 python3 -m crypto_eval paper-soak --database FRESH.sqlite3 --days 3   # accelerated restart/sleep soak, fixture data
+python3 -m crypto_eval paper-checkpoint [--database P] [--dry-run]   # checkpoint report + promotion gate (never enables live)
 ```
 
 All subcommands are defined in `crypto_eval/cli.py`.

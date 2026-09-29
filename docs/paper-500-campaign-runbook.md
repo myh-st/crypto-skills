@@ -1,0 +1,102 @@
+# PAPER 500 USDT Campaign Runbook
+
+**FEATURE DEVELOPMENT FROZEN: PAPER CAMPAIGN NEXT.** Development follows the stop condition in
+`docs/development-train.md`: only correctness, safety, reliability, observability,
+methodology, or evidence-backed strategy defects.
+
+**LIVE EXECUTION NOT IMPLEMENTED / STILL DISABLED.** `feature/live-execution-gateway` is
+`PLANNING_ONLY_LIVE_DISABLED`. Every Gate write path stays blocked by design. A gate `PASS`
+never enables anything.
+
+## Goal
+
+Run one frozen PAPER experiment with 500 USDT total starting capital for at least 90 days, with
+checkpoints at day 7, 30, 60, and 90. Target roughly 200–300 completed trades before drawing
+stronger conclusions. If the sample or regime coverage is too thin, keep collecting data
+rather than forcing a verdict.
+
+## Before day 0 (one-time setup)
+
+1. **Update and verify.**
+   - Run `git switch main && git pull --ff-only`.
+   - Run the full regression: `validate_repo`, `unittest`, `node --check`, `node --test`.
+2. **Credentials.** Run `python3 -m crypto_eval paper-setup-real`. This moves `.env`
+   credentials into the OS credential store; never commit or paste them. Test both providers
+   in Settings (Jev and Azure AI Foundry GPT-6 Luna) until they show `passed`.
+3. **Fresh database** for the campaign, for example
+   `python3 -m crypto_eval paper-server --database ~/paper-500.sqlite3`. Keep this path for
+   the whole campaign.
+4. **Capital split** (both balances freeze after first activity; decide once and write it in
+   the campaign notes):
+   - Perpetual `starting_balance_usdt` = 300;
+   - Spot `spot_starting_balance_usdt` = 200 (Settings);
+   - total 500 USDT PAPER.
+5. **Universe and market data.**
+   - `market_data_mode = gate_usdt` (real Gate public data).
+   - Keep the default liquid universe unless there is a written reason to change it.
+6. **Cost policy.** These are operational fields, audited but not part of the manifest.
+   - Set `cost_fx` to a manual `usdt_per_usd` with its source noted. Without it, **net
+     economic PnL is unavailable and the gate cannot PASS**.
+   - Set the `ai_budget` daily and experiment caps you can afford, and a `limit_action`
+     (recommended: `FALLBACK_QUANT`).
+7. **Promotion criteria** (Settings → promotion). Keep the defaults unless there is a written
+   reason:
+   - 90 days, 200 trades, PF ≥ 1.15, DD ≤ 20%, positive net economic PnL;
+   - top trade ≤ 50%, skipped slots ≤ 5%, 0 open critical incidents, ≥ 2 regimes.
+8. **Authority.** AI-opened positions `AUTO_PAPER` (default); your own positions
+   `RECOMMEND_ONLY`. Set `lifecycle.enabled` and the `ai_spot` policy deliberately; both are
+   material.
+9. **Disk and backups.** Keep several GB free; the DB grows by tens of MB per day. Run
+   `python3 -m crypto_eval paper-backup --database ~/paper-500.sqlite3` and confirm the
+   manifest says `secrets_scan: clean`.
+10. **Start.** Click Start on the Overview. The manifest freezes as v1. Record the
+    `material_sha256`, the commit SHA, and the date in the campaign notes.
+
+## Daily (≈5 minutes)
+
+- Overview:
+  - System health is OK or ATTENTION;
+  - no open critical incidents;
+  - kill switch NORMAL (or an explained level);
+  - reconciliation OK.
+- Needs attention: acknowledge or act.
+- Take a backup (the Overview button or `paper-backup`) and keep the last 7 plus weekly copies
+  off-machine.
+- Never edit material settings casually. If you must, the confirmation creates a new manifest
+  version, and evaluation restarts for that version.
+
+## Checkpoints
+
+Run `python3 -m crypto_eval paper-checkpoint --database ~/paper-500.sqlite3 --out reports/paper-500/<checkpoint>.json`
+or Evaluations → Run checkpoint review. Archive the JSON; its `report_sha256` identifies it.
+
+| Checkpoint | Focus | Expected status | Actions |
+|---|---|---|---|
+| **Day 7** | Correctness and reliability only; profitability is not judged | `CONTINUE_COLLECTING_DATA` (anything worse must be fixed now) | Verify: no duplicate cycles; reconciliation OK; skipped-slot ratio low and every gap explained; restarts recovered; AI cost within budget and priced; FX present so net economic PnL is available; secret scan clean. Test a restore to a scratch path (`paper-restore BACKUP --database /tmp/restore-test.sqlite3`). |
+| **Day 30** | Early economics with denominators; data quality | Usually `CONTINUE_COLLECTING_DATA` | Review net trading vs net economic PnL (fees, funding, slippage, AI cost); tournament arms with `aligned_cycles` and incremental-vs-quant (no causal claims from unmatched cases); Spot lifecycle actions and a fresh benchmark run; regimes observed. Fix defects only. |
+| **Day 60** | Robustness | `CONTINUE_COLLECTING_DATA` or an early `FAIL_*` | Trade count trajectory vs the 200-trade target; regime coverage; drawdown behavior during any crash-mode episodes; provider outages and circuit openings; storage growth. If `FAIL_SAFETY` or `FAIL_RELIABILITY`, stop and fix; the experiment is not promotable until a clean window accrues. |
+| **Day 90** | Full gate | `PASS`, `FAIL_STRATEGY`, or `CONTINUE_COLLECTING_DATA` (sample too small or one regime only) | `PASS` means write a live-eligibility review memo; nothing is enabled. `FAIL_STRATEGY` means stop; any change becomes a new experiment version with a new manifest. `CONTINUE` means extend the campaign unchanged. |
+
+## Incident handling
+
+| Symptom | Response |
+|---|---|
+| `RECONCILIATION_FAILURE` / kill switch `RISK_REDUCING_ONLY` | Stop new entries. Export the bundle, investigate, fix. Lowering the kill switch requires a passing reconciliation. |
+| `DATABASE_FAILURE` / `STORAGE_LOW` | Free disk or restore the latest good backup (server stopped). Record the incident in the campaign notes. |
+| `PROVIDER_OUTAGE` (circuit open) | Decisions fall back automatically. If outages persist, the AI arms' samples shrink; note it at the checkpoint. |
+| `SCHEDULER_GAP` / `MONITOR_GAP` | Expected after sleep or downtime. Frequent gaps inflate the skipped-slot ratio and can `FAIL_RELIABILITY`, so keep the machine awake (power settings) for the campaign. |
+| Manifest drift banner | Either revert the change or record a new version with a reason. Never leave drift unresolved. |
+
+## What does not happen during the campaign
+
+- No new feature branches beyond defect fixes (stop condition).
+- No real-money order, amendment, cancellation, leverage/margin change, transfer, or withdrawal.
+- No tuning of the running experiment from a few outcomes.
+
+## Evidence to keep
+
+- Checkpoint JSONs.
+- Periodic export bundles (Settings → Export).
+- Backups.
+- Campaign notes: capital split, FX source, commit SHA, manifest versions, and any incidents
+  with their resolution.
