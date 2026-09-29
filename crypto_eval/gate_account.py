@@ -14,6 +14,7 @@ from __future__ import annotations
 import hashlib
 import hmac
 import json
+import math
 import re
 import socket
 import time
@@ -36,6 +37,9 @@ READ_ONLY_ENDPOINTS: dict[str, frozenset[str]] = {
     "/futures/usdt/positions": frozenset({"holding", "limit", "offset"}),
     "/futures/usdt/orders": frozenset({"contract", "status", "limit", "offset", "last_id"}),
     "/futures/usdt/my_trades": frozenset({"contract", "limit", "offset", "last_id"}),
+    # Spot wallet mirror for Holdings: balances and the user's own fills (GET only).
+    "/spot/accounts": frozenset({"currency"}),
+    "/spot/my_trades": frozenset({"currency_pair", "limit", "page", "from", "to"}),
 }
 MAX_RESPONSE_BYTES = 4 * 1024 * 1024
 ACCOUNT_SOURCES = {"live": "GATE_LIVE_READONLY", "testnet": "GATE_TESTNET_READONLY"}
@@ -46,7 +50,33 @@ class LiveExecutionBlocked(PaperTradingError):
 
 
 class GateAccountError(PaperTradingError):
-    """Read-only account call failed; message never includes credentials or bodies."""
+    """Read-only account call failed; message never includes credentials or bodies.
+
+    ``status`` (HTTP code), ``label`` (Gate's machine error code, e.g. ``INVALID_KEY``, validated
+    as an uppercase token) and ``kind`` (http, timeout, network, invalid) are safe diagnostics.
+    """
+
+    def __init__(
+        self, message: str, *, status: int | None = None, label: str | None = None, kind: str | None = None
+    ) -> None:
+        super().__init__(message)
+        self.status = status
+        self.label = label
+        self.kind = kind
+
+
+_ERROR_LABEL_RE = re.compile(r"[A-Z][A-Z0-9_]{1,63}")
+
+
+def _error_label(exc: urllib.error.HTTPError) -> str | None:
+    """Gate's ``label`` from an error body; only a bare uppercase token survives, never body text."""
+
+    try:
+        body = json.loads(exc.read(65536))
+    except Exception:
+        return None
+    label = body.get("label") if isinstance(body, dict) else None
+    return label if isinstance(label, str) and _ERROR_LABEL_RE.fullmatch(label) else None
 
 
 SignedTransport = Callable[[str, str, dict[str, str], float], bytes]
@@ -120,20 +150,22 @@ class ReadOnlyGateClient:
             raise
         except urllib.error.HTTPError as exc:
             self.request_log.append({"method": method, "path": path, "status": exc.code})
-            raise GateAccountError(f"Gate read-only request returned HTTP {exc.code}") from None
+            raise GateAccountError(
+                f"Gate read-only request returned HTTP {exc.code}", status=exc.code, label=_error_label(exc), kind="http"
+            ) from None
         except (TimeoutError, socket.timeout):
-            raise GateAccountError("Gate read-only request timed out") from None
+            raise GateAccountError("Gate read-only request timed out", kind="timeout") from None
         except (urllib.error.URLError, OSError):
-            raise GateAccountError("Gate read-only request failed") from None
+            raise GateAccountError("Gate read-only request failed", kind="network") from None
         self.request_log.append(
             {"method": method, "path": path, "status": 200, "latency_ms": (time.perf_counter() - started) * 1000}
         )
         if not isinstance(raw, (bytes, bytearray)) or len(raw) > MAX_RESPONSE_BYTES:
-            raise GateAccountError("Gate read-only response is invalid")
+            raise GateAccountError("Gate read-only response is invalid", kind="invalid")
         try:
             return json.loads(raw)
         except (UnicodeDecodeError, json.JSONDecodeError):
-            raise GateAccountError("Gate read-only response is invalid JSON") from None
+            raise GateAccountError("Gate read-only response is invalid JSON", kind="invalid") from None
 
     def get(self, path: str, params: dict[str, Any] | None = None) -> Any:
         return self.request("GET", path, params)
@@ -289,6 +321,73 @@ def normalize_trade(raw: Any) -> dict[str, Any] | None:
             if _float(raw.get("create_time"))
             else None
         ),
+    }
+
+
+_CURRENCY_RE = re.compile(r"[A-Z0-9]{1,20}")
+_SPOT_PAIR_RE = re.compile(r"([A-Z0-9]{1,20})_([A-Z0-9]{2,10})")
+
+
+def _finite(value: float | None) -> bool:
+    return value is not None and math.isfinite(value)
+
+
+def normalize_spot_balance(raw: Any) -> dict[str, Any] | None:
+    """One ``/spot/accounts`` row -> ``{currency, available, locked, total}``; None when malformed."""
+
+    if not isinstance(raw, dict):
+        return None
+    currency = raw.get("currency")
+    if not isinstance(currency, str) or not _CURRENCY_RE.fullmatch(currency.upper()):
+        return None
+    available = _float(raw.get("available"))
+    locked = _float(raw.get("locked"))
+    if not _finite(available) or not _finite(locked) or available < 0 or locked < 0:
+        return None
+    return {"currency": currency.upper(), "available": available, "locked": locked, "total": available + locked}
+
+
+def normalize_spot_trade(raw: Any) -> dict[str, Any] | None:
+    """One ``/spot/my_trades`` fill -> a typed fill; None when malformed (never guessed)."""
+
+    if not isinstance(raw, dict):
+        return None
+    pair = raw.get("currency_pair")
+    match = _SPOT_PAIR_RE.fullmatch(pair.upper()) if isinstance(pair, str) else None
+    side = raw.get("side")
+    amount = _float(raw.get("amount"))
+    price = _float(raw.get("price"))
+    if match is None or side not in {"buy", "sell"}:
+        return None
+    if not _finite(amount) or not _finite(price) or amount <= 0 or price <= 0:
+        return None
+    created_ms = _float(raw.get("create_time_ms"))
+    if created_ms is None:
+        seconds = _float(raw.get("create_time"))
+        created_ms = None if seconds is None else seconds * 1000.0
+    if not _finite(created_ms) or created_ms <= 0:
+        return None
+    fee = _float(raw.get("fee"))
+    fee_currency = raw.get("fee_currency")
+    fee_currency = fee_currency.upper() if isinstance(fee_currency, str) and fee_currency else None
+    point_fee = _float(raw.get("point_fee"))
+    gt_fee = _float(raw.get("gt_fee"))
+    return {
+        "trade_id": str(raw.get("id")),
+        "order_id": None if raw.get("order_id") is None else str(raw.get("order_id")),
+        "currency_pair": match.group(0),
+        "base": match.group(1),
+        "quote": match.group(2),
+        "side": side,
+        "role": raw.get("role"),
+        "amount": amount,
+        "price": price,
+        "fee": fee if _finite(fee) and fee > 0 else 0.0,
+        "fee_currency": fee_currency,
+        "point_fee": point_fee if _finite(point_fee) and point_fee > 0 else 0.0,
+        "gt_fee": gt_fee if _finite(gt_fee) and gt_fee > 0 else 0.0,
+        "created_at_ms": created_ms,
+        "created_at": iso_utc(datetime.fromtimestamp(created_ms / 1000.0, tz=timezone.utc)),
     }
 
 

@@ -272,6 +272,7 @@ baseline.
 | POST | `/api/portfolio/review`, `/api/portfolio/settings`, `/api/automation`, `/api/experiment/validate` |
 | GET / POST | `/api/attention`, `/api/attention/{id}/ack`, `/api/activity?…`, `/api/tournament`, `/api/reviews`, `/api/management-events` |
 | GET | `/api/runtime/summary`, `/api/runtime/stream` (SSE: portfolio headline, attention counts, new activity) |
+| GET / POST | `/api/holdings`, `/api/holdings/manual`, `/api/holdings/manual/{id}/delete`, `/api/holdings/sync`, `/api/holdings/settings`, `/api/holdings/gate/validate` (real spot holdings; READ-ONLY Gate sync, never merged with PAPER; see [holdings.md](holdings.md)) |
 
 - **References:** `perp:<position_id>`, `spot:<holding_id>`, `perp:<order_id>`,
   `spot:<order_id>`.

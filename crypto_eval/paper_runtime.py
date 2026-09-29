@@ -73,6 +73,7 @@ from .execution_safety import KILL_RANK, SAFETY_SCHEMA, classify_market, suspect
 from .spot_lifecycle import LIFECYCLE_SCHEMA
 from .promotion import PROMOTION_SCHEMA
 from .sleeves import SLEEVE_SCHEMA, capital_cohorts, cohort_starting_balance
+from .holdings import HOLDINGS_SCHEMA
 from .resilience import (
     DB_SCHEMA_VERSION,
     RESILIENCE_SCHEMA,
@@ -842,6 +843,7 @@ class PaperStore:
         self._db.executescript(RESILIENCE_SCHEMA)
         self._db.executescript(PROMOTION_SCHEMA)
         self._db.executescript(SLEEVE_SCHEMA)
+        self._db.executescript(HOLDINGS_SCHEMA)
 
     def _migrate_schema(self) -> None:
         with self._lock:
@@ -3398,6 +3400,20 @@ class PaperRuntime:
 
             self._portfolio = PortfolioOS(self, catalog=self._catalog_override)
         return self._portfolio
+
+    @property
+    def holdings(self) -> Any:
+        """Spot holdings: manual entries + READ-ONLY Gate spot sync (never merged with PAPER)."""
+
+        if getattr(self, "_holdings", None) is None:
+            from .holdings import Holdings
+
+            self._holdings = Holdings(self)
+        return self._holdings
+
+    @holdings.setter
+    def holdings(self, value: Any) -> None:
+        self._holdings = value
 
     # ------------------------------------------------------------ resilience
     def _escalate(self, level: str, reason: str) -> None:
