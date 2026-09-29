@@ -2,7 +2,8 @@
 <!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
 <!--
   Template: keep the PAPER campaign server running across reboots and crashes (macOS launchd).
-  Replace REPO and HOME_DIR, copy to ~/Library/LaunchAgents/com.cryptoskills.paper-campaign.plist,
+  Replace REPO, HOME_DIR and PYTHON (absolute interpreter path: python3 -c 'import sys; print(sys.executable)';
+  launchd's PATH is minimal, so a bare python3 may resolve to an older system Python), copy to ~/Library/LaunchAgents/com.cryptoskills.paper-campaign.plist,
   then: launchctl bootstrap gui/$(id -u) ~/Library/LaunchAgents/com.cryptoskills.paper-campaign.plist
   Stop:   launchctl bootout gui/$(id -u)/com.cryptoskills.paper-campaign   (sends SIGTERM → graceful)
   The server's instance lock prevents a second copy; startup recovery handles any downtime.
@@ -14,7 +15,7 @@
   <key>ProgramArguments</key>
   <array>
     <string>/usr/bin/caffeinate</string><string>-is</string>
-    <string>/usr/bin/env</string><string>python3</string><string>-m</string><string>crypto_eval</string>
+    <string>PYTHON</string><string>-m</string><string>crypto_eval</string>
     <string>paper-server</string><string>--database</string><string>HOME_DIR/paper-500.sqlite3</string>
   </array>
   <key>RunAtLoad</key><true/>
