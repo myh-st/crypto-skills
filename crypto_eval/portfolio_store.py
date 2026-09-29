@@ -12,6 +12,7 @@ import math
 from typing import Any
 
 from .execution_safety import DEFAULT_SAFETY_SETTINGS, validate_safety_settings
+from .spot_lifecycle import DEFAULT_LIFECYCLE_SETTINGS, validate_lifecycle_settings
 from .paper_contracts import PaperTradingError
 
 
@@ -297,6 +298,7 @@ DEFAULT_PORTFOLIO_SETTINGS: dict[str, Any] = {
         "emergency_stop": False,
     },
     "safety": dict(DEFAULT_SAFETY_SETTINGS),
+    "lifecycle": dict(DEFAULT_LIFECYCLE_SETTINGS),
     "ai_spot": {
         "enabled": False,
         "trigger": "prefer_spot",
@@ -433,5 +435,6 @@ def validate_portfolio_settings(value: dict[str, Any], *, base: dict[str, Any] |
     if merged["brain"]["hold_cash_drawdown_fraction"] < merged["brain"]["de_risk_drawdown_fraction"]:
         raise PaperTradingError("brain.hold_cash_drawdown_fraction must be at least the de-risk fraction")
     merged["safety"] = validate_safety_settings(merged["safety"])
+    merged["lifecycle"] = validate_lifecycle_settings(merged["lifecycle"])
     merged["schema_version"] = DEFAULT_PORTFOLIO_SETTINGS["schema_version"]
     return merged

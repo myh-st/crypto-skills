@@ -80,6 +80,11 @@ Perpetual มีหน้า Overview, Portfolio, Trade, Activity, Research, Eva
   แบ่งไม้, จำกัดความเร็วการขาย, ปกป้อง Spot Core) kill switch และการ reconcile บัญชี
   ดู [`docs/crash-execution-safety.md`](docs/crash-execution-safety.md)
 
+- **Spot lifecycle:** สถานะรอบใหญ่แบบมีชนิด (สะสม, ถือ Core, เทรนด์ขยาย, ป้องกันกำไร,
+  ทยอยขาย, ลด, ออก) หลักฐาน regime แบบ point-in-time ทยอยขายแทนขายหมดทีเดียว
+  ขาย Core เฉพาะเมื่อยืนยันการพังของโครงสร้าง และมี benchmark เทียบแบบเงื่อนไขเดียวกัน
+  ดู [`docs/spot-cycle-lifecycle-manager.md`](docs/spot-cycle-lifecycle-manager.md)
+
 การเขียนคำสั่งเงินจริงไปยัง Gate ยังถูกบล็อกโดยการออกแบบ รายละเอียดอยู่ที่
 [`docs/ai-portfolio-trading-os.md`](docs/ai-portfolio-trading-os.md)
 

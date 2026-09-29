@@ -2576,3 +2576,13 @@ body.drawer-open { overflow: hidden; }
 .core-form { display: flex; gap: 8px; align-items: end; }
 .core-form label { display: grid; gap: 2px; font-size: 12px; color: var(--color-text-muted); }
 .core-form input { width: 90px; }
+.lifecycle { display: grid; gap: 6px; margin-bottom: 10px; }
+.core-split { height: 8px; border-radius: 4px; background: var(--color-positive-bg); overflow: hidden; }
+.core-split__core { display: block; height: 100%; background: var(--color-accent); }
+.lifecycle-proposal { border: 1px solid var(--color-border); border-left: 3px solid var(--color-accent); border-radius: 6px; padding: 8px 10px; display: grid; gap: 4px; }
+.lifecycle-proposal p { margin: 0; }
+.lifecycle-events { list-style: none; padding: 0; margin: 0; display: grid; gap: 2px; }
+.benchmark-form { display: flex; flex-wrap: wrap; gap: 8px; align-items: end; margin-bottom: 10px; }
+.benchmark-form label { display: grid; gap: 2px; font-size: 12px; color: var(--color-text-muted); }
+.benchmark-form input { padding: 6px 8px; border: 1px solid var(--color-border); border-radius: 6px; font: inherit; width: min(260px, 100%); }
+.benchmark-table th[scope="row"] { white-space: nowrap; }

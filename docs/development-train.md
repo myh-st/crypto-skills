@@ -38,8 +38,8 @@ After the phases below, development shifts to evidence gathering, PAPER operatio
 | Phase | Branch | State | Evidence |
 |-------|--------|-------|----------|
 | 1 | `feature/ai-portfolio-trading-os` | MERGED (PR #3, `ff4c633`) | `docs/ai-portfolio-trading-os.md`; 211 Python / 66 frontend tests; browser QA on real Gate data; real Jev + GPT-6 Luna re-plan acceptance PASS; live AI-opened entry NOT_VERIFIED (market had no qualifying setup; `portfolio-real-check --full-loop`) |
-| 2 | `feature/crash-execution-safety` | COMPLETE, PR pending | `docs/crash-execution-safety.md`; 238 Python / 71 frontend tests; 10 torture scenarios on fixtures; browser QA; real Gate public-data safety acceptance PASS; live crash event NOT_VERIFIED (none occurred) |
-| 3 | `feature/spot-cycle-lifecycle-manager` | PLANNED | — |
+| 2 | `feature/crash-execution-safety` | MERGED (PR #4, `ca34171`) | `docs/crash-execution-safety.md`; 238 Python / 71 frontend tests; 10 torture scenarios on fixtures; browser QA; real Gate public-data safety acceptance PASS; live crash event NOT_VERIFIED (none occurred) |
+| 3 | `feature/spot-cycle-lifecycle-manager` | COMPLETE, PR pending | `docs/spot-cycle-lifecycle-manager.md`; 264 Python / 74 frontend tests; 8 lifecycle scenarios; browser QA; real Gate 4h regime + benchmark acceptance PASS; AI lifecycle recommendation via Jev/Luna NOT_VERIFIED (deterministic policy only) |
 | 4 | `feature/continuous-paper-resilience` | PLANNED | — |
 | 5 | `feature/experiment-promotion-gates` | PLANNED | — |
 | 6 | `feature/live-execution-gateway` | PLANNING_ONLY_LIVE_DISABLED | — |

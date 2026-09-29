@@ -1,0 +1,144 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "spot-lifecycle-plan.schema.json",
+  "title": "Deterministic Spot lifecycle plan",
+  "type": "object",
+  "required": [
+    "schema_version",
+    "policy_version",
+    "position_ref",
+    "as_of",
+    "state_before",
+    "state_after",
+    "action",
+    "regime",
+    "regime_signals",
+    "holding_quantity",
+    "sell_quantity",
+    "sell_fraction",
+    "add_fraction",
+    "core_quantity",
+    "tactical_quantity",
+    "sells_core",
+    "peak_mark",
+    "breakdown_streak",
+    "market_state",
+    "evidence_coverage",
+    "reasons"
+  ],
+  "properties": {
+    "schema_version": {
+      "const": "spot-lifecycle-plan.v1"
+    },
+    "policy_version": {
+      "type": "string"
+    },
+    "position_ref": {
+      "type": "string"
+    },
+    "as_of": {
+      "type": "string"
+    },
+    "state_before": {
+      "enum": [
+        "ACCUMULATE",
+        "HOLD_CORE",
+        "ADD_ON_PULLBACK",
+        "TREND_EXPANSION",
+        "PROTECT_PROFIT",
+        "DISTRIBUTE",
+        "REDUCE",
+        "EXIT",
+        "CASH_WAIT"
+      ]
+    },
+    "state_after": {
+      "enum": [
+        "ACCUMULATE",
+        "HOLD_CORE",
+        "ADD_ON_PULLBACK",
+        "TREND_EXPANSION",
+        "PROTECT_PROFIT",
+        "DISTRIBUTE",
+        "REDUCE",
+        "EXIT",
+        "CASH_WAIT"
+      ]
+    },
+    "action": {
+      "enum": [
+        "HOLD",
+        "ADD",
+        "TAKE_PARTIAL_PROFIT",
+        "PROTECT_PROFIT",
+        "DISTRIBUTE",
+        "REDUCE",
+        "ROTATE_TO_CASH",
+        "EXIT"
+      ]
+    },
+    "regime": {
+      "enum": [
+        "EARLY_BULL",
+        "STRONG_TREND",
+        "RANGE",
+        "LATE_BULL",
+        "BREAKDOWN",
+        "UNKNOWN"
+      ]
+    },
+    "regime_signals": {
+      "type": "array",
+      "items": {
+        "type": "string"
+      }
+    },
+    "holding_quantity": {
+      "type": "number"
+    },
+    "sell_quantity": {
+      "type": "number",
+      "minimum": 0
+    },
+    "sell_fraction": {
+      "type": "number",
+      "minimum": 0,
+      "maximum": 1
+    },
+    "add_fraction": {
+      "type": "number",
+      "minimum": 0
+    },
+    "core_quantity": {
+      "type": "number"
+    },
+    "tactical_quantity": {
+      "type": "number"
+    },
+    "sells_core": {
+      "type": "boolean"
+    },
+    "peak_mark": {
+      "type": "number"
+    },
+    "breakdown_streak": {
+      "type": "integer",
+      "minimum": 0
+    },
+    "market_state": {
+      "type": "string"
+    },
+    "evidence_coverage": {
+      "type": "number",
+      "minimum": 0,
+      "maximum": 1
+    },
+    "reasons": {
+      "type": "array",
+      "items": {
+        "type": "string"
+      }
+    }
+  },
+  "additionalProperties": false
+}

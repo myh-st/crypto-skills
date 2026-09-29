@@ -69,6 +69,7 @@ from .secret_store import CredentialResolver, store_secret
 from .portfolio_brain import evaluate_entry as portfolio_brain_entry
 from .portfolio_store import PORTFOLIO_SCHEMA
 from .execution_safety import KILL_RANK, SAFETY_SCHEMA, classify_market, suspect_print
+from .spot_lifecycle import LIFECYCLE_SCHEMA
 
 
 MARKET_PROVIDER_IDS = {
@@ -813,6 +814,7 @@ class PaperStore:
         self._db.executescript(EXTRA_SCHEMA)
         self._db.executescript(PORTFOLIO_SCHEMA)
         self._db.executescript(SAFETY_SCHEMA)
+        self._db.executescript(LIFECYCLE_SCHEMA)
 
     def _migrate_schema(self) -> None:
         with self._lock:
@@ -6984,6 +6986,9 @@ class PaperRuntimeReports:
         files["execution-plans.jsonl"] = jsonl(portfolio_files["execution_plans"])
         files["market-safety-states.csv"] = csv_rows(portfolio_files["market_safety_states"])
         files["kill-switch.json"] = json.dumps(portfolio_files["kill_switch"], indent=2, sort_keys=True).encode("utf-8")
+        files["lifecycle-states.csv"] = csv_rows(portfolio_files["lifecycle_states"])
+        files["lifecycle-events.jsonl"] = jsonl(portfolio_files["lifecycle_events"])
+        files["lifecycle-benchmarks.jsonl"] = jsonl(portfolio_files["lifecycle_benchmarks"])
         files["portfolio-settings.json"] = json.dumps(
             portfolio_files["settings"], indent=2, sort_keys=True
         ).encode("utf-8")

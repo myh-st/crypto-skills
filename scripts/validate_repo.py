@@ -298,6 +298,9 @@ def validate_schema(
     if expected_types and not any(type_matches(value, item) for item in expected_types):
         errors.append(f"{location}: expected {expected_types}, got {type(value).__name__}")
         return
+    if "const" in schema and value != schema["const"]:
+        errors.append(f"{location}: {value!r} is not {schema['const']!r}")
+        return
     if "enum" in schema and value not in schema["enum"]:
         errors.append(f"{location}: {value!r} is not one of {schema['enum']}")
         return
@@ -332,9 +335,12 @@ def validate_schema(
             for key in value:
                 if key not in properties:
                     errors.append(f"{location}: unexpected property {key!r}")
+        extra = schema.get("additionalProperties")
         for key, child in value.items():
             if key in properties:
                 validate_schema(child, properties[key], schema_path, root_schema, f"{location}.{key}", errors)
+            elif isinstance(extra, dict):
+                validate_schema(child, extra, schema_path, root_schema, f"{location}.{key}", errors)
 
 
 def validate_examples(errors: list[str]) -> int:

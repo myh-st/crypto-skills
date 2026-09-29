@@ -1,0 +1,17 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "spot-lifecycle-state.schema.json",
+  "title": "Spot lifecycle state",
+  "type": "string",
+  "enum": [
+    "ACCUMULATE",
+    "HOLD_CORE",
+    "ADD_ON_PULLBACK",
+    "TREND_EXPANSION",
+    "PROTECT_PROFIT",
+    "DISTRIBUTE",
+    "REDUCE",
+    "EXIT",
+    "CASH_WAIT"
+  ]
+}

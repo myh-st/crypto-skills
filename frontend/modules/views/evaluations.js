@@ -2,6 +2,7 @@ import { escapeHtml, formatTimestamp, titleCase } from "../format.js";
 import { evaluationService, runService, runtimeService } from "../services.js";
 import { paperApi } from "../paperApi.js";
 import { renderLearning, renderTournament } from "../components/strategyTournamentSummary.js";
+import { renderBenchmark } from "../components/lifecycleCard.js";
 
 const RESULT_TONE = {
   pending: "neutral",
@@ -15,6 +16,14 @@ export function render(root, ctx) {
     <section class="panel" aria-labelledby="tournament-heading">
       <div class="section-heading"><h1 id="tournament-heading">Strategy tournament</h1><span class="demo-tag">aligned frozen inputs · separate PAPER wallets</span></div>
       <div data-tournament><p class="muted">Loading…</p></div>
+    </section>
+    <section class="panel" aria-labelledby="benchmark-heading">
+      <div class="section-heading"><h2 id="benchmark-heading">Spot lifecycle benchmark</h2><span class="demo-tag">aligned closed 4h bars · same fees and slippage</span></div>
+      <form class="benchmark-form" data-benchmark-form>
+        <label>Spot pair <input name="instrument_id" type="text" required placeholder="gate:spot:ETH_USDT" autocomplete="off" /></label>
+        <button type="submit" class="btn btn--ghost btn--small">Run benchmark</button>
+      </form>
+      <div data-benchmark role="status" aria-live="polite"><p class="muted small">Loading…</p></div>
     </section>
     <section class="panel" aria-labelledby="learning-heading">
       <h2 id="learning-heading">Learning loop</h2>
@@ -30,6 +39,26 @@ export function render(root, ctx) {
     .catch((error) => {
       view.querySelector("[data-tournament]").innerHTML = `<p class="muted">PAPER runtime unavailable: ${escapeHtml(error.message)}</p>`;
     });
+  const benchmarkHost = view.querySelector("[data-benchmark]");
+  paperApi.lifecycleBenchmarks()
+    .then(({ reports }) => { benchmarkHost.innerHTML = renderBenchmark(reports[0]); })
+    .catch(() => { benchmarkHost.innerHTML = renderBenchmark(null); });
+  view.querySelector("[data-benchmark-form]").addEventListener("submit", async (event) => {
+    event.preventDefault();
+    const form = event.target;
+    const id = String(new FormData(form).get("instrument_id") || "").trim();
+    const button = form.querySelector("button");
+    button.disabled = true;
+    benchmarkHost.innerHTML = '<p class="muted small">Running aligned arms…</p>';
+    try {
+      const { report } = await paperApi.lifecycleBenchmark(id);
+      benchmarkHost.innerHTML = renderBenchmark(report);
+    } catch (error) {
+      benchmarkHost.innerHTML = `<p class="paper-feedback paper-feedback--error">${escapeHtml(error.message)}</p>`;
+    } finally {
+      button.disabled = false;
+    }
+  });
   renderResearchEvaluations(view.querySelector("[data-research-evaluations]"), ctx);
 }
 

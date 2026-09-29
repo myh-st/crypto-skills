@@ -213,6 +213,21 @@ export function createPaperApi(fetcher = globalThis.fetch) {
     async executionPlans() {
       return (await request("/execution-plans")).json();
     },
+    async lifecycleReview(ref, recommendation = undefined) {
+      return (await request(`/lifecycle/${encodeURIComponent(ref)}/review`, { method: "POST", body: recommendation ? { recommendation } : {} })).json();
+    },
+    async lifecycleApply(ref, options = {}) {
+      return (await request(`/lifecycle/${encodeURIComponent(ref)}/apply`, { method: "POST", body: options })).json();
+    },
+    async lifecycleDismiss(ref) {
+      return (await request(`/lifecycle/${encodeURIComponent(ref)}/dismiss`, { method: "POST", body: {} })).json();
+    },
+    async lifecycleBenchmark(instrumentId, bars = 360) {
+      return (await request("/lifecycle/benchmark", { method: "POST", body: { instrument_id: instrumentId, bars } })).json();
+    },
+    async lifecycleBenchmarks() {
+      return (await request("/lifecycle/benchmarks")).json();
+    },
     async setCoreFraction(ref, coreFraction) {
       return (await request(`/positions/${encodeURIComponent(ref)}/core`, { method: "POST", body: { core_fraction: coreFraction } })).json();
     },
