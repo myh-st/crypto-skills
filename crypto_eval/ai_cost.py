@@ -23,7 +23,15 @@ BUDGET_POLICY_VERSION = "ai-budget-policy.v1"
 PRICE_BOOK_SCHEMA_VERSION = "ai-price-book.v1"
 FX_POLICY_VERSION = "ai-cost-fx.v1"
 LIMIT_ACTIONS = ("PAUSE_NEW_ENTRIES", "FALLBACK_QUANT", "JEV_ONLY", "BLOCK_PAID_AI")
-CALL_TYPES = ("test_connection", "jev_decision", "gpt_escalation", "gpt_arm", "manual_analysis")
+CALL_TYPES = (
+    "test_connection",
+    "jev_decision",
+    "gpt_escalation",
+    "gpt_arm",
+    "manual_analysis",
+    "jev_replan",
+    "gpt_replan",
+)
 REASONING_RULES = ("included_in_output", "separate_rate", "unknown")
 COST_STATUSES = ("exact", "estimated", "unavailable")
 DEFAULT_WARNING_THRESHOLDS = (0.5, 0.8, 0.95, 1.0)
@@ -570,7 +578,7 @@ class CostLedger:
         if call_type not in CALL_TYPES:
             raise BudgetError("AI call type is unsupported")
         is_gpt = call_type.startswith("gpt") or call_type == "manual_analysis"
-        is_jev = call_type == "jev_decision"
+        is_jev = call_type in {"jev_decision", "jev_replan"}
         max_in = budget["gpt_max_input_tokens"] if not provider["kind"].endswith("jev") else budget["jev_max_input_tokens"]
         max_out = budget["gpt_max_output_tokens"] if not provider["kind"].endswith("jev") else budget["jev_max_output_tokens"]
         input_estimate = estimate_input_tokens(payload_bytes)
@@ -641,11 +649,11 @@ class CostLedger:
                         return block("MAX_PAID_CALLS", "experiment", "experiment paid-call limit reached")
                     if is_gpt:
                         if budget["max_gpt_calls_per_hour"] is not None and self._count(
-                            db, experiment_id, kinds=("gpt_escalation", "gpt_arm", "manual_analysis"), since=hour_start
+                            db, experiment_id, kinds=("gpt_escalation", "gpt_arm", "manual_analysis", "gpt_replan"), since=hour_start
                         ) >= budget["max_gpt_calls_per_hour"]:
                             return block("GPT_HOURLY_CALLS", "hour", "GPT calls per hour limit reached")
                         if budget["max_gpt_calls_per_day"] is not None and self._count(
-                            db, experiment_id, kinds=("gpt_escalation", "gpt_arm", "manual_analysis"), since=day_start
+                            db, experiment_id, kinds=("gpt_escalation", "gpt_arm", "manual_analysis", "gpt_replan"), since=day_start
                         ) >= budget["max_gpt_calls_per_day"]:
                             return block("GPT_DAILY_CALLS", "day", "GPT calls per day limit reached")
                         if cycle_id and budget["max_gpt_calls_per_cycle"] is not None and self._count(
@@ -653,7 +661,7 @@ class CostLedger:
                         ) >= budget["max_gpt_calls_per_cycle"]:
                             return block("GPT_CYCLE_CALLS", "cycle", "GPT calls per cycle limit reached")
                     if is_jev and budget["max_jev_calls_per_day"] is not None and self._count(
-                        db, experiment_id, kinds=("jev_decision",), since=day_start
+                        db, experiment_id, kinds=("jev_decision", "jev_replan"), since=day_start
                     ) >= budget["max_jev_calls_per_day"]:
                         return block("JEV_DAILY_CALLS", "day", "Jev calls per day limit reached")
                 day_spent = self._spent(db, experiment_id, day_start)

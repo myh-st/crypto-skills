@@ -53,6 +53,48 @@ INTENT_RESPONSE_SCHEMA: dict[str, Any] = {
 }
 
 
+REPLAN_SCHEMA_VERSION = "position-replan-proposal.v1"
+REPLAN_ACTIONS = ("hold", "adjust", "reduce", "close")
+THESIS_STATES = ("intact", "weakening", "broken")
+REPLAN_REASON_CODES = (
+    "MOMENTUM_INTACT",
+    "MOMENTUM_WEAKENED",
+    "BTC_RISK_INCREASED",
+    "REGIME_SHIFT",
+    "VOLATILITY_EXPANSION",
+    "VOLATILITY_CONTRACTION",
+    "PROTECT_PROFIT",
+    "THESIS_INTACT",
+    "THESIS_WEAKENED",
+    "THESIS_BROKEN",
+    "NEAR_STOP",
+    "NEAR_TARGET",
+    "REDUCE_EXPOSURE",
+    "PORTFOLIO_CONCENTRATION",
+    "FUNDING_ADVERSE",
+    "GIVE_ROOM",
+    "TIGHTEN_RISK",
+    "NO_CHANGE_NEEDED",
+    "USER_REQUEST",
+    "AI_BUDGET_BLOCK",
+    "AI_UNAVAILABLE",
+)
+REPLAN_RESPONSE_SCHEMA: dict[str, Any] = {
+    "type": "object",
+    "properties": {
+        "action": {"type": "string", "enum": list(REPLAN_ACTIONS)},
+        "stop_price": {"type": ["number", "null"]},
+        "target_prices": {"type": "array", "items": {"type": "number"}, "maxItems": 3},
+        "reduce_fraction": {"type": ["number", "null"]},
+        "thesis_status": {"type": "string", "enum": list(THESIS_STATES)},
+        "reason_codes": {"type": "array", "items": {"type": "string", "enum": list(REPLAN_REASON_CODES)}, "maxItems": 5},
+        "summary": {"type": "string"},
+    },
+    "required": ["action", "stop_price", "target_prices", "reduce_fraction", "thesis_status", "reason_codes", "summary"],
+    "additionalProperties": False,
+}
+
+
 class AIProviderError(PaperTradingError):
     """Provider failure with no response bodies, credentials, or prompt content."""
 
@@ -1032,6 +1074,98 @@ def parse_gpt_intent(
     }
 
 
+
+def build_replan_input(context: dict[str, Any]) -> dict[str, Any]:
+    """Safe, typed re-plan input: position, closed-bar features, Jev answers, portfolio summary."""
+
+    position = context["position"]
+    features = context.get("features") or {}
+    result = {
+        "position": {
+            key: position.get(key)
+            for key in (
+                "market_type", "symbol", "side", "quantity", "entry_price", "mark_price", "stop_price",
+                "targets", "unrealized_pnl_usdt", "r_multiple", "leverage", "liquidation_price",
+                "management_mode", "opened_at",
+            )
+        },
+        "features": {
+            key: features.get(key)
+            for key in (
+                "data_cutoff", "last_price", "atr", "atr_pct", "rsi14", "ema12", "ema26", "ema12_1h",
+                "ema26_1h", "ema12_4h", "ema26_4h", "quant_regime", "quant_direction", "volume_zscore",
+                "funding_rate",
+            )
+        },
+        "jev_answers": (context.get("jev_vector") or {}).get("answers"),
+        "portfolio": context.get("portfolio") or {},
+        "quick_intent": context.get("intent"),
+        "baseline_proposal": context.get("baseline"),
+        "instruction": (
+            "Re-plan an existing PAPER position using only the supplied closed-candle observations. "
+            "Return a structured proposal: hold, adjust stop/targets, reduce a fraction, or close. "
+            "A stop must stay on the loss side of the current mark; targets on the profit side. "
+            "Do not set quantity or leverage. Keep summary under 240 characters; no step-by-step reasoning."
+        ),
+    }
+    result["replan_input_hash"] = digest(result)
+    return result
+
+
+def parse_replan(content: Any, context: dict[str, Any]) -> dict[str, Any]:
+    """Validate a structured re-plan; execution-critical values must be typed and consistent."""
+
+    fields = {"action", "stop_price", "target_prices", "reduce_fraction", "thesis_status", "reason_codes", "summary"}
+    if not isinstance(content, dict) or set(content) != fields:
+        raise AIProviderError("re-plan response has an unsupported shape")
+    position = context["position"]
+    side = position["side"]
+    mark = float(position["mark_price"])
+    action = content["action"]
+    if action not in REPLAN_ACTIONS or content["thesis_status"] not in THESIS_STATES:
+        raise AIProviderError("re-plan response has an invalid action or thesis state")
+    codes = content["reason_codes"]
+    if not isinstance(codes, list) or any(code not in REPLAN_REASON_CODES for code in codes) or len(codes) > 5:
+        raise AIProviderError("re-plan response has invalid reason codes")
+    summary = content["summary"]
+    if not isinstance(summary, str) or len(summary) > 400:
+        raise AIProviderError("re-plan summary is invalid")
+    stop = content["stop_price"]
+    targets = content["target_prices"]
+    fraction = content["reduce_fraction"]
+    if stop is not None:
+        if isinstance(stop, bool) or not isinstance(stop, (int, float)) or not math.isfinite(stop) or stop <= 0:
+            raise AIProviderError("re-plan stop is invalid")
+        if (side == "long" and stop >= mark) or (side == "short" and stop <= mark):
+            raise AIProviderError("re-plan stop is on the wrong side of the mark")
+    if not isinstance(targets, list) or len(targets) > 3:
+        raise AIProviderError("re-plan targets are invalid")
+    for target in targets:
+        if isinstance(target, bool) or not isinstance(target, (int, float)) or not math.isfinite(target) or target <= 0:
+            raise AIProviderError("re-plan target is invalid")
+        if (side == "long" and target <= mark) or (side == "short" and target >= mark):
+            raise AIProviderError("re-plan target is on the wrong side of the mark")
+    if action == "reduce":
+        if isinstance(fraction, bool) or not isinstance(fraction, (int, float)) or not 0 < fraction < 1:
+            raise AIProviderError("re-plan reduce fraction must be between 0 and 1")
+    elif fraction is not None:
+        raise AIProviderError("only reduce proposals may set a reduce fraction")
+    if action == "close" and (stop is not None or targets):
+        raise AIProviderError("close proposals cannot set new levels")
+    ordered = sorted(float(t) for t in targets)
+    if side == "short":
+        ordered = list(reversed(ordered))
+    return {
+        "action": action,
+        "stop_price": None if stop is None else float(stop),
+        "target_prices": ordered,
+        "reduce_fraction": None if fraction is None else float(fraction),
+        "thesis_status": content["thesis_status"],
+        "reason_codes": list(dict.fromkeys(codes)),
+        "summary": summary.strip()[:240],
+    }
+
+
 REASONING_EFFORTS = {"low", "medium", "high", "max"}
 
 
@@ -1199,6 +1333,67 @@ class ResponsesAdapter:
             "real_external_call": True,
         }
 
+    def replan_payload(self, context: dict[str, Any]) -> tuple[dict[str, Any], str, dict[str, Any]]:
+        user_input = build_replan_input(context)
+        instructions = (
+            "You are a research-only crypto position manager for a PAPER portfolio. Apply the "
+            "crypto-market-trading-analysis discipline: separate facts from interpretation, respect "
+            "invalidation, never widen risk casually. Deterministic code owns sizing, leverage, risk "
+            "limits, and execution; you only propose structured changes. Return the required JSON only."
+        )
+        prompt = {
+            "model": self.provider["model"],
+            "instructions": instructions,
+            "input": json.dumps(user_input, sort_keys=True, separators=(",", ":"), allow_nan=False),
+            "text": {
+                "format": {
+                    "type": "json_schema",
+                    "name": "position_replan_proposal",
+                    "strict": True,
+                    "schema": REPLAN_RESPONSE_SCHEMA,
+                }
+            },
+            "reasoning": {"effort": self._effort("re-plan call")},
+        }
+        if self.max_output_tokens is not None:
+            prompt["max_output_tokens"] = int(self.max_output_tokens)
+        return prompt, instructions, user_input
+
+    def generate_replan(self, context: dict[str, Any]) -> dict[str, Any]:
+        prompt, instructions, user_input = self.replan_payload(context)
+        headers = self._headers()
+        meta: dict[str, Any] = {}
+        self.last_call = meta
+        started = time.perf_counter()
+        response = _safe_post(
+            self._transport,
+            _responses_url(self.provider),
+            headers,
+            prompt,
+            float(self.provider.get("timeout_seconds", 30)),
+            "Responses-compatible provider",
+            meta,
+        )
+        latency = (time.perf_counter() - started) * 1000
+        meta["latency_ms"] = latency
+        meta["raw_usage"] = response.get("usage")
+        meta.update(responses_metadata(response, prompt["reasoning"]["effort"]))
+        try:
+            content = json.loads(_response_text(response))
+        except (json.JSONDecodeError, TypeError):
+            raise AIProviderError("Responses-compatible provider returned malformed re-plan JSON") from None
+        proposal = parse_replan(content, context)
+        return {
+            "proposal": proposal,
+            "model": self.provider["model"],
+            "returned_model": meta.get("returned_model"),
+            "latency_ms": latency,
+            "usage": response.get("usage"),
+            "prompt_hash": digest({"instructions": instructions, "input": user_input}),
+            "provider_response_id": meta.get("provider_response_id"),
+            "real_external_call": True,
+        }
+
     def connection_payload(self) -> dict[str, Any]:
         payload = {
             "model": self.provider["model"],
@@ -1358,6 +1553,28 @@ class FixtureGPTProvider:
                 build_gpt_input(snapshot, features, jev_vector=jev_vector, portfolio=portfolio)
             ),
             "source_arm": source_arm,
+            "fixture": True,
+        }
+
+    def generate_replan(self, context: dict[str, Any]) -> dict[str, Any]:
+        """Deterministic fixture re-plan: follows the baseline and the observed thesis state."""
+
+        baseline = context.get("baseline") or {}
+        content = {
+            "action": baseline.get("action", "hold"),
+            "stop_price": baseline.get("stop_price"),
+            "target_prices": list(baseline.get("target_prices") or []),
+            "reduce_fraction": baseline.get("reduce_fraction"),
+            "thesis_status": baseline.get("thesis_status", "intact"),
+            "reason_codes": list(baseline.get("reason_codes") or ["NO_CHANGE_NEEDED"])[:5],
+            "summary": "Deterministic fixture re-plan mirroring the rule-based baseline.",
+        }
+        return {
+            "proposal": parse_replan(content, context),
+            "model": self.model,
+            "usage": {"input_tokens": 0, "output_tokens": 0},
+            "latency_ms": 0,
+            "prompt_hash": digest(build_replan_input(context)),
             "fixture": True,
         }
 
