@@ -124,6 +124,12 @@ test("auto-refresh runs, pauses while hidden, and reports failures", async () =>
   await new Promise((r) => setTimeout(r, 5));
   assert.equal(calls, 1);
   stop();
+  // A page opened in a hidden (background) tab still loads once; only the polling pauses.
+  let hiddenCalls = 0;
+  const stopHidden = startAutoRefresh(host, async () => { hiddenCalls += 1; }, { intervalMs: 60000, doc: { hidden: true } });
+  await new Promise((r) => setTimeout(r, 5));
+  assert.equal(hiddenCalls, 1);
+  stopHidden();
   const stop2 = startAutoRefresh(host, async () => { throw new Error("boom"); }, { intervalMs: 60000, doc: { hidden: false } });
   await new Promise((r) => setTimeout(r, 5));
   assert.match(text.textContent, /update failed: boom/);

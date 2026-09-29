@@ -38,8 +38,10 @@ export function startAutoRefresh(host, run, { intervalMs = 15000, doc = globalTh
     bar?.classList.toggle("auto-refresh--stale", s * 1000 > intervalMs * 3);
   }
 
-  async function tick() {
-    if (disposed || inFlight || doc?.hidden) return;
+  // Background polling pauses while the tab is hidden, but the first load and an explicit
+  // "Refresh now" always run, so a page opened in a background tab is ready when shown.
+  async function tick({ force = false } = {}) {
+    if (disposed || inFlight || (doc?.hidden && !force)) return;
     inFlight = true;
     lastRun = Date.now();
     bar?.classList.add("auto-refresh--busy");
@@ -60,12 +62,12 @@ export function startAutoRefresh(host, run, { intervalMs = 15000, doc = globalTh
     if (!doc?.hidden) tick();
   };
   const onClick = (event) => {
-    if (event.target.closest("[data-auto-refresh-now]")) tick();
+    if (event.target.closest("[data-auto-refresh-now]")) tick({ force: true });
   };
   doc?.addEventListener?.("visibilitychange", onVisible);
   host?.addEventListener?.("click", onClick);
-  tick();
-  timer = setInterval(tick, intervalMs);
+  tick({ force: true });
+  timer = setInterval(() => tick(), intervalMs);
   ticker = setInterval(paint, 1000);
   return () => {
     disposed = true;

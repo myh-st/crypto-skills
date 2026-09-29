@@ -197,3 +197,14 @@ export function unavailableHtml(error) {
   }
   return `<div class="panel cot-unavailable"><h2>Co-Trader data unavailable</h2><p class="muted">${escapeHtml(error?.message || "Request failed")}. Nothing is simulated.</p></div>`;
 }
+
+/**
+ * Bounded lists: rows past `visible` get class "cot-extra" (hidden until expanded) and this
+ * button toggles the container's `is-expanded`. Returns "" when nothing is hidden.
+ */
+export const extraClass = (index, visible) => (index >= visible ? " cot-extra" : "");
+export function showAllButton(total, visible, key, noun) {
+  if (total <= visible) return "";
+  const label = `Show all ${total} ${noun}`;
+  return `<button type="button" class="btn btn--ghost btn--small cot-more" data-cot-expand="${escapeHtml(key)}" data-label="${escapeHtml(label)}" aria-expanded="false">${escapeHtml(label)}</button>`;
+}
