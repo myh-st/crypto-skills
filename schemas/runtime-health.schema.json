@@ -1,0 +1,76 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "runtime-health.schema.json",
+  "title": "Runtime health summary (read-only)",
+  "type": "object",
+  "required": [
+    "schema_version",
+    "as_of",
+    "overall",
+    "experiment_status",
+    "components",
+    "open_incidents"
+  ],
+  "properties": {
+    "schema_version": {
+      "const": "runtime-health.v1"
+    },
+    "as_of": {
+      "type": "string"
+    },
+    "overall": {
+      "enum": [
+        "OK",
+        "ATTENTION",
+        "DEGRADED",
+        "CRITICAL"
+      ]
+    },
+    "experiment_status": {
+      "type": "string"
+    },
+    "components": {
+      "type": "object",
+      "required": [
+        "scheduler",
+        "monitor",
+        "market_feed",
+        "database",
+        "storage",
+        "ai_providers",
+        "budget_guard",
+        "reconciliation",
+        "last_success",
+        "kill_switch"
+      ],
+      "additionalProperties": {
+        "type": "object",
+        "required": [
+          "status"
+        ],
+        "properties": {
+          "status": {
+            "enum": [
+              "OK",
+              "IDLE",
+              "OFF",
+              "DEGRADED",
+              "FAILED",
+              "LOW",
+              "BLOCKED",
+              "RESTRICTED",
+              "UNKNOWN"
+            ]
+          }
+        }
+      }
+    },
+    "open_incidents": {
+      "type": "array",
+      "items": {
+        "$ref": "runtime-incident.schema.json"
+      }
+    }
+  },
+  "additionalProperties": false
+}

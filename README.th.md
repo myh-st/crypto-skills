@@ -85,6 +85,12 @@ Perpetual มีหน้า Overview, Portfolio, Trade, Activity, Research, Eva
   ขาย Core เฉพาะเมื่อยืนยันการพังของโครงสร้าง และมี benchmark เทียบแบบเงื่อนไขเดียวกัน
   ดู [`docs/spot-cycle-lifecycle-manager.md`](docs/spot-cycle-lifecycle-manager.md)
 
+- **ความทนทานสำหรับรันต่อเนื่อง:** กู้สถานะตอนเริ่มก่อนระบบอัตโนมัติทำงาน บันทึกรอบ scheduler
+  (ช่วงที่พลาดถูกบันทึกชัดเจน ไม่เติมข้อมูลปลอม) incident และ health, circuit breaker ของ AI
+  provider, backup/restore ที่ตรวจสอบแล้วและไม่มี secret, ล็อกให้รันได้ instance เดียว และ soak
+  แบบเร่งเวลา (`paper-backup`, `paper-restore`, `paper-soak`) ดู
+  [`docs/continuous-paper-resilience.md`](docs/continuous-paper-resilience.md)
+
 การเขียนคำสั่งเงินจริงไปยัง Gate ยังถูกบล็อกโดยการออกแบบ รายละเอียดอยู่ที่
 [`docs/ai-portfolio-trading-os.md`](docs/ai-portfolio-trading-os.md)
 

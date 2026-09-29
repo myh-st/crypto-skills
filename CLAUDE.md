@@ -34,6 +34,8 @@ python3 -m crypto_eval paper-server [--database .paper-smoke.sqlite3] [--no-live
 python3 -m crypto_eval serve --host 127.0.0.1 --port 8765 --interval 1h                   # Spot analysis runtime, /frontend/
 python3 -m crypto_eval real-integration-check --symbol BTCUSDT   # REAL paid/external calls; local acceptance only
 python3 -m crypto_eval paper-setup-real                          # moves .env creds into the OS credential store
+python3 -m crypto_eval paper-backup [--database P]              # verified, secret-free snapshot (restore: paper-restore)
+python3 -m crypto_eval paper-soak --database FRESH.sqlite3 --days 3   # accelerated restart/sleep soak, fixture data
 ```
 
 All subcommands are defined in `crypto_eval/cli.py`.
@@ -69,7 +71,7 @@ market snapshot (closed 15m bar + 1h/4h context)
 
 ## Current baseline and canonical active goal
 
-The implementation baseline is `main` after Phase 2 (Crash & Execution Safety, PR #4). It includes:
+The implementation baseline is `main` after Phase 3 (Spot Cycle Lifecycle Manager, PR #5). It includes:
 - real Gate Spot and Perp market data;
 - backend SSE;
 - real Jev and Azure Foundry integration;
@@ -78,16 +80,19 @@ The implementation baseline is `main` after Phase 2 (Crash & Execution Safety, P
 - read-only Gate account sync;
 - the Portfolio OS: catalog, Spot, unified orders, position manager, authority modes, re-plan, Portfolio Brain, activity and attention, learning. See `docs/ai-portfolio-trading-os.md`.
 - crash, price, liquidity and execution safety: market safety states, suspect prints, execution planner, kill switch, reconciliation, Spot Core protection. See `docs/crash-execution-safety.md`.
+- the Spot lifecycle manager: typed lifecycle states, point-in-time regime evidence, Core/Tactical policy, aligned benchmark arms. See `docs/spot-cycle-lifecycle-manager.md`.
 
 The fixed phase order and campaign rules are in `docs/development-train.md`.
 
-The canonical active files for this branch (Phase 3) are:
+The canonical active files for this branch (Phase 4) are:
 
-- `.goals/spot-cycle-lifecycle-manager/goal.md`
-- `.goals/spot-cycle-lifecycle-manager/status.json`
-- `docs/spot-cycle-lifecycle-manager-plan.md`
+- `.goals/continuous-paper-resilience/goal.md`
+- `.goals/continuous-paper-resilience/status.json`
+- `docs/continuous-paper-resilience-plan.md`
 
-`docs/paper-futures-runtime.md`, `docs/ai-portfolio-trading-os.md` and `docs/crash-execution-safety.md` are implementation references, not active goals. Preserve their behavior; do not build duplicate subsystems. Crash safety stays authoritative over lifecycle actions.
+`docs/paper-futures-runtime.md`, `docs/ai-portfolio-trading-os.md`, `docs/crash-execution-safety.md` and `docs/spot-cycle-lifecycle-manager.md` are implementation references, not active goals. Preserve their behavior; do not build duplicate subsystems.
+
+Keep the platform local-first and simple. This phase is reliability hardening, not a distributed-infrastructure rewrite.
 
 CI and unit tests remain offline and fake-only. Real Gate money-moving writes remain blocked by design.
 

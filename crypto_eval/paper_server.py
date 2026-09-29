@@ -7,6 +7,7 @@ import json
 import mimetypes
 import os
 import queue
+import signal
 import socket
 import sys
 import urllib.parse
@@ -22,6 +23,7 @@ from .gate_stream import GateLiveMarketStream
 from .paper_contracts import PaperTradingError
 from .paper_runtime import PaperRuntime, PaperScheduler, PaperStore
 from .portfolio_os import ConfirmationRequired
+from .resilience import InstanceLock
 from .secret_store import CredentialResolver, default_secret_store
 
 
@@ -40,6 +42,10 @@ def default_database_path() -> Path:
     else:
         base = Path(os.environ.get("XDG_DATA_HOME", Path.home() / ".local" / "share")) / "crypto-skills"
     return base / "paper-futures.sqlite3"
+
+
+def default_backup_dir() -> Path:
+    return default_database_path().parent / "backups"
 
 
 class PaperHTTPServer(ThreadingHTTPServer):
@@ -228,6 +234,10 @@ class PaperRequestHandler(BaseHTTPRequestHandler):
             }
         if path == "/api/safety":
             return portfolio.safety_overview()
+        if path == "/api/runtime-health":
+            return self.runtime.health()
+        if path == "/api/incidents":
+            return {"incidents": self.runtime.resilience.incidents(status=q("status") or None)}
         if path == "/api/lifecycle":
             return portfolio.lifecycle_overview()
         if path == "/api/lifecycle/benchmarks":
@@ -264,6 +274,15 @@ class PaperRequestHandler(BaseHTTPRequestHandler):
             if not isinstance(confirm, bool):
                 raise PaperTradingError("confirm must be boolean")
             return {"kill_switch": portfolio.set_kill_switch(body.get("level"), reason=str(body.get("reason") or "")[:300], confirm=confirm)}
+        if path == "/api/backup":
+            from .resilience import backup_database, database_path
+
+            body = self._read_json()
+            if body:
+                raise PaperTradingError("backup takes no parameters")
+            served = database_path(self.runtime.store)
+            target = served.parent / "backups" if served else default_backup_dir()
+            return {"backup": backup_database(self.runtime.store, target, label="api")}
         if path == "/api/lifecycle/benchmark":
             body = self._read_json()
             if set(body) - {"instrument_id", "bars"}:
@@ -907,7 +926,9 @@ def serve(
     if isinstance(port, bool) or not isinstance(port, int) or not 1024 <= port <= 65535:
         raise PaperTradingError("port must be between 1024 and 65535")
     load_environment_file(REPOSITORY_ROOT / ".env")
-    store = PaperStore(database or default_database_path())
+    database_file = Path(database or default_database_path())
+    lock = InstanceLock(database_file).acquire()  # one scheduler per database, ever
+    store = PaperStore(database_file)
     resolver = CredentialResolver(default_secret_store())
     stream = None
     if live_stream:
@@ -923,17 +944,25 @@ def serve(
     print(f"PAPER futures research console: http://{display_host}:{port}/")
     print("Execution mode is permanently PAPER; real-money order routes are not implemented.")
     print(f"Credential store: {resolver.store.backend}; Gate live stream: {'on' if stream else 'off'}")
+    def _terminate(_signum: int, _frame: Any) -> None:
+        raise KeyboardInterrupt
+
+    previous = signal.signal(signal.SIGTERM, _terminate)
     try:
         server.serve_forever(poll_interval=0.5)
     except KeyboardInterrupt:
         pass
     finally:
+        signal.signal(signal.SIGTERM, previous)
+        # Stop accepting requests, stop background work (bounded join), mark a clean stop,
+        # checkpoint WAL, then release the database and the instance lock.
         server.shutdown()
         server.server_close()
         scheduler.shutdown()
         if stream is not None:
             stream.stop()
         store.close()
+        lock.release()
     return 0
 
 

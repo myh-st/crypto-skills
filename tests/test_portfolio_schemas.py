@@ -24,6 +24,7 @@ CONTRACTS = (
     "portfolio-brain-decision", "activity-event", "attention-event", "post-trade-review", "learning-tag",
     "market-safety-state", "execution-plan", "kill-switch-level",
     "spot-lifecycle-state", "spot-lifecycle-plan", "spot-regime-evidence", "spot-benchmark-report",
+    "runtime-health", "runtime-incident",
 )
 
 
@@ -66,6 +67,18 @@ class PortfolioSchemaTests(PortfolioCase):
         self.assertConforms(self.os.lifecycle_view(ref)["lifecycle"]["state"], "spot-lifecycle-state")
         self.os._regime_bars = lambda base, now, n=120: bars(trend(n), end=END)
         self.assertConforms(self.os.lifecycle_benchmark("fixture:spot:ETH_USDT", bars=200), "spot-benchmark-report")
+
+    def test_resilience_outputs_conform(self):
+        from collections import namedtuple
+        usage = namedtuple("Usage", "total used free")
+        self.runtime.recover_on_startup(disk_usage=lambda _p: usage(2**40, 2**30, 2**39))
+        for _ in range(3):
+            self.runtime.resilience.record_provider("jev-x", ok=False, error="timeout")
+        health = self.runtime.health(disk_usage=lambda _p: usage(2**40, 2**30, 2**39))
+        self.assertTrue(health["open_incidents"])
+        self.assertConforms(health, "runtime-health")
+        for incident in self.runtime.resilience.incidents():
+            self.assertConforms(incident, "runtime-incident")
 
     def test_runtime_outputs_conform(self):
         for market_type in ("spot", "perpetual"):

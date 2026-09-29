@@ -2,6 +2,7 @@
 // after AI cost, drawdown, risk, attention, open positions, automation health, latest AI
 // actions, and changes since the last visit. Low prose; every control is live.
 import { escapeHtml, formatTimestamp } from "../format.js";
+import { renderHealth } from "../components/healthPanel.js";
 import { paperApi } from "../paperApi.js";
 import { renderTimeline } from "../components/activityTimeline.js";
 import { attentionCounts, renderAttentionQueue } from "../components/attentionQueue.js";
@@ -88,6 +89,10 @@ export function renderCockpit(root, ctx) {
           <h2 id="automation-heading">Automation</h2>
           <div data-automation-panel></div>
         </section>
+        <section class="panel" aria-labelledby="health-heading">
+          <h2 id="health-heading">System health</h2>
+          <div data-health><p class="muted small">Loading…</p></div>
+        </section>
         <section class="panel" aria-labelledby="since-heading">
           <div class="section-heading"><h2 id="since-heading">Since your last visit</h2><a class="panel-link" href="#/activity">Activity →</a></div>
           <div data-since></div>
@@ -115,6 +120,11 @@ export function renderCockpit(root, ctx) {
         paperApi.marketStatus().catch(() => ({ stream: null })),
         paperApi.safety().catch(() => null),
       ]);
+      paperApi.runtimeHealth().then((health) => {
+        if (!disposed) root.querySelector("[data-health]").innerHTML = renderHealth(health);
+      }).catch(() => {
+        if (!disposed) root.querySelector("[data-health]").innerHTML = renderHealth(null);
+      });
       if (disposed) return;
       const experiment = experimentPayload.experiment;
       current = { experiment, automation: settings.settings.automation };
@@ -182,6 +192,10 @@ export function renderCockpit(root, ctx) {
         await paperApi.runtime(button.dataset.runtime);
         feedback(note, `Scheduler ${button.dataset.runtime} requested.`, "success");
         await refresh();
+      } else if (button.matches("[data-backup]")) {
+        button.disabled = true;
+        const { backup } = await paperApi.backup();
+        feedback(note, `Backup saved: ${backup.file} (${(backup.bytes / 1048576).toFixed(1)} MB, verified, no credentials).`, "success");
       } else if (button.dataset.ackAttention) {
         await paperApi.acknowledgeAttention(button.dataset.ackAttention);
         await refresh();

@@ -508,3 +508,24 @@ test("benchmark table shows every arm, unavailable AI cost, and the no-superiori
   assert.match(html, /NOT_EVIDENCE_OF_SUPERIORITY/);
   assert.match(renderBenchmark(null), /Run a benchmark/);
 });
+
+// ------------------------------------------------------------------ runtime health
+import { HEALTH_COMPONENTS, renderHealth } from "../modules/components/healthPanel.js";
+
+test("health panel shows overall state, component pills, incidents, and the backup action", () => {
+  const html = renderHealth({ overall: "DEGRADED", components: {
+    scheduler: { status: "OK" }, monitor: { status: "OK" }, market_feed: { status: "DEGRADED" }, database: { status: "OK", size_bytes: 5242880 },
+    storage: { status: "OK", free_mb: 20480 }, ai_providers: { status: "DEGRADED" }, budget_guard: { status: "OK" },
+    reconciliation: { status: "OK" }, kill_switch: { status: "OK" }, last_success: { cycle_at: null } },
+    open_incidents: [{ kind: "PROVIDER_OUTAGE", summary: "jev: circuit open <x>", occurrences: 2, last_seen_at: "2026-09-29T00:00:00Z" }] });
+  assert.match(html, /System<\/small> DEGRADED/);
+  assert.match(html, /Market feed<\/small> DEGRADED/);
+  assert.match(html, /PROVIDER OUTAGE/);
+  assert.match(html, /×2/);
+  assert.doesNotMatch(html, /<x>/);
+  assert.match(html, /DB 5.0 MB/);
+  assert.match(html, /data-backup/);
+  assert.equal(HEALTH_COMPONENTS.length, 9);
+  assert.match(renderHealth({ overall: "OK", components: {}, open_incidents: [] }), /No open incidents/);
+  assert.match(renderHealth(null), /unavailable/);
+});

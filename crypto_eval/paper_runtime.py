@@ -7,6 +7,7 @@ import hashlib
 import io
 import json
 import math
+import os
 import re
 import sqlite3
 import threading
@@ -70,6 +71,16 @@ from .portfolio_brain import evaluate_entry as portfolio_brain_entry
 from .portfolio_store import PORTFOLIO_SCHEMA
 from .execution_safety import KILL_RANK, SAFETY_SCHEMA, classify_market, suspect_print
 from .spot_lifecycle import LIFECYCLE_SCHEMA
+from .resilience import (
+    DB_SCHEMA_VERSION,
+    RESILIENCE_SCHEMA,
+    ResilienceLedger,
+    compact_storage,
+    database_health,
+    database_path,
+    missed_slots,
+    storage_health,
+)
 
 
 MARKET_PROVIDER_IDS = {
@@ -571,6 +582,8 @@ class PaperStore:
             self._db.execute("PRAGMA journal_mode=WAL")
         self._create_schema()
         self._migrate_schema()
+        if self._db.execute("PRAGMA user_version").fetchone()[0] < DB_SCHEMA_VERSION:
+            self._db.execute(f"PRAGMA user_version={int(DB_SCHEMA_VERSION)}")
         self._seed()
         self.cost_ledger = CostLedger(self.transaction, self._query)
         self.resolver: CredentialResolver | None = None
@@ -815,6 +828,7 @@ class PaperStore:
         self._db.executescript(PORTFOLIO_SCHEMA)
         self._db.executescript(SAFETY_SCHEMA)
         self._db.executescript(LIFECYCLE_SCHEMA)
+        self._db.executescript(RESILIENCE_SCHEMA)
 
     def _migrate_schema(self) -> None:
         with self._lock:
@@ -3332,6 +3346,7 @@ class PaperRuntime:
         self.live_stream = live_stream
         self._gate_provider: GateUsdtFuturesMarketDataProvider | None = None
         self.store.cost_ledger._clock = self._clock
+        self.resilience = ResilienceLedger(self.store, self._clock)
 
     @property
     def portfolio(self) -> Any:
@@ -3342,6 +3357,148 @@ class PaperRuntime:
 
             self._portfolio = PortfolioOS(self, catalog=self._catalog_override)
         return self._portfolio
+
+    # ------------------------------------------------------------ resilience
+    def _escalate(self, level: str, reason: str) -> None:
+        from .execution_safety import KILL_RANK as _RANK
+
+        portfolio = self.portfolio
+        if _RANK[portfolio.kill_switch()["level"]] < _RANK[level]:
+            portfolio.set_kill_switch(level, reason=reason, source="SYSTEM")
+
+    def recover_on_startup(self, *, disk_usage: Callable[[str], Any] | None = None) -> dict[str, Any]:
+        """Deterministic startup recovery before any autonomous action. Never repeats a consumed
+        AI call, never resumes an interrupted execution by itself, and fails closed on damage."""
+
+        experiment_id = self.store.experiment()["experiment_id"]
+        res = self.resilience
+        actions: dict[str, Any] = {}
+        previous = res.heartbeats().get("process")
+        if previous and not (previous.get("detail") or {}).get("clean_shutdown", False):
+            res.open_incident("UNCLEAN_SHUTDOWN", severity="WARNING", experiment_id=experiment_id, resolved=True,
+                              summary="previous process ended without a graceful shutdown",
+                              detail={"last_seen": previous.get("updated_at")})
+            actions["unclean_shutdown"] = True
+        database = database_health(self.store)
+        actions["database_ok"] = database["ok"]
+        if not database["ok"]:
+            res.open_incident("DATABASE_FAILURE", severity="CRITICAL", experiment_id=experiment_id, dedupe_key="database",
+                              summary="SQLite quick_check failed; automation halted to risk-reducing only", detail=database)
+            self._escalate("RISK_REDUCING_ONLY", "DATABASE_FAILURE: integrity check failed at startup")
+            if self.store.experiment()["status"] == "running":
+                self.store.set_status("paused")
+        actions["interrupted_cycles"] = self.store.recover_interrupted_cycles(experiment_id)
+        with self.store.transaction() as db:
+            plans = db.execute("SELECT plan_id, position_ref FROM execution_plans WHERE experiment_id=? AND status='executing'",
+                               (experiment_id,)).fetchall()
+            db.execute("UPDATE execution_plans SET status='interrupted', updated_at=? WHERE experiment_id=? AND status='executing'",
+                       (iso_utc(self._clock()), experiment_id))
+        for plan in plans:
+            self.portfolio.safety.event(experiment_id, kind="execution", code="EXECUTION_DEFERRED", source="SYSTEM",
+                                        detail={"plan_id": plan["plan_id"], "reason": "process restarted during sliced execution; "
+                                                "filled slices stand, the remainder is not resumed automatically"},
+                                        position_ref=plan["position_ref"])
+        actions["interrupted_plans"] = len(plans)
+        budget = self.store.experiment()["config"].get("ai_budget") or {}
+        stale = self.store._query("SELECT reservation_id FROM ai_budget_reservations WHERE experiment_id=? AND status='reserved'",
+                                  (experiment_id,))
+        for row in stale:
+            try:
+                self.store.cost_ledger.settle(row["reservation_id"], experiment_id=experiment_id, charged_usd=None,
+                                              keep_reserved_when_unknown=True, budget=budget)
+            except Exception:  # a reservation that cannot be settled stays conservative (reserved)
+                continue
+        actions["stale_ai_reservations_kept_conservative"] = len(stale)
+        storage = storage_health(database_path(self.store), min_free_mb=res.settings["min_free_disk_mb"],
+                                 **({"disk_usage": disk_usage} if disk_usage else {}))
+        actions["storage_ok"] = storage.get("ok", False)
+        if not storage.get("ok", False):
+            res.open_incident("STORAGE_LOW", severity="CRITICAL", experiment_id=experiment_id, dedupe_key="storage",
+                              summary="free disk below the minimum; new entries blocked", detail=storage)
+            self._escalate("NO_NEW_ENTRIES", "STORAGE_LOW: free disk below the configured minimum")
+        reconciliation = self.portfolio.reconcile(escalate=True)
+        actions["reconciliation_ok"] = reconciliation["ok"]
+        res.open_incident("PROCESS_RESTART", severity="INFO", experiment_id=experiment_id, resolved=True,
+                          summary="startup recovery completed", detail=actions)
+        res.heartbeat("process", detail={"clean_shutdown": False, "started_at": iso_utc(self._clock()), "pid": os.getpid()})
+        return actions
+
+    def mark_clean_shutdown(self, *, reason: str = "shutdown requested") -> None:
+        experiment_id = self.store.experiment()["experiment_id"]
+        self.resilience.open_incident("GRACEFUL_SHUTDOWN", severity="INFO", experiment_id=experiment_id, resolved=True,
+                                      summary=reason[:200])
+        self.resilience.heartbeat("process", detail={"clean_shutdown": True, "stopped_at": iso_utc(self._clock())})
+        try:
+            self.store._query("PRAGMA wal_checkpoint(TRUNCATE)")
+        except sqlite3.Error:
+            pass
+
+    def health(self, *, disk_usage: Callable[[str], Any] | None = None) -> dict[str, Any]:
+        """Compact health summary. Read-only: computing health never triggers an action."""
+
+        res = self.resilience
+        experiment = self.store.experiment()
+        config = experiment["config"]
+        beats = res.heartbeats()
+        now = self._clock().astimezone(timezone.utc)
+
+        def age(name: str) -> float | None:
+            value = (beats.get(name) or {}).get("last_ok_at")
+            return None if not value else round((now - parse_utc(value, name)).total_seconds(), 1)
+
+        monitor_interval = int(config["monitor_interval_seconds"])
+        running = experiment["status"] == "running"
+        scheduler_age, monitor_age = age("scheduler"), age("monitor")
+        components: dict[str, dict[str, Any]] = {}
+        components["scheduler"] = {
+            "status": "IDLE" if not running else "OK" if scheduler_age is not None and scheduler_age < 120 else "DEGRADED",
+            "last_heartbeat_age_seconds": scheduler_age, "last_slot": res.last_slot(experiment["experiment_id"]),
+            "last_error": (beats.get("scheduler") or {}).get("last_error"),
+        }
+        components["monitor"] = {
+            "status": "OK" if monitor_age is not None and monitor_age < max(60, 3 * monitor_interval) else "DEGRADED" if monitor_age is not None else "UNKNOWN",
+            "last_heartbeat_age_seconds": monitor_age, "last_error": (beats.get("monitor") or {}).get("last_error"),
+        }
+        stream = self.live_stream.status() if self.live_stream is not None else None
+        components["market_feed"] = {"status": "OFF" if stream is None else ("OK" if str(stream.get("state") or "").upper() == "LIVE" else "DEGRADED"),
+                                     "detail": None if stream is None else {k: stream.get(k) for k in ("state", "last_error", "last_message_at", "counters") if k in stream}}
+        database = database_health(self.store)
+        components["database"] = {"status": "OK" if database.get("ok") else "FAILED", **database}
+        storage = storage_health(database_path(self.store), min_free_mb=res.settings["min_free_disk_mb"],
+                                 **({"disk_usage": disk_usage} if disk_usage else {}))
+        components["storage"] = {"status": "OK" if storage.get("ok") else "LOW", **storage}
+        circuits = res.circuits()
+        open_circuits = [c["provider_id"] for c in circuits if c["opened_until"] and parse_utc(c["opened_until"], "o") > now]
+        components["ai_providers"] = {"status": "DEGRADED" if open_circuits else "OK", "open_circuits": open_circuits,
+                                      "providers": circuits}
+        try:
+            budget = self.store.cost_ledger.budget_status(experiment["experiment_id"], config["ai_budget"])
+            components["budget_guard"] = {"status": "BLOCKED" if budget.get("exhausted") else "OK",
+                                          **{k: budget.get(k) for k in ("spent_today_usd", "remaining_today_usd", "open_reservations_usd", "limit_action")}}
+        except Exception:
+            components["budget_guard"] = {"status": "UNKNOWN"}
+        from .execution_safety import reconcile_ledgers
+
+        reconciliation = reconcile_ledgers(self.store, experiment["experiment_id"])
+        components["reconciliation"] = {"status": "OK" if reconciliation["ok"] else "FAILED", "problems": reconciliation["problems"][:5]}
+        cycles = self.store._query("SELECT MAX(updated_at) AS t FROM cycles WHERE experiment_id=? AND status='completed'",
+                                   (experiment["experiment_id"],))
+        reviews = self.store._query("SELECT MAX(last_ai_review_at) AS t FROM position_meta WHERE experiment_id=?",
+                                    (experiment["experiment_id"],))
+        components["last_success"] = {"status": "OK", "cycle_at": cycles[0]["t"] if cycles else None,
+                                      "position_review_at": reviews[0]["t"] if reviews else None}
+        components["kill_switch"] = {"status": "OK" if self.portfolio.kill_switch()["level"] == "NORMAL" else "RESTRICTED",
+                                     "level": self.portfolio.kill_switch()["level"]}
+        order = {"FAILED": 3, "LOW": 3, "BLOCKED": 2, "DEGRADED": 2, "RESTRICTED": 1, "UNKNOWN": 1, "OFF": 0, "IDLE": 0, "OK": 0}
+        worst = max((order.get(c["status"], 0) for c in components.values()), default=0)
+        return {
+            "schema_version": "runtime-health.v1",
+            "as_of": iso_utc(now),
+            "overall": {0: "OK", 1: "ATTENTION", 2: "DEGRADED", 3: "CRITICAL"}[worst],
+            "experiment_status": experiment["status"],
+            "components": components,
+            "open_incidents": res.incidents(status="OPEN", limit=20),
+        }
 
     def _market(self, config: dict[str, Any]) -> FuturesMarketDataProvider:
         if self._market_provider_override is not None:
@@ -3431,6 +3588,20 @@ class PaperRuntime:
                 }
             )
             return result, None
+        circuit_ok, circuit_reason = self.resilience.circuit_allows(provider_config["provider_id"])
+        if not circuit_ok:
+            ledger.record_usage(
+                {
+                    **base_event,
+                    "completed_at": iso_utc(self._clock()),
+                    "status": "failed",
+                    "estimated_cost_usd": 0.0,
+                    "cost_status": "exact",
+                    "error_code": "circuit_open",
+                    "real_external_call": False,
+                }
+            )
+            raise AIProviderError(circuit_reason or "PROVIDER_CIRCUIT_OPEN")
         decision = ledger.reserve(
             experiment_id=experiment_id,
             cycle_id=cycle_id,
@@ -3471,6 +3642,9 @@ class PaperRuntime:
                 if meta.get("http_status")
                 else meta.get("error_kind") or ("validation_failed" if meta.get("request_sent") else "not_sent")
             )
+            if code != "validation_failed":
+                # Transport/provider failures feed the circuit; a schema-invalid answer is not an outage.
+                self.resilience.record_provider(provider_config["provider_id"], ok=False, error=code, experiment_id=experiment_id)
             usage = normalize_usage(meta.get("raw_usage"))
             cost, cost_status = estimate_cost(price, usage)
             ledger.record_usage(
@@ -3494,6 +3668,7 @@ class PaperRuntime:
             )
             raise
         meta = getattr(adapter, "last_call", {}) or {}
+        self.resilience.record_provider(provider_config["provider_id"], ok=True)
         usage = normalize_usage(meta.get("raw_usage"))
         cost, cost_status = estimate_cost(price, usage)
         settlement = ledger.settle(
@@ -3661,32 +3836,27 @@ class PaperRuntime:
     def _risk_statistics(
         self, experiment_id: str, cohort: str = "primary"
     ) -> tuple[float, float, int]:
-        records = self.store.export_records(experiment_id)
+        """Daily loss, max drawdown, and consecutive-loss streak for a cohort.
+
+        Targeted indexed queries (not a full export) so a cycle's cost does not grow with the
+        experiment's history. Semantics match the previous full-scan implementation."""
+
         config = self.store.experiment()["config"]
         day_start = self._clock().astimezone(timezone.utc).replace(
             hour=0, minute=0, second=0, microsecond=0
         )
         day_end = day_start + timedelta(days=1)
-        cohort_equity = [
-            row
-            for row in records["equity"]
-            if row["cohort"] == cohort
-        ]
-        before_day = [
-            row
-            for row in cohort_equity
-            if parse_utc(row["as_of"], "equity.as_of") < day_start
-        ]
-        in_day = [
-            row
-            for row in cohort_equity
-            if day_start
-            <= parse_utc(row["as_of"], "equity.as_of")
-            < day_end
-        ]
+        before = self.store._query(
+            "SELECT equity FROM equity WHERE experiment_id=? AND cohort=? AND as_of < ? ORDER BY as_of DESC LIMIT 1",
+            (experiment_id, cohort, iso_utc(day_start)),
+        )
+        in_day = [] if before else self.store._query(
+            "SELECT equity FROM equity WHERE experiment_id=? AND cohort=? AND as_of >= ? AND as_of < ? ORDER BY as_of LIMIT 1",
+            (experiment_id, cohort, iso_utc(day_start), iso_utc(day_end)),
+        )
         daily_start_equity = (
-            float(before_day[-1]["equity"])
-            if before_day
+            float(before[0]["equity"])
+            if before
             else float(in_day[0]["equity"])
             if in_day
             else float(config["starting_balance_usdt"])
@@ -3697,34 +3867,28 @@ class PaperRuntime:
             if daily_start_equity > 0
             else 0.0
         )
-        series = [
-            row["equity"]
-            for row in records["equity"]
-            if row["cohort"] == cohort
-        ]
-        peak = -math.inf
-        drawdown = 0.0
-        for point in series:
-            peak = max(peak, float(point))
-            if peak > 0:
-                drawdown = max(drawdown, (peak - float(point)) / peak)
-        closed = sorted(
-            [
-                position
-                for position in records["positions"]
-                if position["cohort"] == cohort
-                and position["status"] == "closed"
-                and position["closed_pnl_recorded"]
-            ],
-            key=lambda item: item["closed_at"] or "",
-            reverse=True,
+        drawdown_row = self.store._query(
+            "SELECT MAX(CASE WHEN peak > 0 THEN (peak - equity) / peak ELSE 0 END) AS drawdown FROM ("
+            "SELECT equity, MAX(equity) OVER (ORDER BY as_of ROWS BETWEEN UNBOUNDED PRECEDING AND CURRENT ROW) AS peak "
+            "FROM equity WHERE experiment_id=? AND cohort=?)",
+            (experiment_id, cohort),
         )
+        drawdown = max(0.0, float(drawdown_row[0]["drawdown"] or 0.0)) if drawdown_row else 0.0
         streak = 0
-        for position in closed:
-            if float(position["realized_pnl"] or 0) >= 0:
-                break
-            streak += 1
-        return daily_loss, drawdown, streak
+        offset = 0
+        while True:
+            rows = self.store._query(
+                "SELECT realized_pnl FROM positions WHERE experiment_id=? AND cohort=? AND status='closed' "
+                "AND closed_pnl_recorded ORDER BY COALESCE(closed_at, '') DESC, opened_at, symbol LIMIT 100 OFFSET ?",
+                (experiment_id, cohort, offset),
+            )
+            for row in rows:
+                if float(row["realized_pnl"] or 0) >= 0:
+                    return daily_loss, drawdown, streak
+                streak += 1
+            if len(rows) < 100:
+                return daily_loss, drawdown, streak
+            offset += 100
 
     def _feature_history(
         self,
@@ -5455,15 +5619,12 @@ class PaperScheduler:
                 self._monitor_thread.start()
 
     def resume_on_startup(self) -> dict[str, Any]:
+        # Recovery runs before any worker starts, so no autonomous action sees unreconciled state.
+        self.last_recovery = self.runtime.recover_on_startup()
         experiment = self.runtime.store.experiment()
-        self.runtime.store.recover_interrupted_cycles(experiment["experiment_id"])
-        if experiment["status"] == "running" and experiment["config"]["auto_resume"]:
-            self._ensure_workers()
-        elif experiment["status"] == "running":
+        if experiment["status"] == "running" and not experiment["config"]["auto_resume"]:
             self.runtime.store.set_status("paused")
-            self._ensure_workers()
-        else:
-            self._ensure_workers()
+        self._ensure_workers()
         return self.runtime.store.experiment()
 
     def start(self) -> dict[str, Any]:
@@ -5482,53 +5643,143 @@ class PaperScheduler:
     def stop(self) -> dict[str, Any]:
         return self.runtime.stop()
 
+    def cycle_tick(self, now: datetime | None = None) -> dict[str, Any]:
+        """One scheduler decision. The slot is persisted before any cycle runs, so a restart
+        within the slot never repeats it; slots missed during sleep/downtime are recorded as
+        SKIPPED_GAP and never back-filled with invented observations."""
+
+        res = self.runtime.resilience
+        experiment = self.runtime.store.experiment()
+        res.heartbeat("scheduler", detail={"status": experiment["status"]})
+        if experiment["status"] != "running":
+            return {"status": "idle"}
+        if self.runtime.portfolio.kill_switch()["level"] == "FULL_AUTOMATION_HALT":
+            return {"status": "halted"}
+        config = experiment["config"]
+        experiment_id = experiment["experiment_id"]
+        now = (now or self.runtime._clock()).astimezone(timezone.utc)
+        close = floor_time(now, "15m")
+        due = close + timedelta(seconds=config["schedule_delay_seconds"])
+        if now < due:
+            return {"status": "waiting"}
+        slot = iso_utc(close)
+        prior = res.slot_status(experiment_id, slot)
+        if prior == "DONE":
+            return {"status": "already_done", "slot": slot}
+        # An ATTEMPTED slot was interrupted (shutdown/crash): re-running is safe because each
+        # (experiment, symbol, candle) cycle is unique and a consumed AI call is never repeated.
+        gap = [] if prior == "ATTEMPTED" else missed_slots(res.last_slot(experiment_id), slot)
+        if gap:
+            listed = gap[: res.settings["max_missed_slots_listed"]]
+            for missed in listed:
+                res.record_slot(experiment_id, missed, "SKIPPED_GAP", {"reason": "process down or machine asleep"})
+            res.open_incident("SCHEDULER_GAP", severity="WARNING", experiment_id=experiment_id, resolved=True,
+                              summary=f"{len(gap)} scheduled 15m slot(s) missed; not back-filled (no invented observations)",
+                              detail={"first": gap[0], "last": gap[-1], "count": len(gap)})
+        lateness = (now - due).total_seconds()
+        if lateness > res.settings["scheduler_lag_seconds"]:
+            res.open_incident("SCHEDULER_LAG", severity="WARNING", experiment_id=experiment_id, resolved=True,
+                              summary=f"slot {slot} started {int(lateness)}s late; the cycle uses the closed candle only",
+                              detail={"slot": slot, "late_seconds": lateness})
+        res.record_slot(experiment_id, slot, "ATTEMPTED", {"symbols": config["symbols"]})
+        outcomes: dict[str, str] = {}
+        for symbol in config["symbols"]:
+            if self._shutdown.is_set():
+                outcomes[symbol] = "shutdown"
+                break
+            try:
+                cycle = self.runtime.run_cycle(symbol, as_of=now, manual=False)
+                outcomes[symbol] = str((cycle or {}).get("status", "ok"))
+            except PaperTradingError as exc:
+                outcomes[symbol] = f"error: {str(exc)[:80]}"
+        interrupted = any(value == "shutdown" for value in outcomes.values())
+        res.record_slot(experiment_id, slot, "ATTEMPTED" if interrupted else "DONE", {"outcomes": outcomes})
+        return {"status": "interrupted" if interrupted else "ran", "slot": slot, "missed": len(gap), "outcomes": outcomes}
+
+    def monitor_tick(self, now: datetime | None = None) -> dict[str, Any]:
+        res = self.runtime.resilience
+        experiment = self.runtime.store.experiment()
+        interval = int(experiment["config"]["monitor_interval_seconds"])
+        now = (now or self.runtime._clock()).astimezone(timezone.utc)
+        previous = res.heartbeats().get("monitor", {}).get("last_ok_at")
+        if previous:
+            silence = (now - parse_utc(previous, "monitor.last_ok_at")).total_seconds()
+            if silence > res.settings["monitor_gap_multiplier"] * max(interval, 5):
+                res.open_incident("MONITOR_GAP", severity="WARNING", experiment_id=experiment["experiment_id"], resolved=True,
+                                  summary=f"monitor silent for {int(silence)}s (sleep/downtime); catching up from real closed bars",
+                                  detail={"silence_seconds": silence, "since": previous})
+        self.runtime.monitor_once(as_of=now)
+        # Spot limits/plans, management metadata, post-trade reviews, the deterministic
+        # position-review queue (no per-tick AI), lifecycle reviews, snapshots, and attention.
+        summary = self.runtime.portfolio.after_monitor(now=now)
+        stream = self.runtime.live_stream
+        if stream is not None:
+            status = stream.status()
+            counters = status.get("counters") or {}
+            seen = (res.heartbeats().get("feed") or {}).get("detail") or {}
+            live = str(status.get("state") or "").upper() == "LIVE"
+            reason = status.get("last_error") or status.get("reason")
+            if not live:
+                res.open_incident("FEED_STALE", severity="WARNING", dedupe_key="feed", experiment_id=experiment["experiment_id"],
+                                  summary=f"market feed {status.get('state')}: {reason or 'no detail'}; stale-feed guards stay authoritative",
+                                  detail={"state": status.get("state"), "reason": reason})
+            else:
+                res.resolve("feed", "market feed live again")
+            new_gap_bars = int(counters.get("gap_fill_bars", 0)) - int(seen.get("gap_fill_bars", 0))
+            if seen and new_gap_bars > 0:
+                res.open_incident("FEED_GAP", severity="INFO", experiment_id=experiment["experiment_id"], resolved=True,
+                                  summary=f"reconnected and REST gap-filled {new_gap_bars} closed bar(s)",
+                                  detail={"reconnects": counters.get("reconnects"), "gap_fill_bars": counters.get("gap_fill_bars")})
+            res.heartbeat("feed", ok=live, error=reason,
+                          detail={"gap_fill_bars": counters.get("gap_fill_bars", 0), "reconnects": counters.get("reconnects", 0),
+                                  "dropped": counters.get("dropped", 0)})
+        retention_age = res.heartbeat_age("retention")
+        if retention_age is None or retention_age > 86_400:
+            summary["retention"] = compact_storage(self.runtime.store, experiment["experiment_id"], now=now)
+            res.heartbeat("retention", detail=summary["retention"])
+        res.heartbeat("monitor", detail={k: v for k, v in summary.items() if isinstance(v, (int, bool, str))})
+        res.resolve("monitor", "monitor tick succeeded")
+        return summary
+
+    def _record_loop_error(self, name: str, exc: BaseException) -> None:
+        try:
+            self.runtime.resilience.heartbeat(name, ok=False, error=f"{type(exc).__name__}: {str(exc)[:200]}")
+            self.runtime.resilience.open_incident(
+                "SCHEDULER_FAILURE" if name == "scheduler" else "MONITOR_FAILURE", severity="WARNING", dedupe_key=name,
+                summary=f"{name} loop error: {type(exc).__name__}", detail={"error": str(exc)[:300]},
+            )
+        except Exception:
+            pass  # the database itself may be failing; the loop keeps running and retries
+
     def _cycle_loop(self) -> None:
-        last_attempted_slot: str | None = None
         while not self._shutdown.wait(self.poll_seconds):
             try:
-                experiment = self.runtime.store.experiment()
-                if experiment["status"] != "running":
-                    continue
-                if self.runtime.portfolio.kill_switch()["level"] == "FULL_AUTOMATION_HALT":
-                    continue
-                config = experiment["config"]
-                now = self.runtime._clock().astimezone(timezone.utc)
-                close = floor_time(now, "15m")
-                if now < close + timedelta(seconds=config["schedule_delay_seconds"]):
-                    continue
-                slot = iso_utc(close)
-                if slot == last_attempted_slot:
-                    continue
-                last_attempted_slot = slot
-                for symbol in config["symbols"]:
-                    if self._shutdown.is_set():
-                        break
-                    try:
-                        self.runtime.run_cycle(symbol, as_of=now, manual=False)
-                    except PaperTradingError:
-                        continue
-            except Exception:
+                self.cycle_tick()
+            except Exception as exc:  # never kill the scheduler thread; record and back off
+                self._record_loop_error("scheduler", exc)
                 self._shutdown.wait(self.poll_seconds)
 
     def _monitor_loop(self) -> None:
         while not self._shutdown.is_set():
             try:
-                experiment = self.runtime.store.experiment()
-                interval = experiment["config"]["monitor_interval_seconds"]
-                now = self.runtime._clock().astimezone(timezone.utc)
-                self.runtime.monitor_once(as_of=now)
-                # Spot limits/plans, management metadata, post-trade reviews, the deterministic
-                # position-review queue (no per-tick AI), snapshots, and attention.
-                self.runtime.portfolio.after_monitor(now=now)
-            except Exception:
+                interval = self.runtime.store.experiment()["config"]["monitor_interval_seconds"]
+                self.monitor_tick()
+            except Exception as exc:
+                self._record_loop_error("monitor", exc)
                 interval = 30
             self._shutdown.wait(max(5, int(interval)))
 
     def shutdown(self, timeout: float = 5.0) -> None:
+        """Stop accepting new work, let bounded in-flight work finish, then mark a clean stop."""
+
         self._shutdown.set()
         for worker in (self._cycle_thread, self._monitor_thread):
             if worker is not None and worker.is_alive():
                 worker.join(timeout=timeout)
+        try:
+            self.runtime.mark_clean_shutdown()
+        except Exception:
+            pass
 
 
 class PaperRuntimeReports:

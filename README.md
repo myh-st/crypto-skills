@@ -106,6 +106,12 @@ Research, Evaluations, and Settings.
   progressive distribution, Core exit only on confirmed breakdown, and aligned
   benchmark arms. See [`docs/spot-cycle-lifecycle-manager.md`](docs/spot-cycle-lifecycle-manager.md).
 
+- **Continuous resilience:** startup recovery before automation, persisted scheduler
+  slots (missed periods explicit, never back-filled), incidents and health, provider
+  circuit breaker, verified secret-free backup/restore, single-instance lock, and an
+  accelerated soak (`paper-backup`, `paper-restore`, `paper-soak`). See
+  [`docs/continuous-paper-resilience.md`](docs/continuous-paper-resilience.md).
+
 Real Gate money-moving writes remain blocked by design. See
 [`docs/ai-portfolio-trading-os.md`](docs/ai-portfolio-trading-os.md).
 
