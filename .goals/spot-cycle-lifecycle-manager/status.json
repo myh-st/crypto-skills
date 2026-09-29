@@ -1,0 +1,20 @@
+{
+  "goal": "spot-cycle-lifecycle-manager",
+  "branch": "feature/spot-cycle-lifecycle-manager",
+  "state": "in_progress",
+  "predecessor": "feature/crash-execution-safety",
+  "canonical_files": [
+    ".goals/spot-cycle-lifecycle-manager/goal.md",
+    "docs/spot-cycle-lifecycle-manager-plan.md",
+    "docs/development-train.md"
+  ],
+  "scope": {
+    "paper_only": true,
+    "spot_lifecycle": true,
+    "core_tactical": true,
+    "bull_cycle_exit": true,
+    "benchmark_baselines": true,
+    "real_gate_write_enabled": false
+  },
+  "base": "main@ca34171 (Phase 2 merged)"
+}

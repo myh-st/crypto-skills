@@ -69,7 +69,7 @@ market snapshot (closed 15m bar + 1h/4h context)
 
 ## Current baseline and canonical active goal
 
-The implementation baseline is `main` after Phase 1 (AI Portfolio Trading OS, PR #3). It includes:
+The implementation baseline is `main` after Phase 2 (Crash & Execution Safety, PR #4). It includes:
 - real Gate Spot and Perp market data;
 - backend SSE;
 - real Jev and Azure Foundry integration;
@@ -77,16 +77,17 @@ The implementation baseline is `main` after Phase 1 (AI Portfolio Trading OS, PR
 - the AI cost ledger and budget guard;
 - read-only Gate account sync;
 - the Portfolio OS: catalog, Spot, unified orders, position manager, authority modes, re-plan, Portfolio Brain, activity and attention, learning. See `docs/ai-portfolio-trading-os.md`.
+- crash, price, liquidity and execution safety: market safety states, suspect prints, execution planner, kill switch, reconciliation, Spot Core protection. See `docs/crash-execution-safety.md`.
 
 The fixed phase order and campaign rules are in `docs/development-train.md`.
 
-The canonical active files for this branch (Phase 2) are:
+The canonical active files for this branch (Phase 3) are:
 
-- `.goals/crash-execution-safety/goal.md`
-- `.goals/crash-execution-safety/status.json`
-- `docs/crash-execution-safety-plan.md`
+- `.goals/spot-cycle-lifecycle-manager/goal.md`
+- `.goals/spot-cycle-lifecycle-manager/status.json`
+- `docs/spot-cycle-lifecycle-manager-plan.md`
 
-`docs/paper-futures-runtime.md` and `docs/ai-portfolio-trading-os.md` are implementation references, not active goals. Preserve their behavior; do not build duplicate subsystems.
+`docs/paper-futures-runtime.md`, `docs/ai-portfolio-trading-os.md` and `docs/crash-execution-safety.md` are implementation references, not active goals. Preserve their behavior; do not build duplicate subsystems. Crash safety stays authoritative over lifecycle actions.
 
 CI and unit tests remain offline and fake-only. Real Gate money-moving writes remain blocked by design.
 
