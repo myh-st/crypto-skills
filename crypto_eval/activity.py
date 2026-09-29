@@ -433,6 +433,16 @@ def derive_attention(context: dict[str, Any], settings: dict[str, Any], now: dat
             category="ALERT", title=f"Kill switch {kill}", summary=str((context.get("kill_switch") or {}).get("reason") or "")[:200],
             action={"route": "overview"},
         ))
+    for incident in context.get("incidents", []):
+        # Open runtime incidents (risk halts/pauses, outages, storage, database) need a human.
+        if incident.get("status") != "OPEN" or incident.get("severity") not in {"WARNING", "CRITICAL"}:
+            continue
+        items.append(attention_candidate(
+            kind="incident", key=incident.get("dedupe_key") or incident["incident_id"],
+            severity="CRITICAL" if incident["severity"] == "CRITICAL" else "ACTION", category="ALERT",
+            title=incident["kind"].replace("_", " ").title(), summary=str(incident.get("summary") or "")[:200],
+            action={"route": "overview"},
+        ))
     open_instruments = {p.get("instrument_id") for p in positions}
     for market in context.get("market_states", []):
         if market["state"] in {"CRASH_MODE", "MARKET_DATA_UNTRUSTED"} and market["instrument_id"] in open_instruments:

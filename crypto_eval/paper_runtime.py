@@ -1124,6 +1124,9 @@ class PaperStore:
                 ),
             )
             if not cycles:
+                # Before any cycle the equity series is only the seed point; replace it so a
+                # starting-balance edit never leaves a stale point (a phantom gain or drawdown).
+                db.execute("DELETE FROM equity WHERE experiment_id=?", (config["experiment_id"],))
                 self._record_equity_locked(
                     db,
                     config["experiment_id"],
@@ -3891,21 +3894,64 @@ class PaperRuntime:
             (experiment_id, cohort),
         )
         drawdown = max(0.0, float(drawdown_row[0]["drawdown"] or 0.0)) if drawdown_row else 0.0
-        streak = 0
-        offset = 0
-        while True:
-            rows = self.store._query(
-                "SELECT realized_pnl FROM positions WHERE experiment_id=? AND cohort=? AND status='closed' "
-                "AND closed_pnl_recorded ORDER BY COALESCE(closed_at, '') DESC, opened_at, symbol LIMIT 100 OFFSET ?",
-                (experiment_id, cohort, offset),
-            )
-            for row in rows:
-                if float(row["realized_pnl"] or 0) >= 0:
-                    return daily_loss, drawdown, streak
-                streak += 1
-            if len(rows) < 100:
-                return daily_loss, drawdown, streak
-            offset += 100
+        streak, pause_until = self._loss_streak(experiment_id, cohort, config)
+        return daily_loss, drawdown, streak
+
+    RISK_PAUSE_CODES = {"LOSS_STREAK_LIMIT": "RISK_PAUSE", "DAILY_LOSS_LIMIT": "RISK_PAUSE", "DRAWDOWN_LIMIT": "RISK_HALT"}
+
+    def _record_risk_pause(self, experiment_id: str, code: str, config: dict[str, Any]) -> None:
+        """Make primary risk stops visible: a loss-streak or daily-loss pause is a WARNING that
+        resolves when entries are approved again; the drawdown stop is a CRITICAL halt that
+        stays open until a human reviews it. Never raises into the cycle."""
+
+        try:
+            res = self.resilience
+            kind = self.RISK_PAUSE_CODES.get(code)
+            if kind == "RISK_HALT":
+                res.open_incident("RISK_HALT", severity="CRITICAL", dedupe_key="risk:drawdown", experiment_id=experiment_id,
+                                  summary=f"primary drawdown stop ({config['max_drawdown_stop']:.0%}) reached; new entries halted until reviewed",
+                                  detail={"code": code})
+            elif kind == "RISK_PAUSE":
+                _streak, until = self._loss_streak(experiment_id, "primary", config) if code == "LOSS_STREAK_LIMIT" else (None, None)
+                res.open_incident("RISK_PAUSE", severity="WARNING", dedupe_key=f"risk:{code}", experiment_id=experiment_id,
+                                  summary=(f"{config['max_consecutive_losses']} consecutive losses; new entries paused until {iso_utc(until)}"
+                                           if until else "daily loss stop reached; new entries paused until the next UTC day"),
+                                  detail={"code": code, "until": None if until is None else iso_utc(until)})
+            elif code == "APPROVED":
+                res.resolve("risk:LOSS_STREAK_LIMIT", "entries approved again")
+                res.resolve("risk:DAILY_LOSS_LIMIT", "entries approved again")
+        except Exception:
+            pass
+
+    def _loss_streak(self, experiment_id: str, cohort: str, config: dict[str, Any]) -> tuple[int, datetime | None]:
+        """Consecutive-loss count with a time-bound pause.
+
+        Reaching ``max_consecutive_losses`` pauses new entries for ``loss_streak_pause_minutes``
+        after the loss that hit the limit; when the pause expires the streak resets. (Without
+        the reset a cohort that must win to clear its streak could never trade again.)"""
+
+        limit = int(config["max_consecutive_losses"])
+        pause = timedelta(minutes=int(config["loss_streak_pause_minutes"]))
+        rows = self.store._query(
+            "SELECT realized_pnl, closed_at FROM positions WHERE experiment_id=? AND cohort=? AND status='closed' "
+            "AND closed_pnl_recorded ORDER BY COALESCE(closed_at, ''), opened_at, symbol",
+            (experiment_id, cohort),
+        )
+        streak, pause_until = 0, None
+        for row in rows:
+            closed = parse_utc(row["closed_at"], "position.closed_at") if row["closed_at"] else None
+            if pause_until is not None and closed is not None and closed >= pause_until:
+                streak, pause_until = 0, None
+            if float(row["realized_pnl"] or 0) >= 0:
+                streak = 0
+                continue
+            streak += 1
+            if streak >= limit and closed is not None:
+                pause_until = closed + pause
+        now = self._clock().astimezone(timezone.utc)
+        if pause_until is not None and now >= pause_until:
+            return 0, None
+        return streak, pause_until
 
     def _feature_history(
         self,
@@ -4802,6 +4848,7 @@ class PaperRuntime:
                     consecutive_losses=consecutive,
                 )
                 risk_summary = primary_risk.to_dict()
+                self._record_risk_pause(experiment["experiment_id"], primary_risk.code, config)
                 reference_price, price_source = entry_reference(selected_intent.side)
                 executions.append(
                     {
