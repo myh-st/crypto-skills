@@ -67,7 +67,7 @@
       "maxLength": 500
     },
     "source_arm": {
-      "enum": ["quant", "jev", "luna", "luna_skill", "quant_jev", "hybrid"]
+      "enum": ["quant", "jev", "luna", "luna_skill", "quant_jev", "hybrid", "hybrid_brain", "manual"]
     },
     "as_of": {
       "type": "string",

@@ -27,7 +27,9 @@ EXPERIMENT_ARMS = (
     "luna_skill",
     "quant_jev",
     "hybrid",
+    "hybrid_brain",
 )
+INTENT_SOURCES = (*EXPERIMENT_ARMS, "manual")
 PROVIDER_KINDS = {
     "fixture_jev",
     "fixture_gpt",
@@ -327,6 +329,9 @@ def validate_experiment_config(value: Any) -> dict[str, Any]:
     if not isinstance(arms, list) or not arms or any(arm not in EXPERIMENT_ARMS for arm in arms):
         raise PaperTradingError("evaluation_arms must select at least one supported arm")
     config["evaluation_arms"] = list(dict.fromkeys(arms))
+    if "hybrid_brain" in config["evaluation_arms"] and "hybrid" not in config["evaluation_arms"]:
+        # The Portfolio Brain arm reuses Hybrid's frozen decision; Hybrid must be evaluated.
+        config["evaluation_arms"].insert(config["evaluation_arms"].index("hybrid_brain"), "hybrid")
     if config["primary_arm"] not in config["evaluation_arms"]:
         config["evaluation_arms"].append(config["primary_arm"])
     if config["fallback_policy"] not in {"DEFER", "GPT_FALLBACK", "SKIP"}:
@@ -583,7 +588,7 @@ class TradingIntent:
         source_arm = value["source_arm"]
         if not isinstance(reason, str) or not reason.strip() or len(reason) > 500:
             raise PaperTradingError("TradingIntent reason must contain 1 to 500 characters")
-        if source_arm not in EXPERIMENT_ARMS:
+        if source_arm not in INTENT_SOURCES:
             raise PaperTradingError("TradingIntent source_arm is unsupported")
         as_of = iso_utc(parse_utc(value["as_of"], "TradingIntent.as_of"))
         if action == "open":

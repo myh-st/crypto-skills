@@ -165,14 +165,14 @@
       "maximum": 1
     },
     "primary_arm": {
-      "enum": ["quant", "jev", "luna", "luna_skill", "quant_jev", "hybrid"]
+      "enum": ["quant", "jev", "luna", "luna_skill", "quant_jev", "hybrid", "hybrid_brain"]
     },
     "evaluation_arms": {
       "type": "array",
       "minItems": 1,
       "uniqueItems": true,
       "items": {
-        "enum": ["quant", "jev", "luna", "luna_skill", "quant_jev", "hybrid"]
+        "enum": ["quant", "jev", "luna", "luna_skill", "quant_jev", "hybrid", "hybrid_brain"]
       }
     },
     "jev_enabled": {
