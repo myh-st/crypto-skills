@@ -1,5 +1,6 @@
 // Portfolio: PAPER Spot and PAPER Perpetual shown together but categorized, plus a visually
 // and logically separate REAL Gate mirror (read-only; never merged into PAPER equity).
+import { renderCoinBook } from "../components/coinBook.js";
 import { applyMotion } from "../components/motion.js";
 import { escapeHtml, formatTimestamp } from "../format.js";
 import { paperApi } from "../paperApi.js";
@@ -146,7 +147,10 @@ export function render(root, ctx) {
           ${kv("Net PnL", pnl(perp.net_pnl_usdt))}
           ${kv("Funding", pnl(perp.funding_usdt == null ? null : -perp.funding_usdt))}
         </dl>`;
-      view.querySelector("[data-perp-positions]").innerHTML = renderUnifiedPositions(paper.perpetual.positions, { emptyMessage: "No open perpetual PAPER positions." });
+      const perpTable = renderUnifiedPositions(paper.perpetual.positions, { emptyMessage: "No open perpetual PAPER positions." });
+      view.querySelector("[data-perp-positions]").innerHTML = paper.perpetual.positions.length
+        ? `${renderCoinBook(paper.perpetual.positions)}<details class="positions-detail"><summary>All ${paper.perpetual.positions.length} positions</summary>${perpTable}</details>`
+        : perpTable;
       const spot = paper.spot.wallet;
       view.querySelector("[data-spot-wallet]").innerHTML = `
         <dl class="kv kv--grid">

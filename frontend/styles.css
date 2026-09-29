@@ -2781,3 +2781,26 @@ body.drawer-open { overflow: hidden; }
 .gate-fail .gate-mark { background: var(--color-negative-bg); color: var(--color-negative-text); }
 .gate-unknown .gate-mark { background: var(--color-neutral-bg); color: var(--color-neutral-text); }
 .mode-badge--engine { background: var(--color-neutral-bg); color: var(--color-neutral-text); }
+
+/* ---- Book by coin ---- */
+.coin-book { list-style: none; margin: 0 0 10px; padding: 0; display: grid; gap: 8px; }
+.coin-row { display: grid; grid-template-columns: auto minmax(0, 1fr) auto; gap: 12px; align-items: center; padding: 10px 12px; border: 1px solid var(--color-border); border-radius: 10px; background: var(--color-surface); border-left-width: 4px; }
+.coin-row--long { border-left-color: var(--color-positive-text); }
+.coin-row--short { border-left-color: var(--color-negative-text); }
+.coin-row--flat { border-left-color: var(--color-text-muted); }
+.coin-icon { display: inline-grid; place-items: center; width: var(--size, 28px); height: var(--size, 28px); border-radius: 50%; background: var(--coin); color: #fff; flex: none; box-shadow: inset 0 0 0 2px color-mix(in srgb, #fff 18%, transparent); }
+.coin-glyph { font-weight: 700; font-size: calc(var(--size, 28px) * .55); line-height: 1; }
+.coin-glyph--text { font-size: calc(var(--size, 28px) * .32); letter-spacing: .02em; }
+.coin-main { min-width: 0; display: grid; gap: 4px; }
+.coin-title { display: flex; gap: 8px; align-items: baseline; flex-wrap: wrap; }
+.coin-title strong { font-size: 15px; }
+.coin-price { font-variant-numeric: tabular-nums; color: var(--color-text-muted); font-size: 13px; }
+.coin-legs { display: flex; gap: 4px; flex-wrap: wrap; }
+.coin-leg { font-size: 11px; font-weight: 600; padding: 1px 6px; border-radius: 4px; font-variant-numeric: tabular-nums; }
+.coin-leg--long { background: var(--color-positive-bg); color: var(--color-positive-text); }
+.coin-leg--short { background: var(--color-negative-bg); color: var(--color-negative-text); }
+.coin-net { display: grid; justify-items: end; gap: 2px; text-align: right; font-variant-numeric: tabular-nums; }
+.coin-dir { font-size: 10px; letter-spacing: .08em; color: var(--color-text-muted); }
+.coin-book-summary { margin: 0 0 8px; }
+.positions-detail summary { cursor: pointer; font-size: 13px; color: var(--color-text-muted); padding: 6px 0; }
+@media (max-width: 600px) { .coin-row { grid-template-columns: auto minmax(0, 1fr); } .coin-net { grid-column: 2; justify-items: start; text-align: left; } }

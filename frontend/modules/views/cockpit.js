@@ -1,6 +1,7 @@
 // Overview cockpit: "What is happening and what needs my decision?" — portfolio value, PnL
 // after AI cost, drawdown, risk, attention, open positions, automation health, latest AI
 // actions, and changes since the last visit. Low prose; every control is live.
+import { renderCoinBook } from "../components/coinBook.js";
 import { applyMotion } from "../components/motion.js";
 import { escapeHtml, formatTimestamp } from "../format.js";
 import { renderHealth } from "../components/healthPanel.js";
@@ -30,6 +31,14 @@ function markVisit(timestamp) {
     window.localStorage.setItem(LAST_VISIT_KEY, timestamp);
   } catch {
     // Per-browser convenience only.
+  }
+}
+
+function positionsOpen() {
+  try {
+    return localStorage.getItem("cockpit.positionsOpen") === "1";
+  } catch {
+    return false;
   }
 }
 
@@ -147,9 +156,12 @@ export function renderCockpit(root, ctx) {
       root.querySelector("[data-kpis]").innerHTML = renderKpiStrip(portfolio);
       root.querySelector("[data-attention]").innerHTML = renderAttentionQueue(attention);
       root.querySelector("[data-attention-counts]").innerHTML = attentionCounts(attention.counts);
-      root.querySelector("[data-positions]").innerHTML = renderUnifiedPositions(
-        [...paper.perpetual.positions, ...paper.spot.holdings], { compact: true, emptyMessage: "No open PAPER positions. Use Trade to simulate one, or let the scheduler find setups." },
-      );
+      const allPositions = [...paper.perpetual.positions, ...paper.spot.holdings];
+      const table = renderUnifiedPositions(allPositions, { compact: true, emptyMessage: "No open PAPER positions. Use Trade to simulate one, or let the scheduler find setups." });
+      root.querySelector("[data-positions]").innerHTML = paper.perpetual.positions.length
+        ? `${renderCoinBook(paper.perpetual.positions)}<details class="positions-detail"${positionsOpen() ? " open" : ""} data-positions-detail>
+             <summary>All ${allPositions.length} positions</summary>${table}</details>`
+        : table;
       root.querySelector("[data-automation-panel]").innerHTML = renderAutomation(experiment, current.automation)
         + (safety ? renderKillSwitchControl(safety.kill_switch) : "");
       const unsafe = (safety?.market_states || []).filter((item) => item.state !== "NORMAL");
@@ -170,6 +182,15 @@ export function renderCockpit(root, ctx) {
       if (!disposed) feedback(note, `Local PAPER runtime unavailable: ${error.message}. Start it with python3 -m crypto_eval paper-server.`, "error");
     }
   }
+
+  view.addEventListener("toggle", (event) => {
+    if (!event.target.matches?.("[data-positions-detail]")) return;
+    try {
+      localStorage.setItem("cockpit.positionsOpen", event.target.open ? "1" : "0");
+    } catch {
+      // per-browser convenience only
+    }
+  }, true);
 
   view.addEventListener("submit", async (event) => {
     const form = event.target.closest("[data-kill-switch-form]");

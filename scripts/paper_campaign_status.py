@@ -1,4 +1,7 @@
-"""Read-only status of the running PAPER campaign servers (EXP-001 and EXP-002).
+"""Read-only status of the running PAPER campaign servers (EXP-001 :8765, EXP-002 :8768, EXP-002x :8770).
+
+By default all three are checked, so the command reports FAIL when any of them is down. Pass
+`--server NAME=URL` (repeatable) to check a different set.
 
     python3 scripts/paper_campaign_status.py [--json] [--server NAME=URL ...]
 
@@ -16,7 +19,7 @@ import urllib.request
 from datetime import datetime, timezone
 from typing import Any
 
-DEFAULT_SERVERS = {"EXP-001": "http://127.0.0.1:8765", "EXP-002": "http://127.0.0.1:8768"}
+DEFAULT_SERVERS = {"EXP-001": "http://127.0.0.1:8765", "EXP-002": "http://127.0.0.1:8768", "EXP-002x": "http://127.0.0.1:8770"}
 LOOPBACK = ("http://127.0.0.1:", "http://localhost:", "http://[::1]:")
 TICK_GRACE_SECONDS = 4 * 3600 + 20 * 60  # a sleeves tick is due every 4h (+ schedule delay)
 
