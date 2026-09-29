@@ -302,6 +302,15 @@ class StopDistanceCapTests(unittest.TestCase):
         self.assertEqual(decide(0.30), "STOP_DISTANCE")
         self.assertEqual(decide(0.30, cap=0.4), "APPROVED")
         self.assertEqual(decide(0.46, cap=0.9), "STOP_DISTANCE")
+        # A catastrophe stop capped at exactly max_stop_distance_pct must not be lost to float rounding.
+        for entry in (0.2537, 0.2539, 4.7409, 84011.799, 1.141):
+            intent = TradingIntent.from_dict({
+                "schema_version": INTENT_SCHEMA_VERSION, "action": "open", "symbol": "BTCUSDT", "side": "long", "order_type": "market",
+                "entry_price": entry, "stop_price": entry - entry * 0.4, "target_price": entry * 20, "reduce_only": False,
+                "reduce_fraction": None, "position_id": None, "reason": "t", "source_arm": "quant", "as_of": iso_utc(now)})
+            code = RiskEngine().evaluate(intent, {**config, "max_stop_distance_pct": 0.4}, equity=1000.0, margin_used=0.0, open_positions=[],
+                                         data_cutoff=iso_utc(now), decision_as_of=now, leverage=2).code
+            self.assertEqual(code, "APPROVED", entry)
 
 
 if __name__ == "__main__":

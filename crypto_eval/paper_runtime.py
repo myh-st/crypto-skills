@@ -523,7 +523,7 @@ class RiskEngine:
         # 25% for strategy entries. Only an engine's internal risk config may widen it (the sleeves
         # engine's catastrophe stop), never beyond 45%; the liquidation check below still applies.
         max_stop = min(0.45, float(config.get("max_stop_distance_pct", 0.25)))
-        if stop_distance <= 0 or stop_distance / entry > max_stop:
+        if stop_distance <= 0 or stop_distance / entry > max_stop + 1e-9:  # a stop placed exactly at the cap is allowed
             return RiskDecision(False, "STOP_DISTANCE", f"stop distance is invalid or exceeds {max_stop:.0%} of entry")
         risk_budget = max(0.0, equity) * config["risk_per_trade"]
         fee_drag_per_unit = entry * (2 * config["taker_fee_rate"] + 2 * config["slippage_bps"] / 10_000)
