@@ -5,6 +5,8 @@ import { renderNav, NAV_ITEMS } from "./modules/components/nav.js";
 import { createPositionDrawer } from "./modules/components/positionDetailDrawer.js";
 import { runtimeService } from "./modules/services.js";
 import { paperApi } from "./modules/paperApi.js";
+import { connectLive } from "./modules/live.js";
+import { startCountdowns } from "./modules/components/motion.js";
 
 import * as overview from "./modules/views/overview.js";
 import * as portfolio from "./modules/views/portfolio.js";
@@ -161,10 +163,8 @@ async function main() {
   if (paperRuntime && typeof EventSource === "function") {
     // Runtime stream: attention counts for the nav badge and a nudge to refresh open views
     // when new journal events arrive. Prices are never announced to assistive technology.
-    const stream = new EventSource(paperApi.runtimeStreamUrl());
-    stream.addEventListener("runtime", (event) => {
+    connectLive(paperApi.runtimeStreamUrl(), { onFrame: (payload) => {
       try {
-        const payload = JSON.parse(event.data);
         const counts = payload.attention_counts || {};
         const urgent = (counts.CRITICAL || 0) + (counts.ACTION || 0);
         document.querySelectorAll("[data-nav-attention]").forEach((badge) => {
@@ -176,8 +176,9 @@ async function main() {
       } catch {
         // Ignore malformed frames; the next frame reconciles.
       }
-    });
+    } });
   }
+  startCountdowns();
 
   if (mobileToggle) {
     mobileToggle.addEventListener("click", () => {

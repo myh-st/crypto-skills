@@ -56,7 +56,9 @@ export function renderTradingStatusBar({ experiment, marketStream, portfolio, ne
       ${pill("Gate", feed, feedTone)}
       ${pill("Execution", "PAPER", "ok")}
       ${pill(experiment?.config?.label || experiment?.experiment_id || "EXP", status, status === "RUNNING" ? "ok" : status === "PAUSED" ? "warn" : "idle")}
-      ${pill("Next scan", status === "RUNNING" ? next : "—", "idle")}
+      ${status === "RUNNING" && nextCycleAt
+        ? `<span class="status-pill status-pill--idle" title="${escapeHtml(next)}"><small>Next decision</small> <span data-countdown="${escapeHtml(nextCycleAt)}">${escapeHtml(next)}</span></span>`
+        : pill("Next decision", "—", "idle")}
       ${portfolio ? pill("AI budget left", remaining === null || remaining === undefined ? "no limit" : usdCost(remaining, 2), budget.exhausted ? "bad" : (budget.utilization_today ?? 0) >= 0.8 ? "warn" : "ok") : ""}
       ${flags.join("")}
       ${pill("Gate live orders", "BLOCKED BY DESIGN", "blocked")}

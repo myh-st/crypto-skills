@@ -4,7 +4,7 @@ import { escapeHtml } from "../format.js";
 import { paperApi } from "../paperApi.js";
 import { autoRefreshBar, startAutoRefresh } from "../components/autoRefresh.js";
 import { calendarHeatmap, fmtNum, fmtPct } from "../components/charts.js";
-import { applyMotion, skeleton } from "../components/motion.js";
+import { applyMotion, skeleton, startCountdowns } from "../components/motion.js";
 
 const ENGINES = { sleeves_v1: "Trend sleeves", breakout_15m: "15m breakout + AI" };
 
@@ -37,6 +37,8 @@ function card(e) {
           <span class="muted small">${start && Number.isFinite(total) ? escapeHtml(fmtPct(total / start, 2)) : ""}${e.equity_usdt != null ? ` · equity ${escapeHtml(Number(e.equity_usdt).toFixed(2))}` : ""}</span></div>
         <div><small>Today</small><strong data-motion-key="exp:${escapeHtml(e.port)}:today" class="${!Number.isFinite(today) ? "" : today >= 0 ? "pos-text" : "neg-text"}">${Number.isFinite(today) ? `${escapeHtml(fmtNum(today))} USDT` : "—"}</strong>
           <span class="muted small">${Number.isFinite(numOrNaN(e.pnl_today_pct)) ? escapeHtml(fmtPct(e.pnl_today_pct, 2)) : ""}</span></div>
+        <div><small>Next decision</small><strong>${e.next_decision_at ? `<span data-countdown="${escapeHtml(e.next_decision_at)}">…</span>` : "—"}</strong>
+          <span class="muted small">${e.status === "running" ? "engine tick" : "not running"}</span></div>
         <div><small>Open positions</small><strong>${escapeHtml(e.open_positions ?? "—")}</strong>
           <span class="muted small">${e.drawdown != null ? `drawdown ${escapeHtml((Number(e.drawdown) * 100).toFixed(1))}%` : ""}</span></div>
         <div><small>AI</small><strong>${ai ? (ai.enabled ? `${escapeHtml(ai.calls_total)} calls` : "Not used") : "—"}</strong>
@@ -66,5 +68,6 @@ export function render(root) {
   return startAutoRefresh(view, async () => {
     view.querySelector("[data-experiments]").innerHTML = renderExperiments(await paperApi.experiments());
     applyMotion(view);
+    startCountdowns();
   }, { intervalMs: 30000 });
 }

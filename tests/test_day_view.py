@@ -65,6 +65,24 @@ class TodayViewTests(SleevesFixture):
         self.assertIs(self.runtime.portfolio.portfolio()["paper"]["ai_budget"]["ai_in_use"], False)
 
 
+class LiveStreamTests(SleevesFixture):
+    def test_stream_frame_carries_live_positions_equity_and_next_decision(self):
+        self.run_until(3)
+        frame = self.runtime.portfolio.stream_state()
+        live = frame["live"]
+        opened = [p for p in self.store.open_positions("EXP-001") if p["cohort"].startswith("sleeve-")]
+        self.assertEqual(len(live["positions"]), len(opened))
+        # no live feed in tests: every position falls back to its stored mark, flagged not fresh
+        self.assertFalse(any(p["fresh"] for p in live["positions"]))
+        wallets = sum(float(self.store.wallet_summary("EXP-001", c)["equity"]) for c in COHORTS.values())
+        spot = float(self.runtime.portfolio.spot_wallet()["equity_usdt"])
+        self.assertAlmostEqual(live["equity_usdt"], wallets + spot, places=4)
+        self.assertTrue(live["next_decision_at"].endswith(":01:00.000Z"))
+        # the existing frame fields are unchanged
+        self.assertIn("portfolio", frame)
+        self.assertIn("attention_counts", frame)
+
+
 class StubPeer(BaseHTTPRequestHandler):
     answers: dict = {}
 

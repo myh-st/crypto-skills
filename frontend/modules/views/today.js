@@ -23,7 +23,7 @@ export function renderToday(d) {
   const ai = d.ai || {};
   const s = d.summary || {};
   return `
-    <section class="panel today-hero">
+    <section class="panel today-hero" data-day-start="${escapeHtml(d.day_start_equity_usdt)}">
       <div class="today-kpis">
         ${big("P&L today", `<span class="${tone}-text">${escapeHtml(fmtNum(pnl))} USDT</span>`, `${fmtPct(d.pnl_today_pct, 2)} of ${Number(d.day_start_equity_usdt).toFixed(2)} at 00:00 UTC`, tone, "pnl")}
         ${big("Equity", `${escapeHtml(Number(d.equity_usdt).toFixed(2))} USDT`, `total ${fmtNum(d.pnl_total_usdt)} since start`, "", "equity")}

@@ -143,6 +143,7 @@ export function countdownText(iso, nowMs = Date.now()) {
   if (ms <= 0) return "now";
   const s = Math.floor(ms / 1000);
   const h = Math.floor(s / 3600), m = Math.floor((s % 3600) / 60), sec = s % 60;
+  if (h >= 48) return `in ${Math.floor(h / 24)}d ${h % 24}h ${String(m).padStart(2, "0")}m`;
   return h ? `in ${h}h ${String(m).padStart(2, "0")}m ${String(sec).padStart(2, "0")}s` : `in ${m}m ${String(sec).padStart(2, "0")}s`;
 }
 

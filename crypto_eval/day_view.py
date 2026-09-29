@@ -173,6 +173,7 @@ def _row(port: int, campaign: dict[str, Any], day: dict[str, Any] | None, health
         "risk_incidents": campaign.get("risk_incidents") or [],
         "calendar": [c for c in ((day or {}).get("calendar") or [])][-14:],
         "ai": (day or {}).get("ai"),
+        "next_decision_at": (day or {}).get("next_decision_at"),
     }
 
 

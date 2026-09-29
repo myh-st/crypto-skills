@@ -6,7 +6,7 @@ export function autoRefreshBar(intervalMs) {
   return `<div class="auto-refresh small muted" data-auto-refresh>
     <span class="auto-refresh-dot" aria-hidden="true"></span>
     <span data-auto-refresh-text>Loading…</span>
-    <span class="auto-refresh-every">· auto every ${escapeHtml(Math.round(intervalMs / 1000))}s</span>
+    <span class="auto-refresh-every">· next in <span data-auto-refresh-next>${escapeHtml(Math.round(intervalMs / 1000))}</span>s</span>
     <button type="button" class="btn btn--ghost btn--small" data-auto-refresh-now>Refresh now</button>
   </div>`;
 }
@@ -19,9 +19,12 @@ export function startAutoRefresh(host, run, { intervalMs = 15000, doc = globalTh
   let inFlight = false;
   let disposed = false;
   const text = host?.querySelector("[data-auto-refresh-text]");
+  const nextEl = host?.querySelector("[data-auto-refresh-next]");
+  let lastRun = Date.now();
   const bar = host?.querySelector("[data-auto-refresh]") || host;
 
   function paint() {
+    if (nextEl) nextEl.textContent = String(Math.max(0, Math.ceil((lastRun + intervalMs - Date.now()) / 1000)));
     if (!text) return;
     if (lastError) {
       text.textContent = `update failed: ${lastError}`;
@@ -38,6 +41,7 @@ export function startAutoRefresh(host, run, { intervalMs = 15000, doc = globalTh
   async function tick() {
     if (disposed || inFlight || doc?.hidden) return;
     inFlight = true;
+    lastRun = Date.now();
     bar?.classList.add("auto-refresh--busy");
     try {
       await run();
