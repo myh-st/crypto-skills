@@ -1,0 +1,24 @@
+{
+  "goal": "experiment-promotion-gates",
+  "branch": "feature/experiment-promotion-gates",
+  "state": "in_progress",
+  "predecessor": "feature/continuous-paper-resilience",
+  "canonical_files": [
+    ".goals/experiment-promotion-gates/goal.md",
+    "docs/experiment-promotion-gates-plan.md",
+    "docs/development-train.md"
+  ],
+  "paper_campaign": {
+    "starting_capital_usdt": 500,
+    "checkpoints_days": [
+      7,
+      30,
+      60,
+      90
+    ],
+    "target_completed_trades": "200-300 where strategy frequency permits"
+  },
+  "auto_enable_live_execution": false,
+  "real_gate_write_enabled": false,
+  "base": "main@504604a (Phase 4 merged)"
+}
