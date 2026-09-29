@@ -468,3 +468,43 @@ test("position drawer shows safety section and Core form only for open Spot", ()
   assert.match(spotHtml, /name="core_percent"[^>]*value="50"/);
   assert.doesNotMatch(renderPositionDetail(perp, safety), /data-core-form/);
 });
+
+// ------------------------------------------------------------------ Spot lifecycle UX
+import { LIFECYCLE_LABELS, renderBenchmark, renderCoreSplit, renderLifecycle } from "../modules/components/lifecycleCard.js";
+
+test("lifecycle section shows state, regime, split, and a pending proposal with apply/dismiss", () => {
+  const html = renderLifecycle({ ...spot, quantity: 1, core_quantity: 0.4, lifecycle: {
+    lifecycle: { state: "DISTRIBUTE", regime: "LATE_BULL", last_review_at: "2026-09-29T00:00:00Z",
+      pending_plan: { action: "DISTRIBUTE", state_before: "HOLD_CORE", state_after: "DISTRIBUTE", sell_quantity: 0.15,
+        sell_fraction: 0.15, sells_core: false, add_fraction: 0, reasons: ["LATE_CYCLE_EVIDENCE", "<i>"] } },
+    events: [{ status: "PROPOSED", action: "DISTRIBUTE", regime: "LATE_BULL", created_at: "2026-09-29T00:00:00Z" }] } });
+  assert.match(html, /Lifecycle<\/small> Distribute/);
+  assert.match(html, /late bull/);
+  assert.match(html, /Tactical only/);
+  assert.match(html, /data-lifecycle-apply/);
+  assert.match(html, /data-lifecycle-dismiss/);
+  assert.doesNotMatch(html, /<i>/);
+  assert.equal(Object.keys(LIFECYCLE_LABELS).length, 9);
+  const idle = renderLifecycle({ ...spot, lifecycle: { lifecycle: null, events: [] } });
+  assert.match(idle, /Not reviewed/);
+  assert.doesNotMatch(idle, /data-lifecycle-apply/);
+});
+
+test("core split reflects the Core share", () => {
+  assert.match(renderCoreSplit({ quantity: 2, core_quantity: 0.5, base: "ETH" }), /Core 25%, Tactical 75%/);
+  assert.match(renderCoreSplit({ quantity: 1, core_quantity: 5, base: "ETH" }), /Core 100%/);
+});
+
+test("benchmark table shows every arm, unavailable AI cost, and the no-superiority claim", () => {
+  const html = renderBenchmark({ symbol: "ETHUSDT", interval: "4h", evaluated_bars: 300, data_origin: "fixture",
+    assumptions: { fee_rate: 0.001, slippage_bps: 5 }, claim: "NOT_EVIDENCE_OF_SUPERIORITY: offline",
+    arms: [{ arm: "buy_hold", total_return: 0.3, max_drawdown: 0.2, peak_capture_ratio: 0.4, profit_giveback: 0.5, upside_capture: 1, downside_capture: 1, turnover: 1, time_in_cash: 0, ai_cost_usdt: 0 },
+      { arm: "grid", status: "NOT_APPLICABLE", notes: ["trending"] },
+      { arm: "ai_lifecycle", total_return: 0.5, max_drawdown: 0.14, peak_capture_ratio: 0.67, profit_giveback: null, upside_capture: 0.9, downside_capture: 0.5, turnover: 1.5, time_in_cash: 0.2, ai_cost_usdt: null }] });
+  assert.match(html, /Buy &amp; Hold/);
+  assert.match(html, /Not applicable · trending/);
+  assert.match(html, /Lifecycle manager/);
+  assert.match(html, /unavailable/);
+  assert.match(html, /NOT_EVIDENCE_OF_SUPERIORITY/);
+  assert.match(renderBenchmark(null), /Run a benchmark/);
+});

@@ -3,6 +3,7 @@
 // journals, and returns the authoritative state; the drawer re-renders from that state.
 import { escapeHtml, formatTimestamp, relativeTime } from "../format.js";
 import { withConfirmation } from "./confirmDialog.js";
+import { renderLifecycle } from "./lifecycleCard.js";
 import { renderRestrictions, renderSafetyStrip } from "./safetyStrip.js";
 import { QUICK_INTENTS, editsFromForm, renderReplanProposal } from "./replanPanel.js";
 import { MODE_LABELS, feedback, fmtNumber, marketBadge, modeBadge, pct, pnl, price, sideBadge, sourceBadge, uid } from "./ui.js";
@@ -110,8 +111,9 @@ export function renderPositionDetail(position, safety = null) {
         <button type="button" class="btn btn--danger btn--small" data-close-position>${perp ? "Close position" : "Close holding"}</button>
       </div>
     </section>
-    ${!perp ? `<section class="drawer-section">
-      <h3>Core / Tactical</h3>
+    ${!perp ? `<section class="drawer-section" aria-label="Spot lifecycle">
+      <h3>Lifecycle · Core / Tactical</h3>
+      ${renderLifecycle(position)}
       <form class="core-form" data-core-form>
         <label>Core % (protected from plan stops and crash-state selling)
           <input name="core_percent" type="number" min="0" max="100" step="5" value="${escapeHtml(position.core_quantity != null && position.quantity ? Math.round(position.core_quantity / position.quantity * 100) : 0)}" />
@@ -281,6 +283,24 @@ export function createPositionDrawer({ api, onChange = () => {} }) {
     if (target.dataset.setMode) {
       const mode = target.dataset.setMode;
       return mutate(`Control set to ${MODE_LABELS[mode]}.`, (confirm) => api.setManagementMode(ref, mode, confirm ? { confirm: true } : {}));
+    }
+    if (target.matches("[data-lifecycle-review]")) {
+      note("Reviewing lifecycle…");
+      try {
+        const { review } = await api.lifecycleReview(ref);
+        await load();
+        note(review.status === "PROPOSED" ? `Proposal: ${review.plan.action.replaceAll("_", " ").toLowerCase()} · review and apply.` : `No action · ${review.plan.reasons.join(", ") || review.plan.regime}`, "success");
+        onChange();
+      } catch (error) {
+        note(error.message, "error");
+      }
+      return undefined;
+    }
+    if (target.matches("[data-lifecycle-apply]")) {
+      return mutate("Lifecycle proposal applied (PAPER).", (confirm) => api.lifecycleApply(ref, confirm ? { confirm: true } : {}));
+    }
+    if (target.matches("[data-lifecycle-dismiss]")) {
+      return mutate("Lifecycle proposal dismissed.", () => api.lifecycleDismiss(ref));
     }
     if (target.dataset.replanIntentButton) return runReplan(target.dataset.replanIntentButton);
     if (target.dataset.replanApply) {

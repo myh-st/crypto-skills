@@ -101,6 +101,11 @@ Research, Evaluations, and Settings.
   slicing, sell velocity, Spot Core protection), a kill switch, and ledger
   reconciliation. See [`docs/crash-execution-safety.md`](docs/crash-execution-safety.md).
 
+- **Spot lifecycle:** typed long-cycle states (accumulate, hold Core, trend
+  expansion, protect, distribute, reduce, exit), point-in-time regime evidence,
+  progressive distribution, Core exit only on confirmed breakdown, and aligned
+  benchmark arms. See [`docs/spot-cycle-lifecycle-manager.md`](docs/spot-cycle-lifecycle-manager.md).
+
 Real Gate money-moving writes remain blocked by design. See
 [`docs/ai-portfolio-trading-os.md`](docs/ai-portfolio-trading-os.md).
 

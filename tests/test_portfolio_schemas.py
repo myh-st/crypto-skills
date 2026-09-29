@@ -23,6 +23,7 @@ CONTRACTS = (
     "position-plan", "position-replan-request", "position-replan-proposal", "portfolio-state",
     "portfolio-brain-decision", "activity-event", "attention-event", "post-trade-review", "learning-tag",
     "market-safety-state", "execution-plan", "kill-switch-level",
+    "spot-lifecycle-state", "spot-lifecycle-plan", "spot-regime-evidence", "spot-benchmark-report",
 )
 
 
@@ -52,6 +53,19 @@ class PortfolioSchemaTests(PortfolioCase):
         self.assertTrue(plans)
         for row in plans:
             self.assertConforms(row["plan"], "execution-plan")
+
+    def test_lifecycle_outputs_conform(self):
+        from tests.test_spot_lifecycle import BREAKDOWN, END, bars, trend
+        self.os._regime_bars = lambda base, now, n=120: bars((BREAKDOWN if base == "ETH" else trend(n))[-n:], end=END)
+        self.os.create_order({"client_request_id": "schema-lc-01", "instrument_id": "fixture:spot:ETH_USDT",
+                              "action": "buy", "quote_amount": 25.0})
+        ref = next(v["position_ref"] for v in self.os.list_positions() if v["market_type"] == "spot")
+        review = self.os.lifecycle_review(ref)
+        self.assertConforms(review["plan"], "spot-lifecycle-plan")
+        self.assertConforms(review["evidence"], "spot-regime-evidence")
+        self.assertConforms(self.os.lifecycle_view(ref)["lifecycle"]["state"], "spot-lifecycle-state")
+        self.os._regime_bars = lambda base, now, n=120: bars(trend(n), end=END)
+        self.assertConforms(self.os.lifecycle_benchmark("fixture:spot:ETH_USDT", bars=200), "spot-benchmark-report")
 
     def test_runtime_outputs_conform(self):
         for market_type in ("spot", "perpetual"):

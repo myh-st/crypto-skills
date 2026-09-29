@@ -1,0 +1,86 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "spot-regime-evidence.schema.json",
+  "title": "Point-in-time Spot regime evidence",
+  "type": "object",
+  "required": [
+    "schema_version",
+    "symbol",
+    "as_of",
+    "data_cutoff",
+    "data_origin",
+    "bars",
+    "evidence",
+    "coverage",
+    "available"
+  ],
+  "properties": {
+    "schema_version": {
+      "const": "spot-regime-evidence.v1"
+    },
+    "symbol": {
+      "type": "string"
+    },
+    "as_of": {
+      "type": "string"
+    },
+    "data_cutoff": {
+      "type": [
+        "string",
+        "null"
+      ]
+    },
+    "data_origin": {
+      "type": "string"
+    },
+    "bars": {
+      "type": "integer",
+      "minimum": 0
+    },
+    "coverage": {
+      "type": "number",
+      "minimum": 0,
+      "maximum": 1
+    },
+    "available": {
+      "type": "array",
+      "items": {
+        "type": "string"
+      }
+    },
+    "evidence": {
+      "type": "object",
+      "additionalProperties": {
+        "type": "object",
+        "required": [
+          "available",
+          "value"
+        ],
+        "properties": {
+          "available": {
+            "type": "boolean"
+          },
+          "value": {},
+          "reason": {
+            "type": "string"
+          }
+        },
+        "if": {
+          "properties": {
+            "available": {
+              "const": false
+            }
+          }
+        },
+        "then": {
+          "properties": {
+            "value": {
+              "type": "null"
+            }
+          }
+        }
+      }
+    }
+  },
+  "additionalProperties": false
+}

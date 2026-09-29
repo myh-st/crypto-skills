@@ -107,6 +107,9 @@ async function main() {
     content.scrollTop = 0;
     if (currentRoute === "position" && drawer && currentParams.length) {
       drawer.open(decodeURIComponent(currentParams.join("/")));
+    } else if (drawer?.ref) {
+      // A position drawer never outlives navigation: it would sit over the new page.
+      drawer.close();
     }
   }
 

@@ -1,0 +1,142 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "spot-benchmark-report.schema.json",
+  "title": "Aligned Spot benchmark report",
+  "type": "object",
+  "required": [
+    "schema_version",
+    "symbol",
+    "data_origin",
+    "bars",
+    "evaluated_bars",
+    "from",
+    "to",
+    "assumptions",
+    "arms",
+    "claim"
+  ],
+  "properties": {
+    "schema_version": {
+      "const": "spot-benchmark-report.v1"
+    },
+    "symbol": {
+      "type": "string"
+    },
+    "data_origin": {
+      "type": "string"
+    },
+    "interval": {
+      "type": [
+        "string",
+        "null"
+      ]
+    },
+    "bars": {
+      "type": "integer"
+    },
+    "evaluated_bars": {
+      "type": "integer"
+    },
+    "from": {
+      "type": "string"
+    },
+    "to": {
+      "type": "string"
+    },
+    "assumptions": {
+      "type": "object"
+    },
+    "claim": {
+      "type": "string",
+      "pattern": "^NOT_EVIDENCE_OF_SUPERIORITY"
+    },
+    "generated_at": {
+      "type": "string"
+    },
+    "report_id": {
+      "type": "string"
+    },
+    "instrument_id": {
+      "type": "string"
+    },
+    "arms": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "required": [
+          "arm"
+        ],
+        "properties": {
+          "arm": {
+            "enum": [
+              "buy_hold",
+              "tp_ladder",
+              "rebalance",
+              "grid",
+              "trailing_stop",
+              "ai_lifecycle",
+              "ai_lifecycle_brain"
+            ]
+          },
+          "status": {
+            "const": "NOT_APPLICABLE"
+          },
+          "total_return": {
+            "type": "number"
+          },
+          "net_economic_return": {
+            "type": [
+              "number",
+              "null"
+            ]
+          },
+          "ai_cost_usdt": {
+            "type": [
+              "number",
+              "null"
+            ]
+          },
+          "max_drawdown": {
+            "type": "number"
+          },
+          "turnover": {
+            "type": "number"
+          },
+          "fees_usdt": {
+            "type": "number"
+          },
+          "upside_capture": {
+            "type": [
+              "number",
+              "null"
+            ]
+          },
+          "downside_capture": {
+            "type": [
+              "number",
+              "null"
+            ]
+          },
+          "peak_capture_ratio": {
+            "type": [
+              "number",
+              "null"
+            ]
+          },
+          "profit_giveback": {
+            "type": [
+              "number",
+              "null"
+            ]
+          },
+          "time_in_cash": {
+            "type": [
+              "number",
+              "null"
+            ]
+          }
+        }
+      }
+    }
+  }
+}

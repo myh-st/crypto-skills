@@ -1,7 +1,7 @@
 {
   "goal": "spot-cycle-lifecycle-manager",
   "branch": "feature/spot-cycle-lifecycle-manager",
-  "state": "in_progress",
+  "state": "complete_pending_merge",
   "predecessor": "feature/crash-execution-safety",
   "canonical_files": [
     ".goals/spot-cycle-lifecycle-manager/goal.md",
@@ -16,5 +16,41 @@
     "benchmark_baselines": true,
     "real_gate_write_enabled": false
   },
-  "base": "main@ca34171 (Phase 2 merged)"
+  "base": "main@ca34171 (Phase 2 merged)",
+  "implementation": {
+    "backend": [
+      "crypto_eval/spot_lifecycle.py",
+      "crypto_eval/spot_benchmarks.py",
+      "crypto_eval/portfolio_os.py (lifecycle section)",
+      "crypto_eval/paper_server.py",
+      "crypto_eval/portfolio_store.py"
+    ],
+    "frontend": [
+      "frontend/modules/components/lifecycleCard.js",
+      "components/positionDetailDrawer.js",
+      "views/evaluations.js",
+      "views/portfolioSettings.js",
+      "app.js (drawer closes on navigation)"
+    ],
+    "schemas": [
+      "spot-lifecycle-state",
+      "spot-lifecycle-plan",
+      "spot-regime-evidence",
+      "spot-benchmark-report"
+    ],
+    "docs": [
+      "docs/spot-cycle-lifecycle-manager.md"
+    ]
+  },
+  "verification": {
+    "validate_repo": "PASS",
+    "python_unittest": "PASS (264 tests)",
+    "frontend_node_test": "PASS (74 tests)",
+    "node_check": "PASS",
+    "scenario_tests": "PASS: early bull, strong trend, range, late bull, flash crash recovery, structural breakdown, concentration shock, false distribution signal (synthetic)",
+    "browser_qa": "PASS: drawer lifecycle section, review -> proposal -> Apply executed PAPER add with reconciliation ok, Evaluations benchmark panel, Settings lifecycle fields, 375px no overflow; fixed drawer persisting across navigation",
+    "real_local_acceptance": "PASS 2026-09-29: real Gate public 4h bars; ETH review HOLD in RANGE (coverage 0.875, funding explicitly unavailable); BTC RANGE, SOL STRONG_TREND; 360-bar real benchmark ran all arms (lifecycle +34.4% vs buy&hold +39.9% on this window; grid NOT_APPLICABLE); reconciliation ok; no AI calls",
+    "ai_lifecycle_recommendation": "NOT_VERIFIED: bounded recommendation contract implemented and tested; no Jev/Luna lifecycle prompt is wired yet (lifecycle decisions are deterministic)",
+    "real_gate_write": "BLOCKED_BY_DESIGN (unchanged)"
+  }
 }
