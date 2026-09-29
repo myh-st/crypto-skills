@@ -96,6 +96,11 @@ Research, Evaluations, and Settings.
 - **Learning:** post-trade reviews and a strategy tournament that includes AI
   cost.
 
+- **Execution safety:** market safety states (crash, volatility, untrusted data),
+  suspect-print handling, a deterministic execution planner (slippage envelope,
+  slicing, sell velocity, Spot Core protection), a kill switch, and ledger
+  reconciliation. See [`docs/crash-execution-safety.md`](docs/crash-execution-safety.md).
+
 Real Gate money-moving writes remain blocked by design. See
 [`docs/ai-portfolio-trading-os.md`](docs/ai-portfolio-trading-os.md).
 

@@ -1,0 +1,13 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "kill-switch-level.schema.json",
+  "title": "PAPER kill-switch level",
+  "type": "string",
+  "enum": [
+    "NORMAL",
+    "NO_NEW_ENTRIES",
+    "AI_MANAGEMENT_PAUSED",
+    "RISK_REDUCING_ONLY",
+    "FULL_AUTOMATION_HALT"
+  ]
+}

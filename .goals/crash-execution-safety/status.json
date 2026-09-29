@@ -1,9 +1,9 @@
 {
   "goal": "crash-execution-safety",
   "branch": "feature/crash-execution-safety",
-  "state": "planning_ready_waiting_for_portfolio_os_completion",
+  "state": "complete_pending_merge",
   "initial_base": "feature/ai-portfolio-trading-os@334d2300e8a476b1ccdfb77797ac19f9c57ff424",
-  "implementation_blocked_until": "feature/ai-portfolio-trading-os final work is pushed and reviewed",
+  "implementation_blocked_until": null,
   "canonical_files": [
     ".goals/crash-execution-safety/goal.md",
     "docs/crash-execution-safety-plan.md"
@@ -19,5 +19,42 @@
     "reconciliation_safety": true,
     "spot_core_tactical": true,
     "futures_liquidation_emergency": true
+  },
+  "base": "main@ff4c633 (Phase 1 merged)",
+  "implementation": {
+    "backend": [
+      "crypto_eval/execution_safety.py",
+      "crypto_eval/paper_runtime.py",
+      "crypto_eval/portfolio_os.py",
+      "crypto_eval/paper_server.py",
+      "crypto_eval/portfolio_store.py"
+    ],
+    "frontend": [
+      "frontend/modules/components/safetyStrip.js",
+      "views/cockpit.js",
+      "views/trade.js",
+      "components/paperTradeTicket.js",
+      "components/positionDetailDrawer.js",
+      "views/portfolioSettings.js"
+    ],
+    "schemas": [
+      "market-safety-state",
+      "execution-plan",
+      "kill-switch-level"
+    ],
+    "docs": [
+      "docs/crash-execution-safety.md"
+    ]
+  },
+  "verification": {
+    "validate_repo": "PASS",
+    "python_unittest": "PASS (238 tests)",
+    "frontend_node_test": "PASS (71 tests)",
+    "node_check": "PASS",
+    "torture_tests": "PASS: FLASH_CRASH_RECOVERY, STRUCTURAL_CRASH, LIQUIDITY_VACUUM, BAD_PRINT, AI_HALLUCINATION, DUPLICATE_RETRY, DELAYED_ORDER, WRONG_SIDE_RETRY, RECONCILIATION_BREAK, LIQUIDATION_EMERGENCY (fixtures)",
+    "browser_qa": "PASS: kill switch raise + confirmed lower, safety strip on Overview/Trade/drawer, Spot Core form persisted, ticket plan, Settings safety fields, Activity projection, no overflow at 375px",
+    "real_local_acceptance": "PASS 2026-09-29: real Gate public data classified NORMAL/HIGH for BTC/ETH perp+spot; PAPER spot buy with client_request_id retry returned the same fill; USER reduce planned EXECUTE/MARKETABLE_LIMIT/50bps; reconciliation ok; no AI calls",
+    "real_crash_event": "NOT_VERIFIED: no live crash occurred during acceptance; crash paths verified by deterministic torture tests only",
+    "real_gate_write": "BLOCKED_BY_DESIGN (unchanged)"
   }
 }

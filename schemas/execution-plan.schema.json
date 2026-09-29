@@ -1,0 +1,137 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "execution-plan.schema.json",
+  "title": "Deterministic PAPER execution plan",
+  "type": "object",
+  "required": [
+    "schema_version",
+    "plan_id",
+    "action",
+    "source",
+    "market_type",
+    "side",
+    "urgency",
+    "requested_quantity",
+    "market_state",
+    "kill_switch_level",
+    "expires_at",
+    "ai_controls_mechanics",
+    "decision",
+    "quantity",
+    "style",
+    "slices",
+    "max_slippage_bps",
+    "price_envelope",
+    "reasons"
+  ],
+  "properties": {
+    "schema_version": {
+      "const": "execution-plan.v1"
+    },
+    "plan_id": {
+      "type": "string"
+    },
+    "action": {
+      "enum": [
+        "entry",
+        "increase",
+        "reduce",
+        "close",
+        "protect"
+      ]
+    },
+    "source": {
+      "enum": [
+        "AI",
+        "USER",
+        "SYSTEM"
+      ]
+    },
+    "market_type": {
+      "enum": [
+        "spot",
+        "perpetual"
+      ]
+    },
+    "side": {
+      "type": "string"
+    },
+    "urgency": {
+      "enum": [
+        "normal",
+        "protective",
+        "emergency"
+      ]
+    },
+    "requested_quantity": {
+      "type": "number"
+    },
+    "market_state": {
+      "enum": [
+        "NORMAL",
+        "VOLATILITY_ALERT",
+        "CRASH_MODE",
+        "RECOVERY",
+        "MARKET_DATA_UNTRUSTED"
+      ]
+    },
+    "kill_switch_level": {
+      "enum": [
+        "NORMAL",
+        "NO_NEW_ENTRIES",
+        "AI_MANAGEMENT_PAUSED",
+        "RISK_REDUCING_ONLY",
+        "FULL_AUTOMATION_HALT"
+      ]
+    },
+    "expires_at": {
+      "type": "string"
+    },
+    "ai_controls_mechanics": {
+      "const": false
+    },
+    "decision": {
+      "enum": [
+        "EXECUTE",
+        "SLICE",
+        "DEFER",
+        "REJECT",
+        "RESIZE"
+      ]
+    },
+    "quantity": {
+      "type": "number"
+    },
+    "style": {
+      "enum": [
+        "MARKET",
+        "MARKETABLE_LIMIT",
+        null
+      ]
+    },
+    "slices": {
+      "type": "array",
+      "items": {
+        "type": "number"
+      }
+    },
+    "max_slippage_bps": {
+      "type": [
+        "number",
+        "null"
+      ]
+    },
+    "price_envelope": {
+      "type": [
+        "object",
+        "null"
+      ]
+    },
+    "reasons": {
+      "type": "array",
+      "items": {
+        "type": "string"
+      }
+    }
+  }
+}

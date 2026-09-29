@@ -416,3 +416,55 @@ test("no view relies on window.prompt for trading actions", async () => {
     }
   }
 });
+
+// ------------------------------------------------------------------ execution safety UX
+import { KILL_LEVELS, renderKillSwitchControl, renderRestrictions, renderSafetyStrip } from "../modules/components/safetyStrip.js";
+
+const crashAssessment = {
+  state: "CRASH_MODE", price_confidence: "LOW", reasons: ["CRASH_5M", "<b>x</b>"],
+  restrictions: { new_entries: "BLOCKED", averaging_down: "BLOCKED", leverage_increase: "BLOCKED",
+    discretionary_full_exit: "VELOCITY_LIMITED", protective_reduce: "ALLOWED", emergency_liquidation_reduce: "ALLOWED" },
+};
+
+test("safety strip shows kill switch, market state, confidence, and escapes reasons", () => {
+  const html = renderSafetyStrip({ killSwitch: { level: "RISK_REDUCING_ONLY" }, assessment: crashAssessment });
+  assert.match(html, /RISK REDUCING ONLY/);
+  assert.match(html, /status-pill--bad/);
+  assert.match(html, /CRASH MODE/);
+  assert.match(html, /Price confidence/);
+  assert.doesNotMatch(html, /<b>x<\/b>/);
+  assert.match(renderSafetyStrip(), /Kill switch/);
+});
+
+test("restrictions list marks blocked, limited, and allowed actions", () => {
+  const html = renderRestrictions(crashAssessment.restrictions);
+  assert.match(html, /New entries<\/span>[\s\S]*✕ blocked/);
+  assert.match(html, /⚠ velocity limited/);
+  assert.match(html, /Liquidation emergency reduce<\/span>[\s\S]*✓ allowed/);
+  assert.equal(renderRestrictions(null), "");
+});
+
+test("kill-switch control lists every level and selects the current one", () => {
+  const html = renderKillSwitchControl({ level: "NO_NEW_ENTRIES" });
+  assert.equal(KILL_LEVELS.length, 5);
+  for (const [value] of KILL_LEVELS) assert.match(html, new RegExp(`value="${value}"`));
+  assert.match(html, /value="NO_NEW_ENTRIES" selected/);
+  assert.match(html, /data-kill-switch-form/);
+});
+
+test("ticket preview shows the deterministic execution plan and unsafe market state", () => {
+  const html = renderPreview({ market_type: "spot", allowed: true, code: "APPROVED", reason: "", quantity: 0.01, warnings: [],
+    quote: { fresh: true, source: "fixture" }, execution_plan: { decision: "SLICE", style: "MARKETABLE_LIMIT", slices: [0.005, 0.005], max_slippage_bps: 50, reasons: ["SELL_VELOCITY_LIMIT"] },
+    market_safety: { state: "VOLATILITY_ALERT", reasons: ["SPREAD_WIDE"] } });
+  assert.match(html, /Execution: <strong>SLICE<\/strong> · marketable limit · 2 slices · max slippage 50 bps/);
+  assert.match(html, /Market VOLATILITY ALERT · SPREAD_WIDE/);
+});
+
+test("position drawer shows safety section and Core form only for open Spot", () => {
+  const safety = { killSwitch: { level: "NORMAL" }, assessment: crashAssessment };
+  const spotHtml = renderPositionDetail({ ...spot, core_quantity: 0.005, quantity: 0.01 }, safety);
+  assert.match(spotHtml, /aria-label="Execution safety"/);
+  assert.match(spotHtml, /data-core-form/);
+  assert.match(spotHtml, /name="core_percent"[^>]*value="50"/);
+  assert.doesNotMatch(renderPositionDetail(perp, safety), /data-core-form/);
+});
