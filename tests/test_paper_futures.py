@@ -1782,9 +1782,13 @@ class PaperFuturesRuntimeIntegrationTests(unittest.TestCase):
             cycle["decision_input_hash"],
             cycle["arms"]["quant"]["decision_input_hash"],
         )
+        # Archived history is consumed up to the bounded feature window (cost stays flat as
+        # the archive grows; EMA values are unchanged at this depth).
+        from crypto_eval.paper_runtime import FEATURE_HISTORY_BARS
+
         self.assertEqual(
             features["feature_history_15m_bars"],
-            WARMUP_PROFILES["EXP-001"]["15m"] - len(raw_snapshot.candles_15m),
+            min(WARMUP_PROFILES["EXP-001"]["15m"], FEATURE_HISTORY_BARS["15m"]) - len(raw_snapshot.candles_15m),
         )
         self.assertEqual(
             features["last_price"], without_archive["last_price"]

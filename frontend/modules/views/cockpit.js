@@ -3,6 +3,7 @@
 // actions, and changes since the last visit. Low prose; every control is live.
 import { escapeHtml, formatTimestamp } from "../format.js";
 import { renderHealth } from "../components/healthPanel.js";
+import { renderCampaign } from "../components/campaignPanel.js";
 import { paperApi } from "../paperApi.js";
 import { renderTimeline } from "../components/activityTimeline.js";
 import { attentionCounts, renderAttentionQueue } from "../components/attentionQueue.js";
@@ -72,6 +73,7 @@ export function renderCockpit(root, ctx) {
     <div data-status-bar></div>
     <div data-safety-strip></div>
     <div data-kpis><div class="kpi-strip kpi-strip--loading" aria-busy="true"></div></div>
+    <div data-campaign></div>
     <div class="paper-feedback" data-cockpit-feedback role="status" aria-live="polite"></div>
     <div class="cockpit-grid">
       <div class="cockpit-main">
@@ -120,6 +122,9 @@ export function renderCockpit(root, ctx) {
         paperApi.marketStatus().catch(() => ({ stream: null })),
         paperApi.safety().catch(() => null),
       ]);
+      paperApi.campaign().then((summary) => {
+        if (!disposed) root.querySelector("[data-campaign]").innerHTML = renderCampaign(summary);
+      }).catch(() => {});
       paperApi.runtimeHealth().then((health) => {
         if (!disposed) root.querySelector("[data-health]").innerHTML = renderHealth(health);
       }).catch(() => {

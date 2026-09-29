@@ -102,3 +102,21 @@ class SeedEquityTests(PortfolioCase):
 
 if __name__ == "__main__":
     unittest.main()
+
+
+class FeatureHistoryBoundTests(unittest.TestCase):
+    def test_bounded_history_gives_the_same_features(self):
+        from crypto_eval.paper_market import FixtureFuturesMarketDataProvider
+        from crypto_eval.paper_runtime import FEATURE_HISTORY_BARS, compute_features
+
+        provider = FixtureFuturesMarketDataProvider()
+        snapshot = provider.fetch_snapshot("BTCUSDT", NOW)
+        full = {interval: provider.fetch_history("BTCUSDT", interval, bars=bars, as_of=NOW)
+                for interval, bars in (("15m", 3000), ("1h", 1500), ("4h", 800))}
+        bounded = {interval: lane[-FEATURE_HISTORY_BARS[interval]:] for interval, lane in full.items()}
+        a = compute_features(snapshot, historical_bars=full)
+        b = compute_features(snapshot, historical_bars=bounded)
+        for key in ("ema12", "ema26", "ema12_1h", "ema26_1h", "ema12_4h", "ema26_4h", "atr", "rsi14", "signal_strength"):
+            self.assertAlmostEqual(a[key], b[key], delta=abs(a[key]) * 1e-9 + 1e-12, msg=key)
+        for key in ("quant_direction", "quant_regime", "signal_trigger", "gate_eligible", "previous_20_bar_high", "previous_20_bar_low"):
+            self.assertEqual(a[key], b[key], key)

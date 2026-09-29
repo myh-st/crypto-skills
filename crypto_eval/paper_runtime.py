@@ -187,6 +187,12 @@ def _atr(candles: list[dict[str, Any]], period: int = 14) -> float:
     return sum(ranges) / period
 
 
+# Archived bars loaded per lane for features. EMA26 converges long before this (the weight of
+# bars older than 300 is < e^-22), and breakout/ATR/RSI/volume use at most 21 bars, so values
+# match the unbounded history while a cycle's cost stays flat as the archive grows.
+FEATURE_HISTORY_BARS = {"15m": 600, "1h": 400, "4h": 300}
+
+
 def _merge_history_lane(
     current: list[dict[str, Any]],
     archived: list[dict[str, Any]],
@@ -3969,6 +3975,7 @@ class PaperRuntime:
                 symbol=snapshot.symbol,
                 interval=interval,
                 through=lane[-1]["close_time"],
+                limit=FEATURE_HISTORY_BARS[interval],
             )
             for interval, lane in lanes.items()
         }

@@ -450,6 +450,48 @@ class ExperimentGovernance:
                         iso_utc(self.runtime._clock())))
         return {"review_id": review_id, "report": report, "gate": gate}
 
+    def campaign_summary(self) -> dict[str, Any]:
+        """Light campaign progress for the Overview (cheap enough to poll; no secret scan)."""
+
+        now = self.runtime._clock().astimezone(timezone.utc)
+        experiment = self.store.experiment()
+        experiment_id, config = experiment["experiment_id"], experiment["config"]
+        latest = self.frozen()
+        start = latest["frozen_at"] if latest else None
+        elapsed = (now - parse_utc(start, "frozen_at")).total_seconds() / 86_400 if start else 0.0
+        criteria = validate_criteria(self.runtime.portfolio.settings().get("promotion") or {})
+        window = start or iso_utc(now)
+        perp = self.store._query("SELECT COUNT(*) AS n FROM positions WHERE experiment_id=? AND cohort='primary' AND status='closed' "
+                                 "AND closed_pnl_recorded AND closed_at>=?", (experiment_id, window))[0]["n"]
+        spot = self.store._query("SELECT COUNT(*) AS n FROM spot_holdings WHERE experiment_id=? AND status='closed' AND closed_at>=?",
+                                 (experiment_id, window))[0]["n"]
+        next_checkpoint = next(((name, day) for name, day in CHECKPOINTS if elapsed < day), None)
+        fx = config.get("cost_fx") or {}
+        try:
+            budget = self.store.cost_ledger.budget_status(experiment_id, config["ai_budget"])
+            budget_view = {k: budget.get(k) for k in ("spent_experiment_usd", "remaining_experiment_usd", "spent_today_usd",
+                                                      "remaining_today_usd", "exhausted", "limit_action")}
+            budget_view["experiment_cap_usd"] = config["ai_budget"].get("experiment_usd")
+        except Exception:
+            budget_view = None
+        incidents = self.runtime.resilience.incidents(status="OPEN", limit=50)
+        return {
+            "experiment_id": experiment_id, "status": experiment["status"],
+            "manifest_version": latest["version"] if latest else None, "frozen_at": start,
+            "material_sha256": latest["material_sha256"] if latest else None, "drift": bool(self.drift()) if latest else False,
+            "elapsed_days": round(elapsed, 2), "checkpoint": checkpoint_label(elapsed),
+            "next_checkpoint": None if next_checkpoint is None else {
+                "name": next_checkpoint[0],
+                "due_at": iso_utc(parse_utc(start, "frozen_at") + timedelta(days=next_checkpoint[1])) if start else None},
+            "completed_trades": perp + spot, "target_trades": criteria["min_completed_trades"], "min_days": criteria["min_days"],
+            "capital_usdt": {"perpetual": float(config["starting_balance_usdt"]),
+                             "spot": float(self.runtime.portfolio.settings()["spot_starting_balance_usdt"])},
+            "fx": {"configured": fx.get("mode") == "manual" and fx.get("usdt_per_usd") is not None, "usdt_per_usd": fx.get("usdt_per_usd")},
+            "ai_budget": budget_view,
+            "risk_incidents": [{"kind": i["kind"], "severity": i["severity"], "summary": i["summary"]}
+                               for i in incidents if i["kind"] in {"RISK_PAUSE", "RISK_HALT"}],
+        }
+
     def reviews(self, *, limit: int = 50) -> list[dict[str, Any]]:
         rows = self.store._query("SELECT review_id, checkpoint, status, report_sha256, manifest_version, created_at, report_json "
                                  "FROM promotion_reviews WHERE experiment_id=? ORDER BY created_at DESC LIMIT ?",
