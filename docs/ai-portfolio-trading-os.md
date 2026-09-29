@@ -309,7 +309,31 @@ find frontend -name '*.js' -exec node --check {} \;
 ```
 
 CI is offline: fixtures and fakes only. Local acceptance may use real Gate public data and
-the configured Jev/Foundry providers (`python3 -m crypto_eval real-integration-check`).
+the configured Jev/Foundry providers:
+
+```bash
+python3 -m crypto_eval real-integration-check   # runtime: Gate REST/WS, Jev, Luna, PAPER smoke
+python3 -m crypto_eval portfolio-real-check     # Portfolio OS: real Jev -> Luna re-plans, budget block, export scan
+```
+
+`portfolio-real-check` runs in an isolated database under the app data directory:
+
+1. It opens a PAPER perp long and a Spot buy on live Gate quotes.
+2. It requests a perp re-plan that must go through **real** Jev and GPT-6 Luna, with
+   one real `jev_replan` and one real `gpt_replan` in the cost ledger. It then applies
+   or rejects the proposal.
+3. It runs a Spot re-plan through the real AI route.
+4. It tightens the daily budget and proves that the next paid calls are refused before
+   transport.
+5. It exports a bundle that must pass the secret scan.
+
+It writes a JSON summary next to the database.
+
+It applies the same explicit acceptance budget as `real-integration-check`: $3.00 per
+GPT call and $5.00 per day. The default $0.50 per-call cap is below the worst-case
+reservation of a reasoning=max Luna call with a 32k-token output cap, so with default
+budgets the guard refuses Luna re-plans before transport and the proposal falls back to
+Jev plus the deterministic baseline, labeled `AI_BUDGET_BLOCK`.
 
 ## Known limits
 

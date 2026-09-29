@@ -2,7 +2,7 @@
   "goal": "ai-portfolio-trading-os",
   "branch": "feature/ai-portfolio-trading-os",
   "base_commit": "3271426cc509f0932c649e7575afd3096c4a4ed4",
-  "state": "implemented_pending_real_ai_acceptance",
+  "state": "implemented",
   "canonical_files": [
     ".goals/ai-portfolio-trading-os/goal.md",
     "docs/ai-portfolio-trading-os-plan.md",
@@ -63,8 +63,9 @@
       "frontend": "frontend/tests/portfolio-os.test.mjs"
     },
     "local_acceptance": {
-      "gate_public_data": "passed",
-      "real_jev_luna": "pending"
-    }
+      "gate_public_data": "passed (browser: manual Spot/Perp PAPER trades, re-plan, authority, autonomous review)",
+      "real_jev_luna": "passed: portfolio-real-check prc-20260929T014117Z-66b9e5 (jev-1.13.0, gpt-6-luna reasoning=max, budget block before transport)"
+    },
+    "ai_spot_entries": "optional policy ai_spot (disabled by default)"
   }
 }
