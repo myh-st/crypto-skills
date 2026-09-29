@@ -32,6 +32,8 @@ python3 -m crypto_eval paper-server            # http://127.0.0.1:8765/  (คร
 
 | | |
 |---|---|
+| **Today (day trade):** กำไรหรือขาดทุนวันนี้ จำนวนไม้ที่ปิดวันนี้ ใช้ daily loss limit ไปแล้วเท่าไร กราฟ equity ระหว่างวัน ปฏิทินวันเขียวและวันแดง เวลาตัดสินใจครั้งถัดไป และระบบใช้ AI หรือไม่ หน้านี้อัปเดตเองทุก 15 วินาที ส่วนหน้า **Experiments** แสดงทุกการทดลอง PAPER ที่กำลังรันเทียบกันในหน้าเดียว | ![Today](docs/images/today.jpg) |
+| **Strategy Search:** ผลวิจัย day trade futures ในรูปกราฟ มีคำตัดสินจากการทดสอบแบบ walk-forward, เหรียญที่เทรดง่าย, ตาราง strategy × timeframe, ตาราง leverage × ความเสี่ยงต่อไม้, ผลจำลองสถานการณ์, โอกาสกำไรจาก Monte Carlo และการเทียบราคา Binance กับ Gate ระหว่างที่การค้นหายังรันอยู่จะแสดงความคืบหน้าให้ดู | ![Strategy Search](docs/images/strategy-search.jpg) |
 | **Automation, kill switch และ system health:** หยุดหรือพักระบบอัตโนมัติได้ ยก kill switch ได้ทันที แต่การลดระดับต้องยืนยันและ reconciliation ต้องผ่าน health แสดงสถานะ scheduler, monitor, feed, ฐานข้อมูล, พื้นที่ดิสก์, AI provider, งบ AI และ reconciliation | ![Automation และ health](docs/images/automation-health.png) |
 | **Trade:** กราฟ Gate แบบ live (1m ถึง 4h) พร้อมจุดเข้าออก PAPER, quote, spread และ funding ticket ให้ server คำนวณขนาดเอง (Perp คิดขนาดจาก risk และ stop ไม่ต้องพิมพ์จำนวน) และแผน AI ปัจจุบันที่สั่ง re-plan ได้ในคลิกเดียว | ![Trade](docs/images/trade.png) |
 | **จัดการ position:** แก้ stop/เป้า ลดหรือปิด position และกำหนดอำนาจ (`AUTO_PAPER`, `RECOMMEND_ONLY`, `MANUAL_OVERRIDE`, `PAUSED`) แสดงสถานะความปลอดภัยแบบ live, สถานะ lifecycle ของ Spot และสัดส่วน Core/Tactical | ![Position manager](docs/images/position-manager.png) |

@@ -3,6 +3,7 @@
 import { renderResearchOverview } from "./overview.js";
 
 const LINKS = [
+  ["strategy-search", "Strategy Search", "Day-trade futures: which coins, strategies, timeframes and leverage work"],
   ["new-analysis", "New Analysis", "Frozen, point-in-time analysis with the crypto skill"],
   ["runs", "Runs", "Every analysis run and its evidence"],
   ["decisions", "Decisions", "Saved decision records"],

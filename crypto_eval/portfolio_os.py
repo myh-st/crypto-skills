@@ -70,6 +70,13 @@ CONFIRM_REDUCE_ABOVE = 0.5
 MAX_TARGETS = 3
 
 
+
+def _uses_ai(config, settings):
+    from .day_view import uses_ai
+
+    return uses_ai(config, settings)
+
+
 class ConfirmationRequired(PaperTradingError):
     """The action changes risk or authority materially; resend with an explicit confirmation."""
 
@@ -1137,6 +1144,7 @@ class PortfolioOS:
                     "utilization_today": budget.get("utilization_today"),
                     "exhausted": budget.get("exhausted"),
                     "limit_action": (config.get("ai_budget") or {}).get("limit_action"),
+                    "ai_in_use": _uses_ai(config, self.settings()),
                 },
                 "equity_curve": self.equity_curve(),
                 "reconciliation": {
@@ -3380,8 +3388,11 @@ class PortfolioOS:
         for exposure in state["exposures"]:
             key = (correlation_group(exposure["base"]), exposure["side"])
             groups[key] = groups.get(key, 0.0) + float(exposure["risk_usdt"] or 0.0)
+        sleeves_engine = self.experiment()["config"].get("strategy_engine") == "sleeves_v1"
         for (group, side), risk in groups.items():
-            if risk / equity > settings["brain"]["max_correlated_risk_pct"]:
+            # The trend-sleeves engine sizes by volatility and never passes the Portfolio Brain, whose
+            # correlated-risk limit is for breakout entries; flagging its normal book is noise.
+            if not sleeves_engine and risk / equity > settings["brain"]["max_correlated_risk_pct"]:
                 concentration.append({
                     "key": f"{group}:{side}",
                     "title": f"{group} {side} risk {risk / equity * 100:.1f}% of equity",

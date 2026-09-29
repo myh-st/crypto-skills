@@ -129,7 +129,9 @@ class SyntheticProvider:
         return 0.0001
 
 
-class EngineTests(unittest.TestCase):
+class SleevesFixture(unittest.TestCase):
+    """A running sleeves experiment on synthetic 4h data (shared by the engine and day-view tests)."""
+
     def setUp(self):
         universe = ["AUSDT", "BUSDT", "CUSDT", "DUSDT"]
         n = 800
@@ -161,6 +163,8 @@ class EngineTests(unittest.TestCase):
             self.scheduler.cycle_tick(self.clock.value)
             t += timedelta(hours=4)
 
+
+class EngineTests(SleevesFixture):
     def test_sleeves_open_long_and_short_in_separate_subaccounts(self):
         self.run_until(9)
         positions = self.store.open_positions("EXP-001")

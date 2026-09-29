@@ -17,6 +17,7 @@ from pathlib import Path
 from typing import Any
 
 from .contracts import EvaluationError
+from . import day_view
 from .envfile import load_environment_file
 from .gate_market import CHART_INTERVALS, GATE_DATA_ORIGIN, GateUsdtFuturesMarketDataProvider
 from .gate_stream import GateLiveMarketStream
@@ -241,6 +242,12 @@ class PaperRequestHandler(BaseHTTPRequestHandler):
             return {"incidents": self.runtime.resilience.incidents(status=q("status") or None)}
         if path == "/api/campaign":
             return self.runtime.governance.campaign_summary()
+        if path == "/api/today":
+            return day_view.today(self.runtime)
+        if path == "/api/experiments":
+            return day_view.experiments(self.runtime, self.server.server_address[1])
+        if path == "/api/strategy-search":
+            return day_view.strategy_search(REPOSITORY_ROOT)
         if path == "/api/experiment/manifest":
             governance = self.runtime.governance
             return {"status": governance.status(), "manifests": governance.manifests()}
