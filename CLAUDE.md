@@ -57,26 +57,16 @@ market snapshot (closed 15m bar + 1h/4h context)
 
 ## Current baseline and canonical active goal
 
-The current implementation baseline includes real Gate perpetual market data, backend SSE, real Jev / Azure Foundry integration, deterministic PAPER risk/execution, AI cost controls, read-only Gate account sync capability, and the Portfolio OS work that will be synced here after its active branch is completed.
+This branch is planning-only until `feature/crash-execution-safety` is completed, merged to main, and this branch is synchronized onto that final main.
 
-This branch is **planning-only until feature/ai-portfolio-trading-os is finished and pushed**.
+The canonical active goal is:
 
-Before implementation:
+- `.goals/spot-cycle-lifecycle-manager/goal.md`
+- `.goals/spot-cycle-lifecycle-manager/status.json`
+- `docs/spot-cycle-lifecycle-manager-plan.md`
+- `docs/development-train.md`
 
-- sync this branch onto the final Portfolio OS head;
-- run the complete baseline test suite;
-- inspect the final Spot, order, position-manager, authority-mode, re-plan and Portfolio Brain contracts;
-- preserve their behavior while adding deterministic crash/execution safety.
-
-The canonical active files for this branch are:
-
-- `.goals/crash-execution-safety/goal.md`
-- `.goals/crash-execution-safety/status.json`
-- `docs/crash-execution-safety-plan.md`
-
-`docs/paper-futures-runtime.md` remains implementation-reference material, not the active goal.
-
-CI and unit tests remain offline/fake-only. Real Gate money-moving writes remain blocked by design.
+Do not implement from the initial planning snapshot. Preserve completed Portfolio OS and Crash Safety behavior when this phase begins.
 
 ## Safety boundaries (enforced by design, keep them)
 
