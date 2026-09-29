@@ -1,0 +1,73 @@
+//@version=6
+// Spot Co-Trader Ladder — STRATEGY version for TradingView's Strategy Tester (backtest one coin).
+// Same rule and ladder as cotrader_ladder_indicator.pine and the Co-Trader app:
+//   OUT (cash) · STARTER (a quarter of equity by default) · FULL (all equity by default: 4× the starter,
+//   matching the app's ½ slot vs 2 slots). Position changes only when the ladder changes.
+// Signals are taken on the daily close; TradingView fills the order at the next bar's open.
+// Spot only (no leverage, no shorts). Past results are not a promise. Not investment advice.
+strategy("Spot Co-Trader Ladder (strategy)", shorttitle = "CoTrader Ladder ST", overlay = true,
+     initial_capital = 1000, commission_type = strategy.commission.percent,
+     commission_value = 0.1, slippage = 2, pyramiding = 0, calc_on_every_tick = false)
+
+grpRule = "Rule and ladder (same defaults as the app)"
+retLen = input.int(60, "Momentum lookback (days)", minval = 2, group = grpRule)
+smaLen = input.int(100, "Trend average (SMA days)", minval = 3, group = grpRule)
+hiLen = input.int(20, "Add on an N-day closing high", minval = 2, group = grpRule)
+emaLen = input.int(20, "Trim on a close below EMA", minval = 2, group = grpRule)
+
+grpSize = "Sizing (spot, % of equity)"
+starterPct = input.float(25.0, "STARTER size %", minval = 1, maxval = 100, group = grpSize) / 100.0
+fullPct = input.float(100.0, "FULL size %", minval = 1, maxval = 100, group = grpSize) / 100.0
+
+grpRange = "Backtest window"
+startTime = input.time(timestamp("2022-01-01T00:00:00Z"), "Start", group = grpRange)
+
+emaSeeded(float src, int len) =>
+    var float e = na
+    float alpha = 2.0 / (len + 1)
+    e := na(e) ? src : alpha * src + (1 - alpha) * e
+    e
+
+float ret60 = close / close[retLen] - 1
+float sma = ta.sma(close, smaLen)
+bool ready = not na(ret60) and not na(sma)
+bool ruleOn = ready and ret60 > 0 and close > sma
+float ema = emaSeeded(close, emaLen)
+bool hiN = close >= ta.highest(close, hiLen)
+
+var bool full = false
+int ladder = 0
+if not ready
+    full := false
+    ladder := 0
+else if not ruleOn
+    full := false
+    ladder := 1
+else
+    if hiN
+        full := true
+    if close < ema
+        full := false
+    ladder := full ? 3 : 2
+
+int prevLadder = nz(ladder[1], 0)
+bool changed = ladder != prevLadder and prevLadder != 0 and ladder != 0
+string act = not changed ? "" : ladder == 1 ? "S" : ladder == 3 ? "A" : prevLadder == 3 ? "T" : "B"
+
+bgcolor(ladder == 3 ? color.new(#10b981, 88) : ladder == 2 ? color.new(#4f8bff, 90) : na, title = "Ladder state")
+plot(math.max(close[retLen - 1], math.sum(close, smaLen - 1) / (smaLen - 1)), "Trend line (next close)", color = color.new(#4f8bff, 0), linewidth = 2, offset = 1)
+
+// Rebalance to the ladder's target only when the ladder changes (like the app's B/A/T/S actions).
+// On the first bar of the window, sync to the current ladder so an ongoing trend is not skipped.
+bool inWindow = time >= startTime
+var bool synced = false
+if inWindow and barstate.isconfirmed and (changed or (not synced and ladder != 0))
+    synced := true
+    float target = ladder == 3 ? fullPct : ladder == 2 ? starterPct : 0.0
+    float targetQty = strategy.equity * target / close
+    float delta = targetQty - strategy.position_size
+    string tag = act != "" ? act : ladder == 3 ? "A" : "B"
+    if delta > 0
+        strategy.order("Buy " + tag, strategy.long, qty = delta, comment = tag)
+    else if delta < 0
+        strategy.order("Sell " + tag, strategy.short, qty = math.min(-delta, strategy.position_size), comment = tag)
