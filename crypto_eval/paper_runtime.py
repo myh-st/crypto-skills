@@ -72,7 +72,7 @@ from .portfolio_store import PORTFOLIO_SCHEMA
 from .execution_safety import KILL_RANK, SAFETY_SCHEMA, classify_market, suspect_print
 from .spot_lifecycle import LIFECYCLE_SCHEMA
 from .promotion import PROMOTION_SCHEMA
-from .sleeves import SLEEVE_SCHEMA
+from .sleeves import SLEEVE_SCHEMA, capital_cohorts, cohort_starting_balance
 from .resilience import (
     DB_SCHEMA_VERSION,
     RESILIENCE_SCHEMA,
@@ -523,7 +523,7 @@ class RiskEngine:
         # 25% for strategy entries. Only an engine's internal risk config may widen it (the sleeves
         # engine's catastrophe stop), never beyond 45%; the liquidation check below still applies.
         max_stop = min(0.45, float(config.get("max_stop_distance_pct", 0.25)))
-        if stop_distance <= 0 or stop_distance / entry > max_stop:
+        if stop_distance <= 0 or stop_distance / entry > max_stop + 1e-9:  # a stop placed exactly at the cap is allowed
             return RiskDecision(False, "STOP_DISTANCE", f"stop distance is invalid or exceeds {max_stop:.0%} of entry")
         risk_budget = max(0.0, equity) * config["risk_per_trade"]
         fee_drag_per_unit = entry * (2 * config["taker_fee_rate"] + 2 * config["slippage_bps"] / 10_000)
@@ -970,7 +970,7 @@ class PaperStore:
                     "SELECT config_json FROM experiments WHERE experiment_id=?",
                     (experiment_id,),
                 ).fetchone()
-                starting_balance = float(_loads(experiment["config_json"])["starting_balance_usdt"])
+                starting_balance = cohort_starting_balance(_loads(experiment["config_json"]), cohort)
             db.execute(
                 "INSERT INTO wallets(experiment_id, cohort, starting_balance, cash_balance) "
                 "VALUES(?, ?, ?, ?)",
@@ -1124,16 +1124,18 @@ class PaperStore:
                 "UPDATE experiments SET config_json=?, updated_at=? WHERE experiment_id=?",
                 (_json(config), now, config["experiment_id"]),
             )
-            db.execute(
-                "UPDATE wallets SET starting_balance=?, cash_balance=? "
-                "WHERE experiment_id=? AND cohort='primary' "
-                "AND cash_balance=starting_balance",
-                (
-                    config["starting_balance_usdt"],
-                    config["starting_balance_usdt"],
-                    config["experiment_id"],
-                ),
-            )
+            for cohort in {"primary", *capital_cohorts(config)}:
+                # Untouched wallets follow a starting-balance or engine change (a sleeve gets its share).
+                db.execute(
+                    "UPDATE wallets SET starting_balance=?, cash_balance=? "
+                    "WHERE experiment_id=? AND cohort=? AND cash_balance=starting_balance",
+                    (
+                        cohort_starting_balance(config, cohort),
+                        cohort_starting_balance(config, cohort),
+                        config["experiment_id"],
+                        cohort,
+                    ),
+                )
             if not cycles:
                 # Before any cycle the equity series is only the seed point; replace it so a
                 # starting-balance edit never leaves a stale point (a phantom gain or drawdown).
@@ -1469,7 +1471,7 @@ class PaperStore:
                     (experiment_id,),
                 ).fetchone()["config_json"]
             )
-            starting = float(config["starting_balance_usdt"])
+            starting = cohort_starting_balance(config, cohort)
             db.execute(
                 "INSERT INTO wallets(experiment_id, cohort, starting_balance, cash_balance) VALUES(?, ?, ?, ?)",
                 (experiment_id, cohort, starting, starting),

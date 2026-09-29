@@ -231,6 +231,15 @@ def capital_cohorts(config: dict[str, Any]) -> list[str]:
     return ["primary"]
 
 
+def cohort_starting_balance(config: dict[str, Any], cohort: str) -> float:
+    """A new wallet's starting balance: a sleeve gets its equal share, everything else the full balance.
+    Every wallet-creation path uses this, so a sleeve wallet can never be seeded with the whole book."""
+
+    total = float(config["starting_balance_usdt"])
+    cohorts = capital_cohorts(config)
+    return total / len(cohorts) if cohort in cohorts and len(cohorts) > 1 else total
+
+
 def stream_symbols(config: dict[str, Any]) -> list[str]:
     """Symbols the live feed must cover: the experiment's symbols plus the sleeve universe."""
 
@@ -253,12 +262,11 @@ class SleeveEngine:
         return [p for p in self.store.open_positions(experiment_id) if p["cohort"] == cohort]
 
     def ensure_wallets(self, experiment_id: str, config: dict[str, Any], as_of: str) -> None:
-        share = float(config["starting_balance_usdt"]) / 3
         with self.store.transaction() as db:
             for cohort in capital_cohorts(config):
                 self.store._record_equity_locked(db, experiment_id, cohort, as_of, "GATE_USDT_PUBLIC"
                                                  if config["market_data_mode"] == "gate_usdt" else "FIXTURE",
-                                                 starting_balance=share)
+                                                 starting_balance=cohort_starting_balance(config, cohort))
 
     def _combined_risk(self, experiment_id: str, config: dict[str, Any]) -> tuple[float, float]:
         """Portfolio-level daily loss and drawdown across the three sleeves."""

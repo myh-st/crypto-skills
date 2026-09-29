@@ -118,6 +118,48 @@ Without it, restart the server manually after a reboot; startup recovery handles
 - Manifest status is on Evaluations, and the FX policy is in the experiment config; neither is
   shown on Overview.
 
+## EXP-002: trend sleeves (runs alongside EXP-001)
+
+EXP-002 runs the [trend sleeves engine](trend-sleeves-engine.md) in its own database and
+server, so the two experiments never share a wallet, a manifest, or a scheduler.
+
+| | EXP-001 | EXP-002 |
+|---|---|---|
+| Engine | 15m breakout + Jev/Luna routing | `sleeves_v1`: Donchian 4h, TSMOM, XSMOM (no AI) |
+| Database | `~/paper-500.sqlite3` | `~/paper-exp002.sqlite3` |
+| URL | http://127.0.0.1:8765/ | http://127.0.0.1:8768/ |
+| launchd label | `com.cryptoskills.paper-campaign` | `com.cryptoskills.paper-exp002` |
+| Log | `~/paper-500.log` | `~/paper-exp002.log` |
+| Capital | 300 perp + 200 spot | 500 perp in three sleeves of ~166.67 (+1 USDT minimum spot, unused) |
+| Risk stops | drawdown 15%, daily loss 5% | combined drawdown 25% (`RISK_HALT`), combined daily loss 8% (`RISK_PAUSE`) |
+| Trade target | 200 | 80 (the replay closes ~100 sleeve trades per 90 days) |
+| AI budget | $60, `FALLBACK_QUANT` | $1, `BLOCK_PAID_AI` (the engine makes no AI calls) |
+
+**Setup.** Setup is already done for the current run. To reproduce it on a fresh database:
+
+1. Start the server: `paper-server --database ~/paper-exp002.sqlite3 --port 8768`.
+2. Run `reports/paper-500/setup_exp002.py http://127.0.0.1:8768`. This local helper is not
+   committed. It sets the config and settings above, waits until the live feed is fresh for all
+   seven coins, and then starts, which freezes the manifest.
+
+**Daily check.** The Overview campaign panel shows each sleeve's equity, P&L net of transfers,
+long/short book, the last 4h tick and the combined drawdown. Check three things:
+
+- the last tick is at most 4h old;
+- `blocked` is empty, or explained (a stale feed retries on the next tick);
+- reconciliation is OK.
+
+**What to expect.** Trend systems lose often in small amounts and make their money in a few
+long runs. The replay's win rate was about 25% for Donchian and 45% for momentum, and its
+worst drawdown was 18.5%. Do not judge EXP-002 on week-one P&L. Day 7 checks correctness only,
+as for EXP-001.
+
+**Operations.**
+
+- Stop: `launchctl bootout gui/$(id -u)/com.cryptoskills.paper-exp002`
+- Backup: `paper-backup --database ~/paper-exp002.sqlite3`
+- Checkpoint: `paper-checkpoint --database ~/paper-exp002.sqlite3 --out reports/paper-500/exp002-<checkpoint>.json`
+
 ## What does not happen during the campaign
 
 - No new feature branches beyond defect fixes (stop condition).
