@@ -56,7 +56,7 @@ export function renderAiPlan({ cycle = null, position = null, instrument = null 
   if (!parts.length) {
     return emptyState(
       instrument?.market_type === "spot"
-        ? "No open holding. AI scans run on the configured perpetual universe; manage Spot holdings with re-plan."
+        ? "No open holding. AI Spot allocations follow approved long decisions when enabled in Settings › Portfolio policy."
         : "No AI decision recorded for this instrument yet (it may be outside the scan universe).",
     );
   }

@@ -11,6 +11,7 @@ const PERCENT_FIELDS = [
   ["spot_max_deployed_pct", "Spot max deployed capital %"],
   ["spot_min_cash_reserve_pct", "Spot minimum cash reserve %"],
   ["perp_manual_max_risk_pct", "Manual perp max risk per trade %"],
+  ["ai_spot.allocation_pct", "AI Spot allocation per entry % of Spot equity"],
   ["brain.max_asset_risk_pct", "Brain: max risk per asset %"],
   ["brain.max_correlated_risk_pct", "Brain: max correlated (BTC/ETH/ALT) risk %"],
   ["brain.max_direction_risk_pct", "Brain: max same-direction risk %"],
@@ -46,6 +47,11 @@ export function renderPortfolioSettings(settings) {
         <label>Default authority for AI-opened positions<select name="default_ai_management_mode">${MODES.map(([value, label]) => `<option value="${value}" ${settings.default_ai_management_mode === value ? "selected" : ""}>${label}</option>`).join("")}</select></label>
         <label>Default authority for your positions<select name="default_user_management_mode">${MODES.map(([value, label]) => `<option value="${value}" ${settings.default_user_management_mode === value ? "selected" : ""}>${label}</option>`).join("")}</select></label>
       </div>
+      <label class="checkbox-row"><input type="checkbox" name="ai_spot.enabled" ${settings.ai_spot.enabled ? "checked" : ""} /> AI may open PAPER Spot allocations from long decisions (AUTO_PAPER, Brain-gated)</label>
+      <label>AI Spot trigger <select name="ai_spot.trigger">
+        <option value="prefer_spot" ${settings.ai_spot.trigger === "prefer_spot" ? "selected" : ""}>Only when the Brain prefers Spot (adverse funding)</option>
+        <option value="all_long" ${settings.ai_spot.trigger === "all_long" ? "selected" : ""}>Every approved long decision</option>
+      </select></label>
       <label class="checkbox-row"><input type="checkbox" name="brain.enabled" ${settings.brain.enabled ? "checked" : ""} /> Apply Portfolio Brain to AI entries (it can only shrink or block, never size up)</label>
       <label class="checkbox-row"><input type="checkbox" name="review.enabled" ${settings.review.enabled ? "checked" : ""} /> Autonomous position review queue (deterministic trigger → Jev → optional Luna)</label>
       <label class="checkbox-row"><input type="checkbox" name="review.use_luna" ${settings.review.use_luna ? "checked" : ""} /> Allow Luna escalation in re-plans (budget guard still applies)</label>

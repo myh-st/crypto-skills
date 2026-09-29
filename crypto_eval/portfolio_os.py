@@ -1407,6 +1407,45 @@ class PortfolioOS:
             "preview": preview,
         }
 
+    def ai_spot_entry(self, *, cycle_id: str, intent: dict[str, Any], brain: dict[str, Any] | None) -> dict[str, Any] | None:
+        """Optional AI Spot allocation for a long primary decision (AUTO_PAPER, policy-gated).
+
+        Same frozen decision as the perpetual entry; Spot sizing is an allocation of the Spot
+        wallet, the Portfolio Brain is binding (source AI), and the SpotRiskEngine decides.
+        Idempotent per cycle. Never raises into the decision cycle.
+        """
+
+        settings = self.settings()
+        policy = settings["ai_spot"]
+        if not policy["enabled"] or intent.get("side") != "long":
+            return None
+        if policy["trigger"] == "prefer_spot" and "PREFER_SPOT" not in ((brain or {}).get("advisories") or []):
+            return None
+        base = intent["symbol"][:-4]
+        instrument_id = f"{self.catalog.exchange}:spot:{base}_USDT"
+        wallet = self.spot_wallet()
+        amount = round(policy["allocation_pct"] * wallet["equity_usdt"], 8)
+        request = {
+            "client_request_id": f"ai-spot:{cycle_id}"[:80],
+            "instrument_id": instrument_id,
+            "action": "buy",
+            "quote_amount": amount,
+            "stop_price": intent["stop_price"],
+            "targets": [intent["target_price"]],
+            "note": "AI spot allocation from the frozen primary decision",
+        }
+        try:
+            response = self.create_order(request, source="AI")
+        except PaperTradingError as exc:
+            response = {"accepted": False, "status": "rejected", "code": "AI_SPOT_ENTRY_BLOCKED", "reason": str(exc)[:200]}
+            with self.store.transaction() as db:
+                self._activity_locked(
+                    db, source="SYSTEM", category="RISK", severity="INFO", title="AI Spot entry not taken",
+                    summary=response["reason"], symbol=f"{base}USDT", instrument_id=instrument_id, market_type="spot",
+                    payload_ref=f"cycle:{cycle_id}",
+                )
+        return {k: response.get(k) for k in ("accepted", "status", "code", "reason", "order_ref", "position_ref")}
+
     def _holding_for_locked(self, db: Any, instrument_id: str) -> dict[str, Any] | None:
         row = db.execute(
             "SELECT * FROM spot_holdings WHERE experiment_id=? AND instrument_id=? AND status='open'",

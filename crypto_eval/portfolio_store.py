@@ -293,6 +293,11 @@ DEFAULT_PORTFOLIO_SETTINGS: dict[str, Any] = {
         "ai_management_paused": False,
         "emergency_stop": False,
     },
+    "ai_spot": {
+        "enabled": False,
+        "trigger": "prefer_spot",
+        "allocation_pct": 0.1,
+    },
     "brain": {
         "enabled": True,
         "max_asset_risk_pct": 0.03,
@@ -337,6 +342,7 @@ _NUMERIC_BOUNDS: dict[str, tuple[float, float]] = {
     "spot_min_cash_reserve_pct": (0.0, 0.9),
     "spot_limit_participation": (0.01, 1.0),
     "perp_manual_max_risk_pct": (0.0005, 0.05),
+    "ai_spot.allocation_pct": (0.01, 0.35),
     "brain.max_asset_risk_pct": (0.001, 0.5),
     "brain.max_correlated_risk_pct": (0.001, 0.5),
     "brain.max_direction_risk_pct": (0.001, 0.5),
@@ -413,6 +419,10 @@ def validate_portfolio_settings(value: dict[str, Any], *, base: dict[str, Any] |
     for key in ("enabled",):
         if not isinstance(merged["brain"][key], bool) or not isinstance(merged["review"][key], bool):
             raise PaperTradingError(f"{key} flags must be boolean")
+    if not isinstance(merged["ai_spot"]["enabled"], bool):
+        raise PaperTradingError("ai_spot.enabled must be boolean")
+    if merged["ai_spot"]["trigger"] not in {"prefer_spot", "all_long"}:
+        raise PaperTradingError("ai_spot.trigger must be prefer_spot or all_long")
     for key in ("use_jev", "use_luna"):
         if not isinstance(merged["review"][key], bool):
             raise PaperTradingError(f"review.{key} must be boolean")

@@ -777,6 +777,47 @@ class BrainIntegrationTests(PortfolioCase):
         self.assertFalse(reduced["closed"])
 
 
+class AiSpotEntryTests(PortfolioCase):
+    def start_cycle(self):
+        config = default_experiment_config()
+        config["symbols"] = ["ETHUSDT"]
+        self.store.save_experiment(config)
+        self.runtime.start()
+        return self.runtime.run_cycle("ETHUSDT", as_of=NOW, manual=True)
+
+    def test_disabled_by_default_and_prefer_spot_trigger_needs_advisory(self):
+        cycle = self.start_cycle()
+        self.assertNotIn("spot_execution", cycle)
+        self.assertEqual(self.os.spot_holdings(), [])
+
+    def test_ai_spot_entry_is_ai_owned_brain_gated_and_idempotent(self):
+        self.os.update_settings({"ai_spot": {"enabled": True, "trigger": "all_long", "allocation_pct": 0.1}})
+        cycle = self.start_cycle()
+        self.assertTrue(cycle["spot_execution"]["accepted"], cycle["spot_execution"])
+        holdings = self.os.list_positions()
+        spot = [p for p in holdings if p["market_type"] == "spot"]
+        self.assertEqual(len(spot), 1)
+        self.assertEqual(spot[0]["source"], "AI")
+        self.assertEqual(spot[0]["management_mode"], "AUTO_PAPER")
+        self.assertIsNotNone(spot[0]["stop_price"])
+        self.assertAlmostEqual(spot[0]["current_value_usdt"], 10.0, delta=0.5)
+        again = self.runtime.run_cycle("ETHUSDT", as_of=NOW, manual=True)
+        self.assertTrue(again["duplicate"])
+        self.assertEqual(len(self.os.spot_holdings()), 1)
+        orders = [o for o in self.os.list_orders() if o["market_type"] == "spot"]
+        self.assertEqual([o["source"] for o in orders], ["AI"])
+
+    def test_ai_spot_entry_respects_new_entry_pause_and_brain(self):
+        self.os.update_settings({"ai_spot": {"enabled": True, "trigger": "all_long", "allocation_pct": 0.3},
+                                 "brain": {"hold_cash_min_pct": 0.8}})
+        cycle = self.start_cycle()
+        self.assertFalse(cycle["spot_execution"]["accepted"])
+        self.assertEqual(cycle["spot_execution"]["code"], "PORTFOLIO_BRAIN_BLOCK")
+        self.assertEqual(self.os.spot_holdings(), [])
+        with self.assertRaisesRegex(PaperTradingError, "trigger"):
+            self.os.update_settings({"ai_spot": {"trigger": "always"}})
+
+
 # ---------------------------------------------------------------- activity / attention
 class ActivityAttentionTests(PortfolioCase):
     def test_activity_is_human_readable_filterable_and_not_tick_spam(self):

@@ -4753,6 +4753,14 @@ class PaperRuntime:
                 risk_events=[],
                 data_origin=snapshot.data_origin,
             )
+            if selected_intent is not None and pause_entries_reason is None:
+                spot = self.portfolio.ai_spot_entry(
+                    cycle_id=cycle_id,
+                    intent=selected_intent.to_dict(),
+                    brain=primary_brain,
+                )
+                if spot is not None:
+                    result = {**result, "spot_execution": spot}
             return result
         except Exception as exc:
             self.store.fail_cycle(cycle_id, "cycle_processing_error")
