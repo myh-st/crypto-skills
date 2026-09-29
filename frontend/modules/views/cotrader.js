@@ -12,7 +12,6 @@ import { coinIcon } from "../components/coinBook.js";
 import { confirmAction } from "../components/confirmDialog.js";
 import { applyMotion, skeleton, startCountdowns } from "../components/motion.js";
 import { feedback, num, pnl } from "../components/ui.js";
-import { gauge } from "../components/charts.js";
 import {
   DISCLAIMER, METHOD_LABELS, actionBadge, actionFor, cotSpark, fmtPct, fmtPrice, fmtQty, fmtUsdt, isFresh, isoDate,
   marketStanceChip, pctChange, sizingLine, stanceChip, stateChip, triggerText, unavailableHtml,
@@ -24,6 +23,8 @@ import { chartLevels, equitySummary, mountCotraderChart, mountEquityChart, price
 import { cdcChip, ladderLevels, renderEvidence, renderLadderDetail, renderLadderRow } from "../components/cotraderLadder.js";
 import { mountWatchlist, renderWatchlistShell } from "./cotraderWatchlist.js";
 import { renderNextStepsTh } from "../components/cotraderSummary.js";
+import { renderCoinTable } from "../components/cotraderTable.js";
+import { icon } from "../components/icons.js";
 
 const REFRESH_MS = 60_000;
 const THIN_COINS = new Set(["SEI", "ENA"]);
@@ -62,7 +63,7 @@ export function renderRegimeStrip(d) {
     <div class="cot-regime-cell cot-regime-main"><span class="cot-kicker">Regime</span>
       <strong class="cot-regime-label"><span aria-hidden="true">${REGIME_GLYPH[label] || "?"}</span> ${escapeHtml(label ? label.replace("_", "-") : "unknown")}</strong></div>
     <div class="cot-regime-cell"><span class="cot-kicker">Breadth</span><strong>${escapeHtml(breadth)}</strong>
-      ${num(r.breadth) === null ? "" : gauge(num(r.breadth), { label: `breadth ${breadth}`, danger: 2, motionKey: "cot:breadth" })}</div>
+      ${num(r.breadth) === null ? "" : `<span class="cot-breadth" role="meter" aria-valuemin="0" aria-valuemax="100" aria-valuenow="${Math.round(num(r.breadth) * 100)}" aria-label="breadth ${escapeHtml(breadth)}"><span style="width:${Math.round(Math.max(0, Math.min(1, num(r.breadth))) * 100)}%"></span></span>`}</div>
     <div class="cot-regime-cell"><span class="cot-kicker">BTC</span>${stateChip(r.btc_state || null)}</div>
     <div class="cot-regime-cell"><span class="cot-kicker">Next daily close</span>
       <strong>${d?.next_close ? `<span data-countdown="${escapeHtml(d.next_close)}">${escapeHtml(relativeTime(d.next_close))}</span>` : "—"}</strong>
@@ -129,18 +130,20 @@ export function renderCoinGrid(coins) {
 
 export function renderCotraderOverview(d, { scorecard = null, scorecardError = null } = {}) {
   if (!d) return skeleton(5);
+  // One primary surface (what to do next), then the scannable coin list; context and the AI
+  // scorecard follow, the scorecard behind a disclosure until it has enough samples to matter.
   return `
     ${renderNextStepsTh(d)}
-    ${renderRegimeStrip(d)}
-    ${renderBriefing(d.briefing)}
     <section class="cot-section">
       <div class="section-heading"><h2>Coins</h2><span class="muted small">daily close ${escapeHtml(isoDate(d.last_close))}</span></div>
-      ${renderCoinGrid(d.coins)}
+      ${renderCoinTable(d.coins)}
     </section>
-    <section class="panel cot-scorecard">
-      <div class="section-heading"><h2>AI Scorecard</h2><span class="muted small">does the AI add value?</span></div>
+    ${renderRegimeStrip(d)}
+    ${renderBriefing(d.briefing)}
+    <details class="panel cot-scorecard cot-disclosure">
+      <summary><span class="cot-disclosure-title">AI Scorecard</span><span class="muted small">does the AI add value?</span></summary>
       ${scorecardError ? `<p class="muted">Scorecard unavailable: ${escapeHtml(scorecardError)}</p>` : renderScorecard(scorecard, { pricingFallback: Boolean(d.ai?.pricing_is_fallback) })}
-    </section>`;
+    </details>`;
 }
 
 // ---------------------------------------------------------------- detail (pure)
@@ -308,7 +311,7 @@ export function renderDetailHead(coin, holding = null) {
     ? `<span class="small">You hold ${escapeHtml(fmtQty(holding.qty))} ${escapeHtml(base)}${num(holding.avg_price) === null ? " (cost unknown)" : ` @ ${escapeHtml(fmtPrice(holding.avg_price))}`} · ${pnl(holding.unrealized_usdt)}</span>`
     : coin.held === false ? '<span class="small muted">You don\'t hold this coin.</span>' : "";
   return `<div class="cot-detail-head">
-    <a class="cot-back small" href="#/cotrader"><span aria-hidden="true">←</span> All coins</a>
+    <a class="cot-back small" href="#/cotrader">${icon("back", { size: 14 })} All coins</a>
     <div class="cot-detail-title">
       ${coinIcon(base, { size: 44 })}
       <div><h1>${escapeHtml(base)} <span class="muted small">${escapeHtml(coin.symbol || "")}</span></h1>
