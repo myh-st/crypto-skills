@@ -56,7 +56,7 @@ export function renderUnifiedPositions(positions, { compact = false, emptyMessag
               <td data-motion-key="pos:${escapeHtml(position.position_ref)}:mark">${escapeHtml(price(position.live_price ?? position.mark_price))}</td>
               <td data-motion-key="pos:${escapeHtml(position.position_ref)}:pnl">${pnl(position.unrealized_pnl_usdt)}${position.r_multiple == null ? "" : `<br><small class="muted">${Number(position.r_multiple).toFixed(2)}R</small>`}</td>
               ${compact ? "" : `<td>${escapeHtml(price(position.stop_price))}</td><td>${escapeHtml(price(position.open_risk_usdt))}${position.market_type === "perpetual" && position.liquidation_buffer_pct != null ? `<br><small class="muted">liq buffer ${escapeHtml(pctText(position.liquidation_buffer_pct))}</small>` : ""}</td>`}
-              <td>${modeBadge(position.management_mode)}${position.pending_proposal ? '<br><span class="proposal-flag">re-plan pending</span>' : ""}</td>
+              <td>${SLEEVE_TAGS[position.cohort] ? engineBadge() : modeBadge(position.management_mode)}${position.pending_proposal ? '<br><span class="proposal-flag">re-plan pending</span>' : ""}</td>
               <td><button type="button" class="btn btn--small" data-open-position="${escapeHtml(position.position_ref)}" aria-label="Manage ${escapeHtml(position.display_symbol)}">Manage</button></td>
             </tr>`).join("")}
         </tbody>
@@ -67,6 +67,12 @@ export function renderUnifiedPositions(positions, { compact = false, emptyMessag
 // Trend sleeves (EXP-002) run each strategy in its own sub-account, so one coin can be long in
 // one sleeve and short in another; the tag says which sleeve owns the position.
 const SLEEVE_TAGS = { "sleeve-don": ["DON", "Donchian 4h breakout"], "sleeve-ts": ["TS", "Time-series momentum"], "sleeve-xs": ["XS", "Cross-sectional momentum"] };
+
+// Sleeve positions are run by the rule-based trend-sleeves engine; AI position review is off for them,
+// so they must never be labelled "AI managed".
+export function engineBadge() {
+  return '<span class="mode-badge mode-badge--engine" title="Entries, exits and trailing stops come from the trend-sleeves engine. AI review is off."><span aria-hidden="true">⚙</span> Engine managed</span>';
+}
 
 export function sleeveTag(cohort) {
   const tag = SLEEVE_TAGS[cohort];
