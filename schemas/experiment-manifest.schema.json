@@ -1,0 +1,69 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "experiment-manifest.schema.json",
+  "title": "Frozen experiment manifest (material treatment definition)",
+  "type": "object",
+  "required": [
+    "schema_version",
+    "material",
+    "material_sha256"
+  ],
+  "properties": {
+    "schema_version": {
+      "const": "experiment-manifest.v1"
+    },
+    "material_sha256": {
+      "type": "string",
+      "minLength": 64
+    },
+    "material": {
+      "type": "object",
+      "required": [
+        "experiment_config",
+        "portfolio_policy",
+        "providers",
+        "skill_sha256",
+        "policy_versions",
+        "price_book_version",
+        "benchmark_arms"
+      ],
+      "properties": {
+        "experiment_config": {
+          "type": "object"
+        },
+        "portfolio_policy": {
+          "type": "object"
+        },
+        "providers": {
+          "type": "array",
+          "items": {
+            "type": "object"
+          }
+        },
+        "skill_sha256": {
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "policy_versions": {
+          "type": "object"
+        },
+        "price_book_version": {
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "benchmark_arms": {
+          "type": [
+            "array",
+            "null"
+          ]
+        }
+      },
+      "additionalProperties": false
+    }
+  },
+  "additionalProperties": false
+}

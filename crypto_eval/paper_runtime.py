@@ -71,6 +71,7 @@ from .portfolio_brain import evaluate_entry as portfolio_brain_entry
 from .portfolio_store import PORTFOLIO_SCHEMA
 from .execution_safety import KILL_RANK, SAFETY_SCHEMA, classify_market, suspect_print
 from .spot_lifecycle import LIFECYCLE_SCHEMA
+from .promotion import PROMOTION_SCHEMA
 from .resilience import (
     DB_SCHEMA_VERSION,
     RESILIENCE_SCHEMA,
@@ -829,6 +830,7 @@ class PaperStore:
         self._db.executescript(SAFETY_SCHEMA)
         self._db.executescript(LIFECYCLE_SCHEMA)
         self._db.executescript(RESILIENCE_SCHEMA)
+        self._db.executescript(PROMOTION_SCHEMA)
 
     def _migrate_schema(self) -> None:
         with self._lock:
@@ -3349,6 +3351,16 @@ class PaperRuntime:
         self.resilience = ResilienceLedger(self.store, self._clock)
 
     @property
+    def governance(self) -> Any:
+        """Experiment manifests, checkpoint reports, and promotion gate reviews."""
+
+        if getattr(self, "_governance", None) is None:
+            from .promotion import ExperimentGovernance
+
+            self._governance = ExperimentGovernance(self)
+        return self._governance
+
+    @property
     def portfolio(self) -> Any:
         """Portfolio OS service (Spot, unified orders, authority, re-plan, attention, learning)."""
 
@@ -3418,6 +3430,11 @@ class PaperRuntime:
             self._escalate("NO_NEW_ENTRIES", "STORAGE_LOW: free disk below the configured minimum")
         reconciliation = self.portfolio.reconcile(escalate=True)
         actions["reconciliation_ok"] = reconciliation["ok"]
+        if self.store.experiment()["status"] == "running" and self.governance.frozen() is None:
+            # Upgrade path: an experiment already running before manifests existed is frozen now;
+            # its evaluation window starts here and earlier history is not claimed as covered.
+            self.governance.freeze(reason="frozen at restart; earlier history predates experiment manifests")
+            actions["manifest_frozen_at_restart"] = True
         res.open_incident("PROCESS_RESTART", severity="INFO", experiment_id=experiment_id, resolved=True,
                           summary="startup recovery completed", detail=actions)
         res.heartbeat("process", detail={"clean_shutdown": False, "started_at": iso_utc(self._clock()), "pid": os.getpid()})
@@ -5316,7 +5333,11 @@ class PaperRuntime:
                 and self.store.provider_validation_status(config["gpt_provider_id"]) != "passed"
             ):
                 raise PaperTradingError("test the configured GPT provider before starting")
-        return self.store.set_status("running")
+        result = self.store.set_status("running")
+        # The treatment is frozen the first time the experiment runs; later material changes
+        # need a new manifest version (and are flagged as drift until one is recorded).
+        self.governance.ensure_frozen()
+        return result
 
     def pause(self) -> dict[str, Any]:
         return self.store.set_status("paused")
@@ -7240,6 +7261,8 @@ class PaperRuntimeReports:
         files["lifecycle-states.csv"] = csv_rows(portfolio_files["lifecycle_states"])
         files["lifecycle-events.jsonl"] = jsonl(portfolio_files["lifecycle_events"])
         files["lifecycle-benchmarks.jsonl"] = jsonl(portfolio_files["lifecycle_benchmarks"])
+        files["experiment-manifests.jsonl"] = jsonl(self.runtime.governance.manifests())
+        files["promotion-reviews.jsonl"] = jsonl(self.runtime.governance.reviews(limit=10_000))
         files["portfolio-settings.json"] = json.dumps(
             portfolio_files["settings"], indent=2, sort_keys=True
         ).encode("utf-8")

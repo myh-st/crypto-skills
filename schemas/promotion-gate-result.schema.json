@@ -1,0 +1,52 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "promotion-gate-result.schema.json",
+  "title": "Promotion gate decision (evidence summary; never enables live trading)",
+  "type": "object",
+  "required": [
+    "status",
+    "blockers",
+    "reasons",
+    "policy_version",
+    "criteria",
+    "live_execution_enabled",
+    "next_step"
+  ],
+  "properties": {
+    "status": {
+      "enum": [
+        "PASS",
+        "CONTINUE_COLLECTING_DATA",
+        "FAIL_STRATEGY",
+        "FAIL_SAFETY",
+        "FAIL_RELIABILITY",
+        "INVALID_EXPERIMENT"
+      ]
+    },
+    "blockers": {
+      "type": "array",
+      "items": {
+        "type": "string"
+      }
+    },
+    "reasons": {
+      "type": "array",
+      "items": {
+        "type": "string"
+      }
+    },
+    "policy_version": {
+      "const": "promotion-gate.v1"
+    },
+    "criteria": {
+      "type": "object"
+    },
+    "live_execution_enabled": {
+      "const": false
+    },
+    "next_step": {
+      "type": "string"
+    }
+  },
+  "additionalProperties": false
+}

@@ -1,0 +1,37 @@
+{
+  "goal": "experiment-promotion-gates",
+  "branch": "feature/experiment-promotion-gates",
+  "state": "complete_pending_merge",
+  "predecessor": "feature/continuous-paper-resilience",
+  "canonical_files": [
+    ".goals/experiment-promotion-gates/goal.md",
+    "docs/experiment-promotion-gates-plan.md",
+    "docs/development-train.md"
+  ],
+  "paper_campaign": {
+    "starting_capital_usdt": 500,
+    "checkpoints_days": [
+      7,
+      30,
+      60,
+      90
+    ],
+    "target_completed_trades": "200-300 where strategy frequency permits"
+  },
+  "auto_enable_live_execution": false,
+  "real_gate_write_enabled": false,
+  "base": "main@504604a (Phase 4 merged)",
+  "verification": {
+    "validate_repo": "PASS",
+    "python_unittest": "PASS (303 tests)",
+    "frontend_node_test": "PASS (76 tests)",
+    "node_check": "PASS",
+    "demo": "PASS",
+    "campaign_rehearsal": "PASS: every gate status and precedence rule reproduced deterministically (tests/test_promotion_gates.py)",
+    "browser_qa": "PASS: Evaluations promotion panel (INVALID before start -> v1 frozen on start -> CONTINUE), material Settings change -> confirmation -> manifest v2, checkpoint review persisted in history, 375px no overflow",
+    "real_local_acceptance": "PASS 2026-09-29: paper-checkpoint on a copy of the real Jev/Luna integration DB: pre-manifest experiment correctly INVALID (NO_FROZEN_MANIFEST); secret scan clean with real configured providers; frozen manifest lists real providers (foundry gpt-6-luna reasoning max, typesafe jev) with only whitelisted non-secret keys; gate CONTINUE_COLLECTING_DATA",
+    "live_execution": "NOT IMPLEMENTED / STILL DISABLED; gate result live_execution_enabled is always false",
+    "known_gaps": "statistical significance testing not implemented (denominators and distributions reported instead); real 90-day campaign not yet run",
+    "real_gate_write": "BLOCKED_BY_DESIGN (unchanged)"
+  }
+}

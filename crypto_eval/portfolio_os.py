@@ -210,12 +210,22 @@ class PortfolioOS:
             return default_portfolio_settings()
         return validate_portfolio_settings(_loads(rows[0]["settings_json"], {}))
 
-    def update_settings(self, patch: dict[str, Any], *, source: str = "USER") -> dict[str, Any]:
+    def update_settings(self, patch: dict[str, Any], *, source: str = "USER", confirm: bool = False) -> dict[str, Any]:
         if not isinstance(patch, dict):
             raise PaperTradingError("portfolio settings must be an object")
         with self._lock:
             current = self.settings()
             updated = validate_portfolio_settings(patch, base=current)
+            from .promotion import diff_material, material_settings
+
+            material = diff_material(material_settings(current), material_settings(updated))
+            frozen = self.runtime.governance.frozen() if material else None
+            if frozen and not confirm:
+                raise ConfirmationRequired(
+                    "CONFIRM_MATERIAL_CHANGE",
+                    "this changes the experiment's treatment; results after it are evaluated under a new manifest version",
+                    {"fields": material[:12], "manifest_version": frozen["version"]},
+                )
             if updated["spot_starting_balance_usdt"] != current["spot_starting_balance_usdt"]:
                 activity = self.store._query(
                     "SELECT COUNT(*) AS n FROM spot_orders WHERE experiment_id=?", (self.experiment_id,)
@@ -253,6 +263,8 @@ class PortfolioOS:
                         db, source=source, category="RISK", severity="INFO",
                         title="Portfolio policy updated", summary=", ".join(changed)[:300],
                     )
+            if frozen:
+                self.runtime.governance.freeze(reason=f"material settings change: {', '.join(material[:8])}")
             return updated
 
     def set_automation(self, patch: dict[str, Any], *, confirm: bool = False) -> dict[str, Any]:

@@ -91,6 +91,12 @@ Perpetual มีหน้า Overview, Portfolio, Trade, Activity, Research, Eva
   แบบเร่งเวลา (`paper-backup`, `paper-restore`, `paper-soak`) ดู
   [`docs/continuous-paper-resilience.md`](docs/continuous-paper-resilience.md)
 
+- **Experiment promotion gates:** manifest ของการทดลองถูกตรึง (เปลี่ยนสาระสำคัญต้องสร้างเวอร์ชันใหม่
+  ถ้าเปลี่ยนโดยไม่บันทึกเวอร์ชัน รีวิวจะเป็น INVALID) รายงาน checkpoint วันที่ 7/30/60/90 ที่สร้างซ้ำได้
+  และ gate แบบ deterministic (PASS / CONTINUE_COLLECTING_DATA / FAIL_* / INVALID_EXPERIMENT)
+  ที่ไม่เปิดการเทรดเงินจริงเด็ดขาด ดู [`docs/experiment-promotion-gates.md`](docs/experiment-promotion-gates.md)
+  และ [runbook แคมเปญ PAPER 500 USDT](docs/paper-500-campaign-runbook.md)
+
 การเขียนคำสั่งเงินจริงไปยัง Gate ยังถูกบล็อกโดยการออกแบบ รายละเอียดอยู่ที่
 [`docs/ai-portfolio-trading-os.md`](docs/ai-portfolio-trading-os.md)
 

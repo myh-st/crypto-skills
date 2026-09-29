@@ -24,7 +24,7 @@ CONTRACTS = (
     "portfolio-brain-decision", "activity-event", "attention-event", "post-trade-review", "learning-tag",
     "market-safety-state", "execution-plan", "kill-switch-level",
     "spot-lifecycle-state", "spot-lifecycle-plan", "spot-regime-evidence", "spot-benchmark-report",
-    "runtime-health", "runtime-incident",
+    "runtime-health", "runtime-incident", "experiment-manifest", "experiment-checkpoint", "promotion-gate-result",
 )
 
 
@@ -79,6 +79,13 @@ class PortfolioSchemaTests(PortfolioCase):
         self.assertConforms(health, "runtime-health")
         for incident in self.runtime.resilience.incidents():
             self.assertConforms(incident, "runtime-incident")
+
+    def test_promotion_outputs_conform(self):
+        self.runtime.start()
+        review = self.runtime.governance.review()
+        self.assertConforms(self.runtime.governance.frozen()["manifest"], "experiment-manifest")
+        self.assertConforms(review["report"], "experiment-checkpoint")
+        self.assertConforms(review["gate"], "promotion-gate-result")
 
     def test_runtime_outputs_conform(self):
         for market_type in ("spot", "perpetual"):
