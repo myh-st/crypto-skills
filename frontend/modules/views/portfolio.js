@@ -159,6 +159,7 @@ export function render(root, ctx) {
           ${kv("Fees", `${escapeHtml(fmtNumber(spot.fees_usdt, { digits: 4 }))} USDT`)}
         </dl>`;
       view.querySelector("[data-spot-holdings]").innerHTML = renderUnifiedPositions(paper.spot.holdings, { emptyMessage: "No PAPER spot holdings." });
+      applyMotion(view);   // position mark/P&L glide and flash in both tables
       view.querySelector("[data-orders]").innerHTML = renderOrdersPanel(orders, { filter: orderFilter });
       const real = accounts.accounts || [];
       view.querySelector("[data-real]").innerHTML = real.length

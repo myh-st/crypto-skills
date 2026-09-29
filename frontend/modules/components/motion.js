@@ -5,7 +5,7 @@
 // remembers its last value between renders. Everything is skipped under prefers-reduced-motion.
 
 const lastNumber = new Map();   // motion key -> last numeric value
-const lastWidths = new Map();   // motion key -> [width%...]
+const lastWidths = new Map();   // motion key -> [{left, width}...]
 const seenOnce = new Set();     // keys that already played an entrance
 const NUM = /([+\-−]?)(\d{1,3}(?:,\d{3})+(?:\.\d+)?|\d+(?:\.\d+)?)/;
 const FLASH_MS = 900;
@@ -82,6 +82,7 @@ function flash(el, direction) {
  */
 export function applyMotion(root, { reduce = reducedMotion(), now = () => performance.now(), raf = (f) => requestAnimationFrame(f) } = {}) {
   if (!root?.querySelectorAll) return;
+  if (root.querySelector?.("[data-countdown]")) startCountdowns(root.ownerDocument || globalThis.document);
   // 1. numbers: glide + flash on change
   for (const el of root.querySelectorAll("[data-motion-key]")) {
     const key = el.dataset.motionKey;
@@ -100,16 +101,20 @@ export function applyMotion(root, { reduce = reducedMotion(), now = () => perfor
   for (const group of root.querySelectorAll("[data-motion-fill]")) {
     const key = group.dataset.motionFill;
     const fills = [...group.querySelectorAll(".bar-fill, .gauge-fill, .campaign-bar > span")];
-    const targets = fills.map((f) => f.style.width);
-    const previous = lastWidths.get(key) || targets.map(() => "0%");
+    // Signed bars are anchored by `left` as well as `width`: rewind both so the bar slides from where it was.
+    const targets = fills.map((f) => ({ left: f.style.left, width: f.style.width }));
+    const previous = lastWidths.get(key) || targets.map((t) => ({ left: t.left, width: "0%" }));
     lastWidths.set(key, targets);
     fills.forEach((f, i) => {
-      if (previous[i] === targets[i]) return;
+      const from = previous[i] || { left: targets[i].left, width: "0%" };
+      if (from.left === targets[i].left && from.width === targets[i].width) return;
       f.style.transition = "none";
-      f.style.width = previous[i] ?? "0%";
+      f.style.left = from.left;
+      f.style.width = from.width;
       void f.offsetWidth;
       f.style.transition = "";
-      f.style.width = targets[i];
+      f.style.left = targets[i].left;
+      f.style.width = targets[i].width;
     });
   }
   // 3. one-time entrances: chart lines draw in, calendars stagger, new list items slide in
@@ -148,11 +153,25 @@ export function countdownText(iso, nowMs = Date.now()) {
 }
 
 let ticker = null;
+/** Tick every `[data-countdown]` once a second. The ticker stops itself when the page has none left (a view
+ * was disposed) and is restarted by the next render (applyMotion calls this; it is idempotent). */
 export function startCountdowns(doc = globalThis.document) {
-  if (ticker || !doc) return;
-  const tick = () => doc.querySelectorAll("[data-countdown]").forEach((el) => { el.textContent = countdownText(el.dataset.countdown); });
-  tick();
+  if (ticker || !doc?.querySelectorAll) return;
+  const tick = () => {
+    const els = doc.querySelectorAll("[data-countdown]");
+    if (!els.length) {
+      clearInterval(ticker);
+      ticker = null;
+      return;
+    }
+    els.forEach((el) => { el.textContent = countdownText(el.dataset.countdown); });
+  };
   ticker = setInterval(tick, 1000);
+  tick();
+}
+
+export function countdownsRunning() {
+  return ticker !== null;
 }
 
 // Shimmering placeholder while a view loads.

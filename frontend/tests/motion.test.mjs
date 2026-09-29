@@ -47,3 +47,73 @@ test("views opt elements into motion with stable keys", () => {
   assert.match(calendarHeatmap([{ date: "2026-09-29", pnl_usdt: 1, pnl_pct: 0.01, trades: 1 }], { motionKey: "cal" }), /style="--i:0"/);
   applyMotion(null);   // a missing root is a no-op, never an error
 });
+
+import { resetMotion, startCountdowns, countdownsRunning } from "../modules/components/motion.js";
+
+function fakeRoot() {
+  const text = { nodeValue: "100.00 USDT", isConnected: true };
+  const classes = () => { const s = new Set(); return { add: (...c) => c.forEach((x) => s.add(x)), remove: (...c) => c.forEach((x) => s.delete(x)), contains: (c) => s.has(c), has: s }; };
+  const ownerDocument = { createTreeWalker: () => { let done = false; return { nextNode: () => (done ? null : ((done = true), text)) }; } };
+  const value = { dataset: { motionKey: "t:equity" }, classList: classes(), offsetWidth: 0, ownerDocument };
+  const log = [];
+  const style = new Proxy({ left: "50%", width: "20%", transition: "" }, { set(t, k, v) { log.push([k, v]); t[k] = v; return true; } });
+  const fill = { style, offsetWidth: 0 };
+  const group = { dataset: { motionFill: "t:bars" }, querySelectorAll: () => [fill] };
+  const enter = { dataset: { motionEnter: "t:card" }, classList: classes(), querySelector: () => null };
+  const root = {
+    ownerDocument,
+    querySelector: () => null,
+    querySelectorAll: (sel) => (sel === "[data-motion-key]" ? [value] : sel === "[data-motion-fill]" ? [group] : sel === "[data-motion-enter]" ? [enter] : []),
+  };
+  return { root, text, value, fill, style, log, enter };
+}
+
+test("applyMotion glides and flashes a changed value, rewinds fills (left and width), plays entrances once", () => {
+  resetMotion();
+  const f = fakeRoot();
+  let clock = 0;
+  const frames = [];
+  const opts = { reduce: false, now: () => clock, raf: (fn) => frames.push(fn) };
+  applyMotion(f.root, opts);                                   // first sight: remember, no flash
+  assert.equal(f.value.classList.contains("motion-up"), false);
+  assert.equal(f.enter.classList.contains("motion-enter"), true);
+  assert.deepEqual(f.log.filter(([k]) => k !== "transition").slice(0, 2), [["left", "50%"], ["width", "0%"]]);   // grows from 0 in place
+  f.enter.classList.remove("motion-enter");
+
+  f.text.nodeValue = "110.00 USDT";
+  f.style.left = "30%"; f.style.width = "40%";                 // the re-render moved a signed bar
+  f.log.length = 0;
+  applyMotion(f.root, opts);
+  assert.equal(f.value.classList.contains("motion-up"), true);
+  frames.shift()();                                            // first frame: still at the old value
+  assert.equal(f.text.nodeValue, "100.00 USDT");
+  clock = 10_000;
+  while (frames.length) frames.shift()();
+  assert.equal(f.text.nodeValue, "110.00 USDT");               // lands exactly on the new value
+  const writes = f.log.filter(([k]) => k !== "transition");
+  assert.deepEqual(writes, [["left", "50%"], ["width", "20%"], ["left", "30%"], ["width", "40%"]]);  // from previous left+width to target
+  assert.equal(f.enter.classList.contains("motion-enter"), false);   // entrance played only once
+});
+
+test("reduced motion records the value but never flashes or tweens", () => {
+  resetMotion();
+  const f = fakeRoot();
+  const frames = [];
+  applyMotion(f.root, { reduce: true, raf: (fn) => frames.push(fn) });
+  f.text.nodeValue = "90.00 USDT";
+  applyMotion(f.root, { reduce: true, raf: (fn) => frames.push(fn) });
+  assert.equal(frames.length, 0);
+  assert.equal(f.value.classList.contains("motion-down"), false);
+  assert.equal(f.text.nodeValue, "90.00 USDT");
+});
+
+test("the countdown ticker stops itself when no countdown is left on the page", async () => {
+  let els = [{ dataset: { countdown: "2030-01-01T00:00:00Z" }, textContent: "" }];
+  const doc = { querySelectorAll: () => els };
+  startCountdowns(doc);
+  assert.equal(countdownsRunning(), true);
+  assert.match(els[0].textContent, /^in /);
+  els = [];                                                    // the view was disposed
+  await new Promise((r) => setTimeout(r, 1100));
+  assert.equal(countdownsRunning(), false);
+});

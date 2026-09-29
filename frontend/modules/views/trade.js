@@ -15,6 +15,7 @@ import { renderTradingStatusBar } from "../components/tradingStatusBar.js";
 import { feedback, marketBadge, pnl, price } from "../components/ui.js";
 import { renderRestrictions, renderSafetyStrip } from "../components/safetyStrip.js";
 import { nextScanAt } from "./cockpit.js";
+import { applyMotion } from "../components/motion.js";
 
 const INTERVAL_SECONDS = { "1m": 60, "5m": 300, "15m": 900, "1h": 3600, "4h": 14400 };
 
@@ -98,6 +99,7 @@ export function render(root, ctx) {
     if (state.bottom === "orders") host.innerHTML = renderOrdersPanel(state.orders, { instrumentId: id });
     else if (state.bottom === "activity") host.innerHTML = renderTimeline(state.activity.slice(0, 40));
     else host.innerHTML = renderUnifiedPositions(state.positions.filter((p) => p.instrument_id === id), { emptyMessage: "No open PAPER position on this instrument." });
+    applyMotion(host);
   }
 
   function renderSummary() {
