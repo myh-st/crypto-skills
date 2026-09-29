@@ -178,6 +178,27 @@ class PaperRequestHandler(BaseHTTPRequestHandler):
             {"error": str(exc), "code": exc.code, "confirmation_required": True, "details": exc.details},
         )
 
+    # ---- holdings (manual + READ-ONLY Gate spot sync; no exchange write path exists) ----
+    def _holdings_post(self, path: str) -> dict[str, Any] | None:
+        if not path.startswith("/api/holdings/"):
+            return None
+        holdings = self.runtime.holdings
+        if path == "/api/holdings/manual":
+            return {"entry": holdings.save_manual(self._read_json())}
+        if path.startswith("/api/holdings/manual/") and path.endswith("/delete"):
+            entry_id = urllib.parse.unquote(path[len("/api/holdings/manual/") : -len("/delete")])
+            return holdings.delete_manual(entry_id)
+        if path == "/api/holdings/sync":
+            body = self._read_json()
+            if set(body) - {"account_id"}:
+                raise PaperTradingError("holdings sync accepts account_id only")
+            return holdings.sync(body.get("account_id"))
+        if path == "/api/holdings/settings":
+            return holdings.update_settings(self._read_json())
+        if path == "/api/holdings/gate/validate":
+            return holdings.validate_gate()  # no body; one signed GET /spot/accounts, never a write
+        return None
+
     # ---- portfolio OS routes (PAPER-local; no exchange write path exists) ----
     @staticmethod
     def _q(query: dict[str, list[str]], name: str, default: str | None = None) -> str | None:
@@ -751,6 +772,8 @@ class PaperRequestHandler(BaseHTTPRequestHandler):
                 self._send_json(200, {"quote": self.runtime.portfolio.quote(query["instrument_id"][0])})
             elif path == "/api/market/ticker":
                 self._send_json(200, self._chart_ticker(query))
+            elif path == "/api/holdings":
+                self._send_json(200, self.runtime.holdings.payload())
             elif path == "/api/runtime/stream":
                 self._runtime_sse()
                 return
@@ -914,7 +937,9 @@ class PaperRequestHandler(BaseHTTPRequestHandler):
                     {"result": self.runtime.warm_up_market_history(profile=profile)},
                 )
                 return
-            payload = self._portfolio_post(path)
+            payload = self._holdings_post(path)
+            if payload is None:
+                payload = self._portfolio_post(path)
             if payload is not None:
                 self._send_json(200, payload)
                 return
