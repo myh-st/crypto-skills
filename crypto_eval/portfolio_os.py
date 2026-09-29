@@ -1020,6 +1020,10 @@ class PortfolioOS:
             raise PaperTradingError("perpetual action must be long or short")
         if market_type == "spot" and action not in {"buy", "sell"}:
             raise PaperTradingError("spot action must be buy or sell")
+        if market_type == "perpetual" and ({"quantity", "quote_amount", "allocation_target_pct"} & set(request)):
+            raise PaperTradingError(
+                "perpetual size is derived server-side from risk_pct, stop, and leverage; do not send a quantity"
+            )
         if order_type == "limit":
             _num(request.get("limit_price"), "limit_price", positive=True)
         elif request.get("limit_price") is not None:

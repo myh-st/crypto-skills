@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import csv
+import hashlib
 import io
 import json
 import math
@@ -6874,6 +6875,53 @@ class PaperRuntimeReports:
             files["gate-account-sync-summary.json"] = json.dumps(
                 account_syncs[-20:], indent=2, sort_keys=True
             ).encode("utf-8")
+        portfolio_files = self.runtime.portfolio.export_files()
+
+        def csv_rows(rows: list[dict[str, Any]]) -> bytes:
+            fields = sorted({key for row in rows for key in row}) if rows else ["empty"]
+            return self._csv_bytes(rows, fields)
+
+        files["portfolio-snapshots.csv"] = csv_rows(portfolio_files["portfolio_snapshots"])
+        files["spot-wallets.csv"] = csv_rows(portfolio_files["spot_wallets"])
+        files["spot-holdings.csv"] = csv_rows(portfolio_files["spot_holdings"])
+        files["spot-orders.csv"] = csv_rows(portfolio_files["spot_orders"])
+        files["spot-fills.csv"] = csv_rows(portfolio_files["spot_fills"])
+        files["position-plans.jsonl"] = jsonl(portfolio_files["position_plans"])
+        files["position-replans.jsonl"] = jsonl(portfolio_files["position_replans"])
+        files["management-events.jsonl"] = jsonl(portfolio_files["management_events"])
+        files["activity.csv"] = csv_rows(portfolio_files["activity"])
+        files["attention-events.csv"] = csv_rows(portfolio_files["attention"])
+        files["post-trade-reviews.jsonl"] = jsonl(portfolio_files["post_trade_reviews"])
+        files["improvement-hypotheses.jsonl"] = jsonl(portfolio_files["hypotheses"])
+        files["brain-decisions.jsonl"] = jsonl(portfolio_files["brain_decisions"])
+        files["strategy-tournament.csv"] = csv_rows(
+            [
+                {key: value for key, value in arm.items() if not isinstance(value, (list, dict))}
+                for arm in portfolio_files["tournament"]["arms"]
+            ]
+        )
+        files["strategy-tournament.json"] = json.dumps(
+            portfolio_files["tournament"], indent=2, sort_keys=True, default=str
+        ).encode("utf-8")
+        files["portfolio-settings.json"] = json.dumps(
+            portfolio_files["settings"], indent=2, sort_keys=True
+        ).encode("utf-8")
+        manifest["portfolio_os"] = {
+            "schema_versions": {
+                "portfolio_state": "portfolio-state.v1",
+                "unified_position_view": "unified-position-view.v1",
+                "paper_order_view": "paper-order-view.v1",
+                "position_replan_proposal": "position-replan-proposal.v1",
+                "activity_event": "activity-event.v1",
+                "attention_event": "attention-event.v1",
+                "post_trade_review": "post-trade-review.v1",
+                "strategy_tournament": "strategy-tournament.v1",
+            },
+            "row_counts": {
+                key: len(value) for key, value in portfolio_files.items() if isinstance(value, list)
+            },
+            "spot_real_writes": False,
+        }
         manifest["ai_cost"] = {
             "providers": [
                 {
@@ -6928,6 +6976,33 @@ class PaperRuntimeReports:
         ]
         files["summary.md"] = ("\n".join(report) + "\n").encode("utf-8")
         manifest["files"] = sorted([*files, "manifest.json"])
+        manifest["file_sha256"] = {
+            name: hashlib.sha256(data).hexdigest() for name, data in sorted(files.items()) if name != "manifest.json"
+        }
+        resolver = self.runtime.resolver
+        markers: list[bytes] = []
+        for provider in self.store.providers_internal():
+            if provider.get("kind", "").startswith("fixture_"):
+                continue
+            value, _source = resolver.resolve(
+                secret_id=provider.get("credential_secret"), env_name=provider.get("credential_env")
+            )
+            if value and len(value) >= 8:
+                markers.append(value.encode("utf-8"))
+        for account in self.store.list_exchange_accounts():
+            internal = self.store.exchange_account_internal(account["account_id"])
+            for secret_id in (internal["key_secret_id"], internal["secret_secret_id"]):
+                value, _source = resolver.resolve(secret_id=secret_id, env_name=None)
+                if value and len(value) >= 8:
+                    markers.append(value.encode("utf-8"))
+        leaked = sorted({name for name, data in files.items() for marker in markers if marker in data})
+        if leaked:
+            raise PaperTradingError("export refused: a configured credential value appeared in the bundle")
+        manifest["secret_scan"] = {
+            "scanned_files": len(files),
+            "configured_credentials_checked": len(markers),
+            "credential_values_found": False,
+        }
         files["manifest.json"] = json.dumps(manifest, indent=2, sort_keys=True).encode("utf-8")
         archive = io.BytesIO()
         with zipfile.ZipFile(archive, "w", compression=zipfile.ZIP_DEFLATED) as bundle:

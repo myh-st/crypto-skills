@@ -234,7 +234,7 @@ class FixtureFuturesMarketDataProvider:
     provider_id = "deterministic-paper-fixture"
 
     def __init__(self, *, future_path: dict[str, list[dict[str, Any]]] | None = None) -> None:
-        self.future_path = future_path or {}
+        self.future_path = future_path if future_path is not None else {}
 
     @staticmethod
     def _base(symbol: str) -> float:
