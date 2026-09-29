@@ -9,6 +9,8 @@ const COPY = {
   CONFIRM_RETURN_TO_AI: { title: "Return control to AI", confirm: "Return to AI" },
   CONFIRM_AUTOMATION_CHANGE: { title: "Change automation", confirm: "Apply" },
   CONFIRM_REPLAN: { title: "Apply AI re-plan", confirm: "Apply re-plan" },
+  CONFIRM_SAFETY_OVERRIDE: { title: "Override execution safety", confirm: "Override and execute" },
+  CONFIRM_KILL_SWITCH_LOWER: { title: "Lower the kill switch", confirm: "Lower kill switch" },
 };
 
 function detailLines(details = {}) {
@@ -68,7 +70,7 @@ export async function withConfirmation(action) {
       message: error.message.replace(/^[A-Z_]+:\s*/, ""),
       lines: detailLines(error.confirmation.details),
       confirmLabel: copy.confirm,
-      tone: error.confirmation.code === "CONFIRM_RETURN_TO_AI" ? "primary" : "danger",
+      tone: ["CONFIRM_RETURN_TO_AI", "CONFIRM_KILL_SWITCH_LOWER"].includes(error.confirmation.code) ? "primary" : "danger",
     });
     if (!ok) return null;
     return action(true);

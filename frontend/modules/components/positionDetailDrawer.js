@@ -3,6 +3,7 @@
 // journals, and returns the authoritative state; the drawer re-renders from that state.
 import { escapeHtml, formatTimestamp, relativeTime } from "../format.js";
 import { withConfirmation } from "./confirmDialog.js";
+import { renderRestrictions, renderSafetyStrip } from "./safetyStrip.js";
 import { QUICK_INTENTS, editsFromForm, renderReplanProposal } from "./replanPanel.js";
 import { MODE_LABELS, feedback, fmtNumber, marketBadge, modeBadge, pct, pnl, price, sideBadge, sourceBadge, uid } from "./ui.js";
 
@@ -21,7 +22,7 @@ function targetInputs(targets) {
       </label>`).join("")}`;
 }
 
-export function renderPositionDetail(position) {
+export function renderPositionDetail(position, safety = null) {
   const perp = position.market_type === "perpetual";
   const open = position.status === "open";
   const mode = position.management_mode;
@@ -83,6 +84,10 @@ export function renderPositionDetail(position) {
     </div>
     <div class="paper-feedback" data-drawer-feedback role="status" aria-live="polite"></div>
     <dl class="kv kv--grid">${facts.join("")}</dl>
+    ${safety && open ? `<section class="drawer-section" aria-label="Execution safety">
+      ${renderSafetyStrip({ killSwitch: safety.killSwitch, assessment: safety.assessment })}
+      ${safety.assessment && safety.assessment.state !== "NORMAL" ? renderRestrictions(safety.assessment.restrictions) : ""}
+    </section>` : ""}
     ${latest ? `<section class="drawer-section" aria-label="AI re-plan">${renderReplanProposal(latest, { editable: open })}</section>` : ""}
     ${open ? `
     <section class="drawer-section">
@@ -105,6 +110,15 @@ export function renderPositionDetail(position) {
         <button type="button" class="btn btn--danger btn--small" data-close-position>${perp ? "Close position" : "Close holding"}</button>
       </div>
     </section>
+    ${!perp ? `<section class="drawer-section">
+      <h3>Core / Tactical</h3>
+      <form class="core-form" data-core-form>
+        <label>Core % (protected from plan stops and crash-state selling)
+          <input name="core_percent" type="number" min="0" max="100" step="5" value="${escapeHtml(position.core_quantity != null && position.quantity ? Math.round(position.core_quantity / position.quantity * 100) : 0)}" />
+        </label>
+        <button type="submit" class="btn btn--ghost btn--small">Save Core</button>
+      </form>
+    </section>` : ""}
     <section class="drawer-section">
       <h3>Control</h3>
       <div class="button-row">${authorityButtons}</div>
@@ -175,7 +189,15 @@ export function createPositionDrawer({ api, onChange = () => {} }) {
 
   async function load(focus = false) {
     const { position } = await api.position(currentRef);
-    drawer.innerHTML = renderPositionDetail(position);
+    let safety = null;
+    if (position.status === "open" && api.assessInstrument) {
+      const [assessment, overview] = await Promise.all([
+        api.assessInstrument(position.instrument_id).catch(() => null),
+        api.safety().catch(() => null),
+      ]);
+      safety = { assessment: assessment?.assessment || null, killSwitch: overview?.kill_switch || null };
+    }
+    drawer.innerHTML = renderPositionDetail(position, safety);
     if (focus) drawer.querySelector("#drawer-title")?.focus();
     return position;
   }
@@ -290,6 +312,10 @@ export function createPositionDrawer({ api, onChange = () => {} }) {
       body.stop_price = stopRaw === "" ? null : Number(stopRaw);
       if (targets.length) body.targets = targets;
       return mutate("Protection updated.", (confirm) => api.updateProtection(ref, { ...body, confirm_risk_increase: confirm }));
+    }
+    if (form.matches("[data-core-form]")) {
+      const percent = Number(new FormData(form).get("core_percent"));
+      return mutate("Core allocation saved.", () => api.setCoreFraction(ref, percent / 100));
     }
     if (form.dataset.replanEditForm) {
       const id = form.dataset.replanEditForm;

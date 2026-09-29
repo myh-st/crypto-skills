@@ -15,6 +15,10 @@ const PERCENT_FIELDS = [
   ["brain.max_asset_risk_pct", "Brain: max risk per asset %"],
   ["brain.max_correlated_risk_pct", "Brain: max correlated (BTC/ETH/ALT) risk %"],
   ["brain.max_direction_risk_pct", "Brain: max same-direction risk %"],
+  ["safety.crash_pct_5m", "Safety: 5-minute crash threshold %"],
+  ["safety.crash_pct_15m", "Safety: 15-minute crash threshold %"],
+  ["safety.sell_velocity_max_fraction", "Safety: max discretionary sell per window %"],
+  ["safety.liquidation_emergency_buffer_pct", "Safety: liquidation emergency buffer %"],
 ];
 const NUMBER_FIELDS = [
   ["spot_slippage_bps", "Spot slippage (bps)"],
@@ -22,6 +26,10 @@ const NUMBER_FIELDS = [
   ["brain.protect_profit_r", "Protect-profit threshold (R)"],
   ["review.management_interval_minutes", "AI review interval (minutes)"],
   ["review.min_minutes_between_reviews", "Min minutes between AI reviews"],
+  ["safety.spread_vacuum_bps", "Safety: liquidity-vacuum spread (bps)"],
+  ["safety.max_slippage_bps_reduce", "Safety: max slippage on reductions (bps)"],
+  ["safety.preview_ttl_seconds", "Safety: order preview TTL (seconds)"],
+  ["safety.spot_stop_confirm_closes", "Safety: Spot stop confirmation closes"],
 ];
 
 function get(settings, path) {

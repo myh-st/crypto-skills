@@ -824,6 +824,8 @@ class PortfolioOS:
             "exit_reason": row.get("exit_reason"),
             "total_bought": float(row["total_bought"]),
             "total_sold": float(row["total_sold"]),
+            "core_quantity": float((meta or {}).get("core_quantity") or 0.0),
+            "tactical_quantity": max(0.0, quantity - float((meta or {}).get("core_quantity") or 0.0)),
         }
 
     def _pending_by_ref(self) -> dict[str, dict[str, Any]]:
@@ -3497,6 +3499,37 @@ class PortfolioOS:
             event for event in projected
             if not (event["category"] in {"OUTCOME", "MANAGEMENT"} and "reduce_only" in event["title"])
         ]
+        titles = {
+            "SUSPECT_PRINT": "Suspect print ignored for stops/liquidation",
+            "EXECUTION_DEFERRED": "Execution deferred by safety",
+            "SELL_VELOCITY_LIMIT": "Sell velocity limit",
+            "CORE_PROTECTED": "Spot Core protected",
+            "SLIPPAGE_LIMIT": "Slippage limit",
+            "STALE_DECISION": "Stale decision rejected",
+            "DUPLICATE_PREVENTED": "Duplicate request prevented",
+            "WRONG_SIDE_BLOCK": "Wrong-side request blocked",
+            "LIQUIDATION_BUFFER_CRITICAL": "Liquidation emergency",
+            "RECONCILIATION_FAILURE": "Reconciliation failure",
+            "SAFETY_OVERRIDE": "User overrode an execution guard",
+            "CRASH_MODE_ENTERED": "Crash mode entered",
+            "CRASH_MODE_RECOVERED": "Crash mode recovered",
+        }
+        for event in self.safety.events(self.experiment_id, limit=500):
+            if event["kind"] == "kill_switch":
+                continue
+            code = event["code"]
+            critical = code in {"LIQUIDATION_BUFFER_CRITICAL", "RECONCILIATION_FAILURE", "CRASH_MODE_ENTERED"}
+            instrument = event.get("instrument_id")
+            projected.append(activity_mod.activity_event(
+                experiment_id=self.experiment_id, timestamp=event["created_at"], source=event["source"] if event["source"] in {"AI", "USER", "SYSTEM"} else "SYSTEM",
+                category="RISK" if event["kind"] != "market_state" else "ALERT",
+                severity="CRITICAL" if critical else "WATCH" if code not in {"DUPLICATE_PREVENTED", "CRASH_MODE_RECOVERED"} else "INFO",
+                title=titles.get(code, code.replace("_", " ").title()),
+                summary=", ".join(f"{k}={v}" for k, v in (event.get("detail") or {}).items() if isinstance(v, (str, int, float)))[:300],
+                instrument_id=instrument, symbol=None if not instrument else instrument.split(":")[-1].replace("_", ""),
+                market_type=None if not instrument else instrument.split(":")[1], position_ref=event.get("position_ref"),
+                payload_ref=f"safety:{event['event_id']}", event_id=f"safety-{event['event_id']}",
+            ))
         events = activity_mod.filter_activity(stored + projected, **filters)
         return {"events": events, "count": len(events), "as_of": self._iso()}
 

@@ -201,6 +201,21 @@ export function createPaperApi(fetcher = globalThis.fetch) {
     async runtimeSummary(symbol = null) {
       return (await request(symbol ? `/runtime/summary?${new URLSearchParams({ symbol })}` : "/runtime/summary")).json();
     },
+    async safety() {
+      return (await request("/safety")).json();
+    },
+    async setKillSwitch(level, { reason = "", confirm = false } = {}) {
+      return (await request("/safety/kill-switch", { method: "POST", body: confirm ? { level, reason, confirm: true } : { level, reason } })).json();
+    },
+    async assessInstrument(instrumentId) {
+      return (await request("/safety/assess", { method: "POST", body: { instrument_id: instrumentId } })).json();
+    },
+    async executionPlans() {
+      return (await request("/execution-plans")).json();
+    },
+    async setCoreFraction(ref, coreFraction) {
+      return (await request(`/positions/${encodeURIComponent(ref)}/core`, { method: "POST", body: { core_fraction: coreFraction } })).json();
+    },
     runtimeStreamUrl() {
       return `${API_PREFIX}/runtime/stream`;
     },

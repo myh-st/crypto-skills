@@ -13,6 +13,7 @@ import { mountTradeTicket } from "../components/paperTradeTicket.js";
 import { renderUnifiedPositions } from "../components/positionsTable.js";
 import { renderTradingStatusBar } from "../components/tradingStatusBar.js";
 import { feedback, marketBadge, pnl, price } from "../components/ui.js";
+import { renderRestrictions, renderSafetyStrip } from "../components/safetyStrip.js";
 import { nextScanAt } from "./cockpit.js";
 
 const INTERVAL_SECONDS = { "1m": 60, "5m": 300, "15m": 900, "1h": 3600, "4h": 14400 };
@@ -52,6 +53,7 @@ export function fillMarkers(fills, intervalSeconds) {
 export function render(root, ctx) {
   root.innerHTML = `<div class="view view--trade">
     <div data-status-bar></div>
+    <div data-safety-strip></div>
     <div class="trade-toolbar">
       <div data-selector></div>
       <div class="trade-instrument" data-instrument-summary aria-live="off"></div>
@@ -130,6 +132,14 @@ export function render(root, ctx) {
           experiment: dashboardLite.experiment, marketStream: dashboardLite.market_stream, portfolio: null,
           nextCycleAt: nextScanAt(dashboardLite.experiment),
         });
+      }
+      const [assessment, safety] = await Promise.all([
+        paperApi.assessInstrument(state.instrument.instrument_id).catch(() => null),
+        paperApi.safety().catch(() => null),
+      ]);
+      if (assessment || safety) {
+        view.querySelector("[data-safety-strip]").innerHTML = renderSafetyStrip({ killSwitch: safety?.kill_switch, assessment: assessment?.assessment })
+          + (assessment?.assessment && assessment.assessment.state !== "NORMAL" ? `<details class="small"><summary>What is allowed now</summary>${renderRestrictions(assessment.assessment.restrictions)}</details>` : "");
       }
       const open = state.positions.find((p) => p.instrument_id === state.instrument.instrument_id);
       state.fills = open ? ((await paperApi.position(open.position_ref)).position.fills || []) : [];
