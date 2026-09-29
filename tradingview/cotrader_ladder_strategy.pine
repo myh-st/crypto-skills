@@ -20,7 +20,7 @@ starterPct = input.float(25.0, "STARTER size %", minval = 1, maxval = 100, group
 fullPct = input.float(100.0, "FULL size %", minval = 1, maxval = 100, group = grpSize) / 100.0
 
 grpRange = "Backtest window"
-startTime = input.time(timestamp("2022-01-01T00:00:00Z"), "Start", group = grpRange)
+startTime = input.time(timestamp("01 Jan 2022 00:00 +0000"), "Start", group = grpRange)
 
 emaSeeded(float src, int len) =>
     var float e = na
