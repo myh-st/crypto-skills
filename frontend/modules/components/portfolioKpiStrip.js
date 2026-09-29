@@ -7,7 +7,7 @@ function tile(label, valueHtml, note = "", { id = "" } = {}) {
   return `
     <div class="kpi-tile"${id ? ` data-kpi="${id}"` : ""}>
       <span class="kpi-label">${escapeHtml(label)}</span>
-      <strong class="kpi-value">${valueHtml}</strong>
+      <strong class="kpi-value"${id ? ` data-motion-key="kpi:${id}"` : ""}>${valueHtml}</strong>
       ${note ? `<small class="kpi-note">${escapeHtml(note)}</small>` : ""}
     </div>`;
 }

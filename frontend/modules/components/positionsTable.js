@@ -53,8 +53,8 @@ export function renderUnifiedPositions(positions, { compact = false, emptyMessag
               <td>${sideBadge(position.side, position.leverage)}</td>
               <td>${escapeHtml(price(position.quantity))}<br><small class="muted">${escapeHtml(price(position.notional_usdt))} USDT</small></td>
               <td>${escapeHtml(price(position.entry_price))}</td>
-              <td>${escapeHtml(price(position.live_price ?? position.mark_price))}</td>
-              <td>${pnl(position.unrealized_pnl_usdt)}${position.r_multiple == null ? "" : `<br><small class="muted">${Number(position.r_multiple).toFixed(2)}R</small>`}</td>
+              <td data-motion-key="pos:${escapeHtml(position.position_ref)}:mark">${escapeHtml(price(position.live_price ?? position.mark_price))}</td>
+              <td data-motion-key="pos:${escapeHtml(position.position_ref)}:pnl">${pnl(position.unrealized_pnl_usdt)}${position.r_multiple == null ? "" : `<br><small class="muted">${Number(position.r_multiple).toFixed(2)}R</small>`}</td>
               ${compact ? "" : `<td>${escapeHtml(price(position.stop_price))}</td><td>${escapeHtml(price(position.open_risk_usdt))}${position.market_type === "perpetual" && position.liquidation_buffer_pct != null ? `<br><small class="muted">liq buffer ${escapeHtml(pctText(position.liquidation_buffer_pct))}</small>` : ""}</td>`}
               <td>${modeBadge(position.management_mode)}${position.pending_proposal ? '<br><span class="proposal-flag">re-plan pending</span>' : ""}</td>
               <td><button type="button" class="btn btn--small" data-open-position="${escapeHtml(position.position_ref)}" aria-label="Manage ${escapeHtml(position.display_symbol)}">Manage</button></td>

@@ -19,6 +19,7 @@ DAY = 86400
 # unrelated static server). Override with PAPER_PEER_PORTS="8765,8768,...".
 DEFAULT_PEER_PORTS = (8765, 8767, 8768, 8769, 8770, 8771)
 MAX_INTRADAY_POINTS = 288
+MAX_PEER_RESPONSE_BYTES = 2_000_000  # a loopback peer's JSON is small; anything larger is rejected unparsed
 
 
 def next_decision_at(config: dict[str, Any], now: datetime) -> str:
@@ -105,7 +106,9 @@ def today(runtime: Any, now: datetime | None = None, *, calendar_days: int = 42)
     limit = float(config["max_daily_loss"])
     loss_frac = max(0.0, -pnl_today) / day_start_equity if day_start_equity > 0 else 0.0
     open_positions = [p for p in store.open_positions(experiment_id) if p["cohort"] in cohorts]
-    paused = any(i["kind"] == "RISK_PAUSE" for i in runtime.resilience.incidents(status="OPEN", limit=50))
+    # "Paused for today" is the daily-loss limit actually reached now, not any open RISK_PAUSE incident
+    # (that kind also covers loss-streak pauses and stays open until a later approved entry resolves it).
+    paused = bool(limit) and loss_frac >= limit
     days_with_pnl = [c for c in calendar if c["pnl_usdt"] is not None]
     ai = store._query("SELECT COUNT(*) AS n, COALESCE(SUM(cost_estimate),0) AS cost, "
                       "SUM(CASE WHEN observed_at>=? THEN 1 ELSE 0 END) AS today FROM ai_calls WHERE experiment_id=?",
@@ -145,9 +148,12 @@ def peer_ports() -> list[int]:
 
 
 def _get(port: int, path: str, timeout: float = 2.0) -> Any:
-    # Loopback only, GET only, JSON only.
+    # Loopback only, GET only, JSON only, size-capped before parsing.
     with urllib.request.urlopen(f"http://127.0.0.1:{port}{path}", timeout=timeout) as response:
-        return json.loads(response.read())
+        body = response.read(MAX_PEER_RESPONSE_BYTES + 1)
+    if len(body) > MAX_PEER_RESPONSE_BYTES:
+        raise ValueError("peer response too large")
+    return json.loads(body)
 
 
 def _row(port: int, campaign: dict[str, Any], day: dict[str, Any] | None, health: dict[str, Any] | None, is_self: bool) -> dict[str, Any]:
@@ -167,6 +173,7 @@ def _row(port: int, campaign: dict[str, Any], day: dict[str, Any] | None, health
         "risk_incidents": campaign.get("risk_incidents") or [],
         "calendar": [c for c in ((day or {}).get("calendar") or [])][-14:],
         "ai": (day or {}).get("ai"),
+        "next_decision_at": (day or {}).get("next_decision_at"),
     }
 
 
@@ -241,4 +248,43 @@ def strategy_search(repo_root: Path) -> dict[str, Any]:
         out["deep"]["contribution"] = (deep.get("contribution") or [])[:15]
     if cross:
         out["gate_crosscheck"] = cross
+    out["gate"] = research_gate(analysis, deep)
     return out
+
+
+def research_gate(analysis: dict[str, Any] | None, deep: dict[str, Any] | None) -> dict[str, Any]:
+    """The pre-declared research gate of .goals/day-trade-futures/goal.md, evaluated on the walk-forward
+    procedure (K20_sharpe). A criterion the research files cannot show is `unknown`, and unknown never
+    passes: the verdict is positive only when every criterion is measured and met."""
+
+    w = ((analysis or {}).get("wfo") or {}).get("K20_sharpe") or {}
+    d = deep or {}
+    scen = d.get("scenarios") or {}
+    grid = {(g.get("risk"), g.get("lev")): g for g in d.get("leverage_grid") or []}
+    at_half = grid.get((0.005, 1)) or {}
+    period = d.get("period") or []
+    days = None
+    if len(period) == 2:
+        days = (datetime.fromisoformat(period[1]) - datetime.fromisoformat(period[0])).days + 1
+    oos_weeks = 78  # 2025-01 .. 2026-06 walk-forward window
+    sharpe = w.get("oos_sharpe")
+
+    def crit(name: str, value: Any, op: str, threshold: float, note: str = "") -> dict[str, Any]:
+        ok = None if value is None else (value >= threshold if op == ">=" else value <= threshold if op == "<=" else value > threshold)
+        return {"name": name, "value": value, "op": op, "threshold": threshold, "status": "unknown" if ok is None else "pass" if ok else "fail",
+                "note": note}
+
+    checks = [
+        crit("Out-of-sample Sharpe", sharpe, ">=", 1.5, "walk-forward, weekly returns annualized"),
+        crit("Out-of-sample return", w.get("oos_ret"), ">", 0.0),
+        crit("Holdout return", w.get("holdout_ret"), ">", 0.0, "untouched last months"),
+        crit("t-stat", None if sharpe is None else round(sharpe * (oos_weeks / 52) ** 0.5, 2), ">=", 2.0),
+        crit("Profit factor", d.get("profit_factor"), ">=", 1.2),
+        crit("Profitable at 2x costs (CAGR)", (scen.get("cost_x2") or {}).get("cagr"), ">", 0.0),
+        crit("Trades per day", None if not days or not d.get("n_trades") else round(d["n_trades"] / days, 2), ">=", 3.0),
+        crit("Max drawdown at 0.5% risk", at_half.get("maxdd"), "<=", 0.10),
+        crit("Green weeks", w.get("oos_pos_weeks"), ">=", 0.70),
+    ]
+    return {"source": ".goals/day-trade-futures/goal.md", "procedure": "K20_sharpe", "checks": checks,
+            "passed": all(c["status"] == "pass" for c in checks),
+            "failed": sum(c["status"] == "fail" for c in checks), "unknown": sum(c["status"] == "unknown" for c in checks)}

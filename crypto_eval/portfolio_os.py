@@ -4132,7 +4132,40 @@ class PortfolioOS:
             "portfolio": {"total_equity_usdt": total, "trading_pnl_usdt": total - starting},
             "attention_counts": attention["counts"],
             "activity": events,
+            "live": self._live_snapshot(experiment, spot),
         }
+
+    def _live_snapshot(self, experiment: dict[str, Any], spot: dict[str, Any]) -> dict[str, Any]:
+        """Cheap every-few-seconds view for the UI: open perp positions marked to the backend-owned live
+        feed (fresh prices only; otherwise the stored mark), and equity from that. No catalog refresh."""
+
+        from .day_view import next_decision_at
+
+        stream = self.runtime.live_stream
+        positions, unrealized = [], 0.0
+        cohorts = set(self.capital_cohorts())
+        for row in self.store.open_positions(self.experiment_id):
+            if row["cohort"] not in cohorts:
+                continue
+            price, fresh = float(row["mark_price"]), False
+            if stream is not None:
+                try:
+                    state = stream.symbol_state(row["symbol"])
+                    ticker = state.get("ticker") or {}
+                    live = ticker.get("mark_price") or ticker.get("last_price")
+                    if state.get("fresh") and isinstance(live, (int, float)):
+                        price, fresh = float(live), True
+                except Exception:
+                    pass
+            sign = 1 if row["side"] == "long" else -1
+            pnl = sign * (price - float(row["entry_price"])) * float(row["quantity"])
+            unrealized += pnl
+            positions.append({"position_ref": f"perp:{row['position_id']}", "symbol": row["symbol"], "price": price,
+                              "unrealized_pnl_usdt": round(pnl, 6), "fresh": fresh})
+        cash = sum(float(self.store.wallet_summary(self.experiment_id, c)["cash_balance"]) for c in cohorts)
+        equity = cash + unrealized + float(spot["equity_usdt"])
+        return {"equity_usdt": round(equity, 6), "positions": positions,
+                "next_decision_at": next_decision_at(experiment["config"], self._now())}
 
     def export_files(self) -> dict[str, list[dict[str, Any]] | dict[str, Any]]:
         experiment_id = self.experiment_id

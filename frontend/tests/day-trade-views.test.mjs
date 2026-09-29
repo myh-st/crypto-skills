@@ -20,6 +20,8 @@ test("charts render accessible SVG/CSS, escape labels, and handle empty data", (
   assert.match(cal, /1 green/);
   assert.match(cal, /1 red/);
   assert.match(cal, /\+0\.60%/);
+  assert.match(cal, /role="img" aria-label="2026-09-28: \+0\.60%/);   // per-day values reach assistive tech
+  assert.match(rangeBar({ p5: -0.05, median: 0.02, p95: 0.1 }), /role="img" aria-label="5th percentile -5\.0%, median \+2\.0%, 95th percentile \+10\.0%"/);
   assert.match(barList([{ label: "<b>x</b>", value: -1 }]), /&lt;b&gt;x&lt;\/b&gt;/);
   assert.match(heatGrid([1], [2], () => ({ value: 0.1, text: "10%" })), /heat-pos/);
   assert.match(heatGrid([1], [2], () => ({ value: 0.1, text: "10%", bad: true })), /heat-bad/);
@@ -80,8 +82,17 @@ test("Strategy Search shows live progress, then the verdict, rankings, leverage 
             scenarios: { base: { n: 100, cagr: 0.3, maxdd: 0.1 }, cost_x2: { n: 100, cagr: -0.1, maxdd: 0.3 } },
             monte_carlo: [{ horizon_days: 14, p_profit: 0.64, median: 0.01, p5: -0.03, p95: 0.06 }], contribution: [] },
     gate_crosscheck: [{ coin: "BTCUSDT", ret_corr_5m: 0.99, median_abs_basis_bps: 1.2, gate_daily_usd_m: 900 }],
+    gate: { passed: true, failed: 0, unknown: 0, checks: [{ name: "Profit factor", value: 1.3, op: ">=", threshold: 1.2, status: "pass" }] },
   });
-  assert.match(html, /survived out of sample/);
+  assert.match(html, /passed the full research gate/);
+  assert.match(html, /gate-pass/);
+  // a strong Sharpe alone is never a positive verdict: every pre-declared criterion must be measured and met
+  const partial = renderStrategySearch({ available: true, search: {}, wfo: { K20_sharpe: { oos_sharpe: 2.5, oos_ret: 0.5, holdout_ret: 0.1 } },
+    gate: { passed: false, failed: 1, unknown: 1, checks: [{ name: "Profit factor", value: null, op: ">=", threshold: 1.2, status: "unknown" },
+                                                         { name: "Profitable at 2x costs (CAGR)", value: -0.1, op: ">", threshold: 0, status: "fail" }] } });
+  assert.doesNotMatch(partial, /passed the full research gate/);
+  assert.match(partial, /fails the research gate/);
+  assert.match(partial, /not measured/);
   assert.match(html, /★ NEAR/);
   assert.match(html, /199,020 backtests/);
   assert.match(html, /0\.50% risk per trade at 3x/);

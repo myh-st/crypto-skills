@@ -1,5 +1,6 @@
 // Portfolio: PAPER Spot and PAPER Perpetual shown together but categorized, plus a visually
 // and logically separate REAL Gate mirror (read-only; never merged into PAPER equity).
+import { applyMotion } from "../components/motion.js";
 import { escapeHtml, formatTimestamp } from "../format.js";
 import { paperApi } from "../paperApi.js";
 import { renderGrowthChart } from "../components/portfolioSummary.js";
@@ -120,6 +121,7 @@ export function render(root, ctx) {
       const paper = portfolio.paper;
       orders = orderPayload.orders || [];
       view.querySelector("[data-kpis]").innerHTML = renderKpiStrip(portfolio);
+      applyMotion(view.querySelector("[data-kpis]"));
       view.querySelector("[data-allocation]").innerHTML = bars(
         paper.allocation.map((row) => ({ ...row, __label: row.bucket })),
         { label: "Allocation", value: (row) => Number(row.value_usdt), note: (row) => row.market_type === "spot" ? "Spot" : "Perp" },
@@ -157,6 +159,7 @@ export function render(root, ctx) {
           ${kv("Fees", `${escapeHtml(fmtNumber(spot.fees_usdt, { digits: 4 }))} USDT`)}
         </dl>`;
       view.querySelector("[data-spot-holdings]").innerHTML = renderUnifiedPositions(paper.spot.holdings, { emptyMessage: "No PAPER spot holdings." });
+      applyMotion(view);   // position mark/P&L glide and flash in both tables
       view.querySelector("[data-orders]").innerHTML = renderOrdersPanel(orders, { filter: orderFilter });
       const real = accounts.accounts || [];
       view.querySelector("[data-real]").innerHTML = real.length

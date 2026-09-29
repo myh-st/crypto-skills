@@ -1,6 +1,7 @@
 // Overview cockpit: "What is happening and what needs my decision?" — portfolio value, PnL
 // after AI cost, drawdown, risk, attention, open positions, automation health, latest AI
 // actions, and changes since the last visit. Low prose; every control is live.
+import { applyMotion } from "../components/motion.js";
 import { escapeHtml, formatTimestamp } from "../format.js";
 import { renderHealth } from "../components/healthPanel.js";
 import { renderCampaign } from "../components/campaignPanel.js";
@@ -124,7 +125,10 @@ export function renderCockpit(root, ctx) {
         paperApi.safety().catch(() => null),
       ]);
       paperApi.campaign().then((summary) => {
-        if (!disposed) root.querySelector("[data-campaign]").innerHTML = renderCampaign(summary);
+        if (!disposed) {
+          root.querySelector("[data-campaign]").innerHTML = renderCampaign(summary);
+          applyMotion(root.querySelector("[data-campaign]"));
+        }
       }).catch(() => {});
       paperApi.runtimeHealth().then((health) => {
         if (!disposed) root.querySelector("[data-health]").innerHTML = renderHealth(health);
@@ -161,6 +165,7 @@ export function renderCockpit(root, ctx) {
         : renderTimeline(events.slice(0, 8), { compact: true });
       root.querySelector("[data-ai-actions]").innerHTML = renderTimeline(events.filter((event) => event.source === "AI").slice(0, 6), { compact: true });
       if (events[0]) markVisit(events[0].timestamp);
+      applyMotion(root);
     } catch (error) {
       if (!disposed) feedback(note, `Local PAPER runtime unavailable: ${error.message}. Start it with python3 -m crypto_eval paper-server.`, "error");
     }

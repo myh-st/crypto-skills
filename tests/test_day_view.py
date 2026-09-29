@@ -52,6 +52,9 @@ class TodayViewTests(SleevesFixture):
         self.assertEqual(view["ai"]["calls_total"], 0)
         self.assertGreater(view["open_positions"], 0)
         self.assertTrue(view["intraday"])
+        # an open RISK_PAUSE incident (e.g. an old loss-streak pause) is not "paused for today"
+        self.runtime._record_risk_pause("EXP-001", "LOSS_STREAK_LIMIT", self.store.experiment()["config"])
+        self.assertFalse(day_view.today(self.runtime)["daily_loss_limit"]["paused"])
         self.assertEqual(view["trading_day_utc"], self.clock.value.date().isoformat())
         filled = [c for c in view["calendar"] if c["pnl_usdt"] is not None]
         self.assertAlmostEqual(sum(c["pnl_usdt"] for c in filled), view["pnl_total_usdt"], places=2)
@@ -60,6 +63,24 @@ class TodayViewTests(SleevesFixture):
         titles = [i.get("title", "") for i in (items.get("items") if isinstance(items, dict) else items)]
         self.assertFalse(any("correlated" in (i.get("summary") or "") for i in (items.get("items") if isinstance(items, dict) else items)), titles)
         self.assertIs(self.runtime.portfolio.portfolio()["paper"]["ai_budget"]["ai_in_use"], False)
+
+
+class LiveStreamTests(SleevesFixture):
+    def test_stream_frame_carries_live_positions_equity_and_next_decision(self):
+        self.run_until(3)
+        frame = self.runtime.portfolio.stream_state()
+        live = frame["live"]
+        opened = [p for p in self.store.open_positions("EXP-001") if p["cohort"].startswith("sleeve-")]
+        self.assertEqual(len(live["positions"]), len(opened))
+        # no live feed in tests: every position falls back to its stored mark, flagged not fresh
+        self.assertFalse(any(p["fresh"] for p in live["positions"]))
+        wallets = sum(float(self.store.wallet_summary("EXP-001", c)["equity"]) for c in COHORTS.values())
+        spot = float(self.runtime.portfolio.spot_wallet()["equity_usdt"])
+        self.assertAlmostEqual(live["equity_usdt"], wallets + spot, places=4)
+        self.assertTrue(live["next_decision_at"].endswith(":01:00.000Z"))
+        # the existing frame fields are unchanged
+        self.assertIn("portfolio", frame)
+        self.assertIn("attention_counts", frame)
 
 
 class StubPeer(BaseHTTPRequestHandler):
@@ -95,6 +116,32 @@ class PeersTests(SleevesFixture):
         self.assertIn("EXP-009", labels)            # a peer without /api/today still gets a row
         self.assertEqual(len(view["experiments"]), 2)  # self + the paper peer; the other server is ignored
         self.assertTrue(any(r["self"] for r in view["experiments"]))
+
+
+class GateAndSafetyTests(unittest.TestCase):
+    def test_research_gate_needs_every_criterion_measured_and_met(self):
+        wfo = {"K20_sharpe": {"oos_sharpe": 2.0, "oos_ret": 0.4, "holdout_ret": 0.05, "oos_pos_weeks": 0.75}}
+        deep = {"n_trades": 5000, "period": ["2025-01-01", "2026-09-29"], "profit_factor": 1.3,
+                "scenarios": {"cost_x2": {"cagr": 0.05}}, "leverage_grid": [{"risk": 0.005, "lev": 1, "maxdd": 0.08}]}
+        gate = day_view.research_gate({"wfo": wfo}, deep)
+        self.assertTrue(gate["passed"], gate)
+        missing = dict(deep); missing.pop("profit_factor")
+        self.assertFalse(day_view.research_gate({"wfo": wfo}, missing)["passed"])      # unknown never passes
+        weak = dict(deep, scenarios={"cost_x2": {"cagr": -0.01}})
+        self.assertEqual(day_view.research_gate({"wfo": wfo}, weak)["failed"], 1)
+        self.assertFalse(day_view.research_gate(None, None)["passed"])
+
+    def test_peer_responses_are_size_capped(self):
+        big = b"{" + b" " * (day_view.MAX_PEER_RESPONSE_BYTES + 10) + b"}"
+
+        class Resp:
+            def __enter__(self): return self
+            def __exit__(self, *a): return False
+            def read(self, n=-1): return big[:n] if n >= 0 else big
+
+        with mock.patch("urllib.request.urlopen", return_value=Resp()):
+            with self.assertRaises(ValueError):
+                day_view._get(1, "/api/health")
 
 
 class StrategySearchFilesTests(unittest.TestCase):
