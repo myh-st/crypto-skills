@@ -1,0 +1,24 @@
+{
+  "goal": "continuous-paper-resilience",
+  "branch": "feature/continuous-paper-resilience",
+  "state": "in_progress",
+  "predecessor": "feature/spot-cycle-lifecycle-manager",
+  "canonical_files": [
+    ".goals/continuous-paper-resilience/goal.md",
+    "docs/continuous-paper-resilience-plan.md",
+    "docs/development-train.md"
+  ],
+  "campaign_target": {
+    "paper_capital_usdt": 500,
+    "duration_days": "60-90+",
+    "unattended_operation": true
+  },
+  "non_goals": [
+    "kubernetes",
+    "kafka",
+    "microservices",
+    "ha_cluster"
+  ],
+  "real_gate_write_enabled": false,
+  "base": "main@e21f91f (Phase 3 merged)"
+}
