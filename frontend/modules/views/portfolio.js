@@ -147,8 +147,10 @@ export function render(root, ctx) {
           ${kv("Net PnL", pnl(perp.net_pnl_usdt))}
           ${kv("Funding", pnl(perp.funding_usdt == null ? null : -perp.funding_usdt))}
         </dl>`;
-      view.querySelector("[data-perp-positions]").innerHTML = (paper.perpetual.positions.length ? renderCoinBook(paper.perpetual.positions) : "")
-        + renderUnifiedPositions(paper.perpetual.positions, { emptyMessage: "No open perpetual PAPER positions." });
+      const perpTable = renderUnifiedPositions(paper.perpetual.positions, { emptyMessage: "No open perpetual PAPER positions." });
+      view.querySelector("[data-perp-positions]").innerHTML = paper.perpetual.positions.length
+        ? `${renderCoinBook(paper.perpetual.positions)}<details class="positions-detail"><summary>All ${paper.perpetual.positions.length} positions</summary>${perpTable}</details>`
+        : perpTable;
       const spot = paper.spot.wallet;
       view.querySelector("[data-spot-wallet]").innerHTML = `
         <dl class="kv kv--grid">

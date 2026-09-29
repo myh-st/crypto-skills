@@ -1,4 +1,7 @@
-"""Read-only status of the running PAPER campaign servers (EXP-001 and EXP-002).
+"""Read-only status of the running PAPER campaign servers (EXP-001 :8765, EXP-002 :8768, EXP-002x :8770).
+
+By default all three are checked, so the command reports FAIL when any of them is down. Pass
+`--server NAME=URL` (repeatable) to check a different set.
 
     python3 scripts/paper_campaign_status.py [--json] [--server NAME=URL ...]
 
