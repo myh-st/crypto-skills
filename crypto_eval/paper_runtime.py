@@ -3460,8 +3460,8 @@ class PaperRuntime:
             "last_heartbeat_age_seconds": monitor_age, "last_error": (beats.get("monitor") or {}).get("last_error"),
         }
         stream = self.live_stream.status() if self.live_stream is not None else None
-        components["market_feed"] = {"status": "OFF" if stream is None else ("OK" if stream.get("state") == "live" else "DEGRADED"),
-                                     "detail": None if stream is None else {k: stream.get(k) for k in ("state", "reason", "counters") if k in stream}}
+        components["market_feed"] = {"status": "OFF" if stream is None else ("OK" if str(stream.get("state") or "").upper() == "LIVE" else "DEGRADED"),
+                                     "detail": None if stream is None else {k: stream.get(k) for k in ("state", "last_error", "last_message_at", "counters") if k in stream}}
         database = database_health(self.store)
         components["database"] = {"status": "OK" if database.get("ok") else "FAILED", **database}
         storage = storage_health(database_path(self.store), min_free_mb=res.settings["min_free_disk_mb"],
@@ -5728,10 +5728,12 @@ class PaperScheduler:
             status = stream.status()
             counters = status.get("counters") or {}
             seen = (res.heartbeats().get("feed") or {}).get("detail") or {}
-            if status.get("state") != "live":
+            live = str(status.get("state") or "").upper() == "LIVE"
+            reason = status.get("last_error") or status.get("reason")
+            if not live:
                 res.open_incident("FEED_STALE", severity="WARNING", dedupe_key="feed", experiment_id=experiment["experiment_id"],
-                                  summary=f"market feed {status.get('state')}: {status.get('reason') or 'no detail'}; stale-feed guards stay authoritative",
-                                  detail={"state": status.get("state"), "reason": status.get("reason")})
+                                  summary=f"market feed {status.get('state')}: {reason or 'no detail'}; stale-feed guards stay authoritative",
+                                  detail={"state": status.get("state"), "reason": reason})
             else:
                 res.resolve("feed", "market feed live again")
             new_gap_bars = int(counters.get("gap_fill_bars", 0)) - int(seen.get("gap_fill_bars", 0))
@@ -5739,7 +5741,7 @@ class PaperScheduler:
                 res.open_incident("FEED_GAP", severity="INFO", experiment_id=experiment["experiment_id"], resolved=True,
                                   summary=f"reconnected and REST gap-filled {new_gap_bars} closed bar(s)",
                                   detail={"reconnects": counters.get("reconnects"), "gap_fill_bars": counters.get("gap_fill_bars")})
-            res.heartbeat("feed", ok=status.get("state") == "live", error=status.get("reason"),
+            res.heartbeat("feed", ok=live, error=reason,
                           detail={"gap_fill_bars": counters.get("gap_fill_bars", 0), "reconnects": counters.get("reconnects", 0),
                                   "dropped": counters.get("dropped", 0)})
         retention_age = res.heartbeat_age("retention")

@@ -1,0 +1,96 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "runtime-incident.schema.json",
+  "title": "Runtime incident evidence",
+  "type": "object",
+  "required": [
+    "incident_id",
+    "kind",
+    "severity",
+    "status",
+    "summary",
+    "detail",
+    "occurrences",
+    "opened_at",
+    "last_seen_at"
+  ],
+  "properties": {
+    "incident_id": {
+      "type": "string"
+    },
+    "experiment_id": {
+      "type": [
+        "string",
+        "null"
+      ]
+    },
+    "kind": {
+      "enum": [
+        "PROCESS_RESTART",
+        "UNCLEAN_SHUTDOWN",
+        "GRACEFUL_SHUTDOWN",
+        "SCHEDULER_LAG",
+        "SCHEDULER_GAP",
+        "SCHEDULER_FAILURE",
+        "MONITOR_GAP",
+        "MONITOR_FAILURE",
+        "FEED_GAP",
+        "FEED_STALE",
+        "PROVIDER_OUTAGE",
+        "DATABASE_FAILURE",
+        "STORAGE_LOW",
+        "RECOVERY_ACTION",
+        "DEGRADED_MODE",
+        "RESTORED_MODE"
+      ]
+    },
+    "severity": {
+      "enum": [
+        "INFO",
+        "WARNING",
+        "CRITICAL"
+      ]
+    },
+    "status": {
+      "enum": [
+        "OPEN",
+        "RESOLVED"
+      ]
+    },
+    "dedupe_key": {
+      "type": [
+        "string",
+        "null"
+      ]
+    },
+    "summary": {
+      "type": "string"
+    },
+    "detail": {
+      "type": "object"
+    },
+    "occurrences": {
+      "type": "integer",
+      "minimum": 1
+    },
+    "opened_at": {
+      "type": "string"
+    },
+    "last_seen_at": {
+      "type": "string"
+    },
+    "resolved_at": {
+      "type": [
+        "string",
+        "null"
+      ]
+    },
+    "resolution": {
+      "type": [
+        "string",
+        "null"
+      ]
+    }
+  },
+  "additionalProperties": false
+}

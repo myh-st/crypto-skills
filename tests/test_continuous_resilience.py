@@ -238,17 +238,17 @@ class SchedulerDrills(ResilienceCase):
     def test_monitor_gap_and_feed_incidents(self):
         class FakeStream:
             def __init__(self):
-                self.state, self.bars = "reconnecting", 0
+                self.state, self.bars = "RECONNECTING", 0
 
-            def status(self):
-                return {"state": self.state, "reason": "socket closed", "counters": {"gap_fill_bars": self.bars, "reconnects": 1}}
+            def status(self):  # mirrors GateLiveMarketStream.status()
+                return {"state": self.state, "last_error": "socket closed", "counters": {"gap_fill_bars": self.bars, "reconnects": 1}}
 
         stream = FakeStream()
         self.runtime.live_stream = stream
         self.clock.value = self.base
         self.scheduler.monitor_tick(self.base)
         self.assertEqual(self.runtime.resilience.incidents(status="OPEN")[0]["kind"], "FEED_STALE")
-        stream.state, stream.bars = "live", 7
+        stream.state, stream.bars = "LIVE", 7
         later = self.base + timedelta(hours=2)
         self.clock.value = later
         self.scheduler.monitor_tick(later)

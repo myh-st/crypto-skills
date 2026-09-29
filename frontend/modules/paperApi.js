@@ -38,8 +38,8 @@ export function createPaperApi(fetcher = globalThis.fetch) {
   }
 
   return Object.freeze({
-    async health() {
-      return (await request("/health")).json();
+    async runtimeHealth() {
+      return (await request("/runtime-health")).json();
     },
     async experiment() {
       return (await request("/experiment")).json();
@@ -212,6 +212,15 @@ export function createPaperApi(fetcher = globalThis.fetch) {
     },
     async executionPlans() {
       return (await request("/execution-plans")).json();
+    },
+    async health() {
+      return (await request("/health")).json();
+    },
+    async incidents(status = "") {
+      return (await request(`/incidents${status ? `?status=${encodeURIComponent(status)}` : ""}`)).json();
+    },
+    async backup() {
+      return (await request("/backup", { method: "POST", body: {} })).json();
     },
     async lifecycleReview(ref, recommendation = undefined) {
       return (await request(`/lifecycle/${encodeURIComponent(ref)}/review`, { method: "POST", body: recommendation ? { recommendation } : {} })).json();

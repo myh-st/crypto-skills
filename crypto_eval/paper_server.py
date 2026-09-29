@@ -234,7 +234,7 @@ class PaperRequestHandler(BaseHTTPRequestHandler):
             }
         if path == "/api/safety":
             return portfolio.safety_overview()
-        if path == "/api/health":
+        if path == "/api/runtime-health":
             return self.runtime.health()
         if path == "/api/incidents":
             return {"incidents": self.runtime.resilience.incidents(status=q("status") or None)}
@@ -275,12 +275,14 @@ class PaperRequestHandler(BaseHTTPRequestHandler):
                 raise PaperTradingError("confirm must be boolean")
             return {"kill_switch": portfolio.set_kill_switch(body.get("level"), reason=str(body.get("reason") or "")[:300], confirm=confirm)}
         if path == "/api/backup":
-            from .resilience import backup_database
+            from .resilience import backup_database, database_path
 
             body = self._read_json()
             if body:
                 raise PaperTradingError("backup takes no parameters")
-            return {"backup": backup_database(self.runtime.store, default_backup_dir(), label="api")}
+            served = database_path(self.runtime.store)
+            target = served.parent / "backups" if served else default_backup_dir()
+            return {"backup": backup_database(self.runtime.store, target, label="api")}
         if path == "/api/lifecycle/benchmark":
             body = self._read_json()
             if set(body) - {"instrument_id", "bars"}:
