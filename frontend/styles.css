@@ -2596,3 +2596,16 @@ body.drawer-open { overflow: hidden; }
 .manifest-form input { padding: 6px 8px; border: 1px solid var(--color-border); border-radius: 6px; font: inherit; width: min(280px, 100%); }
 .gate-result ul, .review-history { margin: 4px 0 0; padding-left: 18px; }
 .review-history { list-style: none; padding: 0; display: grid; gap: 2px; }
+.campaign-panel { margin-bottom: 12px; }
+.campaign-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(150px, 1fr)); gap: 10px; }
+.campaign-grid > div { display: grid; gap: 2px; border: 1px solid var(--color-border); border-radius: 8px; padding: 8px 10px; }
+.campaign-grid small { color: var(--color-text-muted); font-size: 11px; text-transform: uppercase; letter-spacing: .04em; }
+.campaign-grid strong { font-size: 18px; }
+.campaign-grid span { font-size: 12px; color: var(--color-text-muted); }
+.campaign-bar { display: block; height: 6px; border-radius: 3px; background: var(--color-positive-bg); overflow: hidden; }
+.campaign-bar > span { display: block; height: 100%; background: var(--color-accent); }
+.campaign-warnings { margin: 8px 0 0; padding-left: 0; list-style: none; color: var(--color-caution-text); display: grid; gap: 2px; }
+@media (max-width: 840px) {
+  .demo-topbar { height: auto; min-height: var(--topbar-height); flex-wrap: wrap; line-height: 1.35; padding: 6px 64px 6px 16px; }
+  .app-shell { min-height: 100vh; }
+}

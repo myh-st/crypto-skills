@@ -555,3 +555,25 @@ test("promotion panel shows identity, gate decision, blockers, drift, and that l
   assert.doesNotMatch(clean, /data-manifest-form/);
   assert.match(clean, /No checkpoint review yet/);
 });
+
+// ------------------------------------------------------------------ campaign panel
+import { renderCampaign } from "../modules/components/campaignPanel.js";
+
+test("campaign panel shows day, trade progress, checkpoint, capital, budget, and blocking warnings", () => {
+  const html = renderCampaign({ experiment_id: "EXP-001", manifest_version: 1, elapsed_days: 3.25, min_days: 90, checkpoint: "PRE_DAY_7",
+    next_checkpoint: { name: "DAY_7", due_at: "2026-10-06T04:56:34Z" }, completed_trades: 12, target_trades: 200,
+    capital_usdt: { perpetual: 300, spot: 200 }, fx: { configured: false }, drift: false,
+    ai_budget: { remaining_experiment_usd: 21.5, experiment_cap_usd: 30, exhausted: false, limit_action: "FALLBACK_QUANT" },
+    risk_incidents: [{ kind: "RISK_PAUSE", severity: "WARNING", summary: "5 consecutive losses <x>" }] });
+  assert.match(html, /EXP-001 campaign/);
+  assert.match(html, /manifest v1/);
+  assert.match(html, /12 \/ 200/);
+  assert.match(html, /DAY 7/);
+  assert.match(html, /500 USDT/);
+  assert.match(html, /\$21\.50/);
+  assert.match(html, /FX policy not set/);
+  assert.match(html, /RISK PAUSE/);
+  assert.doesNotMatch(html, /<x>/);
+  assert.match(renderCampaign({ experiment_id: "EXP-001", manifest_version: null, min_days: 90, checkpoint: "PRE_DAY_7", target_trades: 200, fx: { configured: true, usdt_per_usd: 1.0005 } }), /manifest freezes on Start/);
+  assert.equal(renderCampaign(null), "");
+});

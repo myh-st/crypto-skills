@@ -77,6 +77,7 @@ EXPERIMENT_FIELDS = {
     "max_daily_loss",
     "max_drawdown_stop",
     "max_consecutive_losses",
+    "loss_streak_pause_minutes",
     "taker_fee_rate",
     "maker_fee_rate",
     "slippage_bps",
@@ -190,6 +191,7 @@ def default_experiment_config() -> dict[str, Any]:
         "max_daily_loss": 0.05,
         "max_drawdown_stop": 0.15,
         "max_consecutive_losses": 5,
+        "loss_streak_pause_minutes": 1440,
         "taker_fee_rate": 0.0004,
         "maker_fee_rate": 0.0002,
         "slippage_bps": 2.0,
@@ -295,6 +297,9 @@ def validate_experiment_config(value: Any) -> dict[str, Any]:
             raise PaperTradingError(f"{field} cannot exceed 50%")
     config["max_consecutive_losses"] = _integer(
         config["max_consecutive_losses"], "max_consecutive_losses", minimum=1, maximum=100
+    )
+    config["loss_streak_pause_minutes"] = _integer(
+        config["loss_streak_pause_minutes"], "loss_streak_pause_minutes", minimum=15, maximum=43_200
     )
     for field in ("taker_fee_rate", "maker_fee_rate", "maintenance_margin_rate"):
         config[field] = _number(config[field], field, minimum=0)

@@ -190,17 +190,24 @@ export function createPositionDrawer({ api, onChange = () => {} }) {
   const note = (message, tone) => feedback(drawer.querySelector("[data-drawer-feedback]"), message, tone);
 
   async function load(focus = false) {
-    const { position } = await api.position(currentRef);
-    let safety = null;
+    const ref = currentRef;
+    const { position } = await api.position(ref);
+    // Render the position immediately; the live safety assessment follows without blocking.
+    drawer.innerHTML = renderPositionDetail(position, null);
+    if (focus) drawer.querySelector("#drawer-title")?.focus();
     if (position.status === "open" && api.assessInstrument) {
-      const [assessment, overview] = await Promise.all([
+      Promise.all([
         api.assessInstrument(position.instrument_id).catch(() => null),
         api.safety().catch(() => null),
-      ]);
-      safety = { assessment: assessment?.assessment || null, killSwitch: overview?.kill_switch || null };
+      ]).then(([assessment, overview]) => {
+        if (currentRef !== ref || drawer.hidden || drawer.contains(document.activeElement) && document.activeElement.matches("input, select, textarea")) return;
+        const safety = { assessment: assessment?.assessment || null, killSwitch: overview?.kill_switch || null };
+        const feedbackText = drawer.querySelector("[data-drawer-feedback]")?.innerHTML;
+        drawer.innerHTML = renderPositionDetail(position, safety);
+        const note = drawer.querySelector("[data-drawer-feedback]");
+        if (note && feedbackText) note.innerHTML = feedbackText;
+      });
     }
-    drawer.innerHTML = renderPositionDetail(position, safety);
-    if (focus) drawer.querySelector("#drawer-title")?.focus();
     return position;
   }
 

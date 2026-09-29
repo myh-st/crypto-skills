@@ -3367,6 +3367,7 @@ class PortfolioOS:
         wallet = self.store.wallet_summary(self.experiment_id, "primary")
         spot = self.spot_wallet()
         return {
+            "incidents": self.runtime.resilience.incidents(status="OPEN", limit=50),
             "kill_switch": self.kill_switch(),
             "market_states": self.safety.states(self.experiment_id),
             "experiment": experiment,
@@ -3408,10 +3409,14 @@ class PortfolioOS:
             }
             for key, item in by_key.items():
                 if key in active:
+                    # "seen N×" counts real changes of a condition, not every re-evaluation.
+                    row = active[key]
+                    changed = item["kind"] != "info" and (item["severity"] != row["severity"] or item["summary"] != row["summary"])
                     db.execute(
                         "UPDATE attention_items SET severity=?, title=?, summary=?, action_json=?, last_seen_at=?, "
-                        "occurrences=occurrences+1 WHERE attention_id=?",
-                        (item["severity"], item["title"], item["summary"], _dumps(item["action"]), stamp, active[key]["attention_id"]),
+                        "occurrences=occurrences+? WHERE attention_id=?",
+                        (item["severity"], item["title"], item["summary"], _dumps(item["action"]), stamp, int(changed),
+                         row["attention_id"]),
                     )
                     continue
                 if item["kind"] == "info" and db.execute(

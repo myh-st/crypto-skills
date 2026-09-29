@@ -866,7 +866,8 @@ class ActivityAttentionTests(PortfolioCase):
         near_again = [item for item in second["items"] if item["kind"] == "near_stop"]
         self.assertEqual(len(near_again), 1)
         self.assertEqual(near_again[0]["attention_id"], near[0]["attention_id"])
-        self.assertGreater(near_again[0]["occurrences"], 1)
+        # An unchanged condition re-evaluated is not a new occurrence ("seen N×" counts changes).
+        self.assertEqual(near_again[0]["occurrences"], near[0]["occurrences"])
         self.os.update_protection(position, stop_price=ref * 0.985, confirm_risk_increase=True)
         third = self.os.attention(include_resolved=True)
         resolved = [item for item in third["items"] if item["attention_id"] == near[0]["attention_id"]][0]

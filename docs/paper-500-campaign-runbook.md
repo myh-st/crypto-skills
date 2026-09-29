@@ -88,6 +88,27 @@ or Evaluations → Run checkpoint review. Archive the JSON; its `report_sha256` 
 | `SCHEDULER_GAP` / `MONITOR_GAP` | Expected after sleep or downtime. Frequent gaps inflate the skipped-slot ratio and can `FAIL_RELIABILITY`, so keep the machine awake (power settings) for the campaign. |
 | Manifest drift banner | Either revert the change or record a new version with a reason. Never leave drift unresolved. |
 
+## Day-0 decisions for EXP-001
+
+- **Luna reasoning `medium`** (not `max`). Luna only judges escalated, bounded decisions: the
+  quant gate, Jev, the escalation policy, schema validation, RiskEngine, Portfolio Brain, and
+  safety do the rest. Real calls at `max` used 1k–12k reasoning tokens for the same ~19k-token
+  input ($0.36–$1.02, 9–67 s) with no evidence of better decisions. Sample size matters more for
+  measuring AI value.
+- **Budget:** `gpt_max_output_tokens` = 8000 (the reservation is based on it) and
+  `max_gpt_call_usd` = 1.0.
+- **Loss-streak pause:** `loss_streak_pause_minutes` = 1440. After 5 consecutive losses, new
+  entries pause for 24 h and then the streak resets. Before this fix, a streak could only
+  clear on a win, so a replay stopped trading forever on day 1.
+- **Drawdown stop:** `max_drawdown_stop` 15% stays a hard halt, but it now raises a CRITICAL
+  `RISK_HALT` incident in Attention instead of blocking silently.
+
+## Keeping the server up for 90 days
+
+`docs/ops/paper-campaign.launchd.plist` is a launchd template (auto-start at login, restart
+on crash, `caffeinate`). Installing it is a persistent system change, so do it deliberately.
+Without it, restart the server manually after a reboot; startup recovery handles the gap.
+
 ## Scope of EXP-001 (known, not covered by the campaign)
 
 - Spot lifecycle decisions are deterministic. No Jev/Luna lifecycle recommendation is wired, so

@@ -41,7 +41,9 @@
         "STORAGE_LOW",
         "RECOVERY_ACTION",
         "DEGRADED_MODE",
-        "RESTORED_MODE"
+        "RESTORED_MODE",
+        "RISK_PAUSE",
+        "RISK_HALT"
       ]
     },
     "severity": {

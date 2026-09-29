@@ -238,6 +238,8 @@ class PaperRequestHandler(BaseHTTPRequestHandler):
             return self.runtime.health()
         if path == "/api/incidents":
             return {"incidents": self.runtime.resilience.incidents(status=q("status") or None)}
+        if path == "/api/campaign":
+            return self.runtime.governance.campaign_summary()
         if path == "/api/experiment/manifest":
             governance = self.runtime.governance
             return {"status": governance.status(), "manifests": governance.manifests()}
