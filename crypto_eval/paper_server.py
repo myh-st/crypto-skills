@@ -30,6 +30,15 @@ from .sleeves import stream_symbols
 
 
 REPOSITORY_ROOT = Path(__file__).resolve().parents[1]
+
+
+def trusted_origins() -> frozenset[str]:
+    """Exact HTTPS origins of a private reverse proxy (PAPER_TRUSTED_ORIGINS, comma-separated), e.g. the
+    tailnet-only `https://my-mac.tail1234.ts.net`. Empty by default: only same-origin loopback requests pass.
+    The server itself still binds to loopback only; this never opens a port."""
+
+    raw = os.environ.get("PAPER_TRUSTED_ORIGINS", "")
+    return frozenset(o.strip().rstrip("/") for o in raw.split(",") if o.strip().startswith("https://") and "*" not in o)
 STATIC_ROOTS = {
     "/frontend/": REPOSITORY_ROOT / "frontend",
     "/schemas/": REPOSITORY_ROOT / "schemas",
@@ -149,8 +158,16 @@ class PaperRequestHandler(BaseHTTPRequestHandler):
             raise PaperTradingError("cross-site requests are not accepted")
         origin = self.headers.get("Origin")
         host = self.headers.get("Host")
-        if origin and host and origin.rstrip("/") != f"http://{host}":
-            raise PaperTradingError("cross-origin requests are not accepted")
+        if not origin or not host:
+            return
+        origin = origin.rstrip("/")
+        if origin == f"http://{host}":
+            return
+        # A private HTTPS reverse proxy on this machine (e.g. `tailscale serve`, tailnet-only) forwards to the
+        # loopback socket; its exact origin must be listed by the operator. Nothing else is ever accepted.
+        if origin in trusted_origins() and origin == f"https://{host.split(':')[0]}" + (f":{host.split(':')[1]}" if ":" in host else ""):
+            return
+        raise PaperTradingError("cross-origin requests are not accepted")
 
     def _safe_error(self, status: int, message: str) -> None:
         self._send_json(status, {"error": message})

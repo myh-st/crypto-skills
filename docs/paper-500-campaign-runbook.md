@@ -171,6 +171,11 @@ as for EXP-001.
 - Backup: `python3 -m crypto_eval paper-backup --database ~/paper-exp002.sqlite3`
 - Checkpoint: `python3 -m crypto_eval paper-checkpoint --database ~/paper-exp002.sqlite3 --out reports/paper-500/exp002-<checkpoint>.json`
 
+## Remote access (phone, away from home)
+
+Reach the real consoles through your private Tailscale network. The servers stay loopback-only
+and nothing is exposed publicly. See [`docs/ops/remote-access.md`](ops/remote-access.md).
+
 ## Automated checks
 
 Scheduled tasks in the Claude app (Scheduled sidebar) watch the running experiments. They run only

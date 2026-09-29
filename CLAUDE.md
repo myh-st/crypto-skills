@@ -103,7 +103,7 @@ CI and unit tests remain offline and fake-only. Real Gate money-moving writes re
 ## Safety boundaries (enforced by design, keep them)
 
 - No real-money execution path. Any Gate order, leverage change, transfer, or withdrawal must stay blocked or mocked.
-- Servers bind to loopback only. `paper-server` rejects non-loopback hosts.
+- Servers bind to loopback only. `paper-server` rejects non-loopback hosts. Remote use goes only through a private, tailnet-only `tailscale serve` proxy, with its exact HTTPS origin listed in `PAPER_TRUSTED_ORIGINS` (see `docs/ops/remote-access.md`). Never use a public tunnel (funnel, ngrok) and never use a `0.0.0.0` bind.
 - Credentials are read only from the server process env, the repo `.env`, or the OS credential store. `envfile.py` parses `.env` as plain key=value and never evaluates it; existing env vars win. Settings accepts a key once and the server stores it in the OS credential store, returning only masked metadata; the browser never persists or receives secret values. Secrets must never reach SQLite, prompts, logs, API responses, or export bundles.
 - Keep historical analysis point-in-time safe: no observation later than `data_cutoff`. A wait whose trigger never fires is not scored as a failed entry.
 
