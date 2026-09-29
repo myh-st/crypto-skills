@@ -49,7 +49,7 @@ export function renderUnifiedPositions(positions, { compact = false, emptyMessag
         <tbody>
           ${open.map((position) => `
             <tr>
-              <td>${marketBadge(position.market_type)} <strong>${escapeHtml(position.display_symbol)}</strong></td>
+              <td>${marketBadge(position.market_type)} <strong>${escapeHtml(position.display_symbol)}</strong>${sleeveTag(position.cohort)}</td>
               <td>${sideBadge(position.side, position.leverage)}</td>
               <td>${escapeHtml(price(position.quantity))}<br><small class="muted">${escapeHtml(price(position.notional_usdt))} USDT</small></td>
               <td>${escapeHtml(price(position.entry_price))}</td>
@@ -62,4 +62,13 @@ export function renderUnifiedPositions(positions, { compact = false, emptyMessag
         </tbody>
       </table>
     </div>`;
+}
+
+// Trend sleeves (EXP-002) run each strategy in its own sub-account, so one coin can be long in
+// one sleeve and short in another; the tag says which sleeve owns the position.
+const SLEEVE_TAGS = { "sleeve-don": ["DON", "Donchian 4h breakout"], "sleeve-ts": ["TS", "Time-series momentum"], "sleeve-xs": ["XS", "Cross-sectional momentum"] };
+
+export function sleeveTag(cohort) {
+  const tag = SLEEVE_TAGS[cohort];
+  return tag ? ` <span class="sleeve-tag" title="${escapeHtml(tag[1])} sleeve">${escapeHtml(tag[0])}</span>` : "";
 }

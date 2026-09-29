@@ -46,6 +46,7 @@ That's it. There is nothing to install: Python uses only the standard library an
 |---|---|---|
 | **Portfolio OS** | Gate Spot + Perp catalog; Spot accounting (average cost, fees, partial limit fills); unified orders with idempotent `client_request_id`; authority modes; structured AI re-plan with before/after diff; Portfolio Brain that can only shrink or block; attention queue; post-trade learning; strategy tournament with AI cost | [ai-portfolio-trading-os.md](docs/ai-portfolio-trading-os.md) |
 | **AI decision stack** | Closed 15m candle → deterministic features and quant gate → Jev typed decision → versioned escalation → optional GPT-6 Luna plus this skill → validated intent. AI never sets size or leverage and cannot override risk. Budget guard with a versioned price book; paid calls fail closed | [paper-futures-runtime.md](docs/paper-futures-runtime.md) |
+| **Trend sleeves engine** | EXP-002 (`sleeves_v1`): three long/short futures strategies, each in its own PAPER sub-account. They are a Donchian 4h breakout with a trailing stop, 60-day time-series momentum, and weekly cross-sectional momentum, on BTC, ETH, NEAR, SEI, SUI, AVAX and ENA. The capital split is rebalanced monthly. A 4-year replay through the real runtime reached Sharpe 1.32 (+37% a year) with an 18.5% max drawdown, and Sharpe 1.18 at double costs | [trend-sleeves-engine.md](docs/trend-sleeves-engine.md) |
 | **Execution safety** | Market states (`NORMAL`, `VOLATILITY_ALERT`, `CRASH_MODE`, `RECOVERY`, `MARKET_DATA_UNTRUSTED`); suspect-print filter; execution planner (slippage envelope, slicing, TTL, sell velocity); 5-level kill switch; ledger reconciliation; liquidation-emergency reduce; duplicate, stale, and wrong-side guards | [crash-execution-safety.md](docs/crash-execution-safety.md) |
 | **Spot lifecycle** | Typed long-cycle states (accumulate → hold Core → trend expansion → protect → distribute → reduce → exit → cash wait); point-in-time regime evidence; progressive distribution; Core sold only on a confirmed breakdown; aligned benchmark arms | [spot-cycle-lifecycle-manager.md](docs/spot-cycle-lifecycle-manager.md) |
 | **Resilience** | Startup recovery before automation; persisted scheduler slots (missed periods are explicit, never back-filled); incidents and health; provider circuit breaker; verified, secret-free backup/restore; single-instance lock; graceful SIGTERM; accelerated soak | [continuous-paper-resilience.md](docs/continuous-paper-resilience.md) |
@@ -81,6 +82,8 @@ Authority order: **liquidation/accounting > risk engine > crash/price/liquidity 
 | 4 | Continuous PAPER resilience | ✅ merged |
 | 5 | Experiment promotion gates | ✅ merged |
 | 6 | Live execution gateway | ⛔ planning only, live disabled |
+
+**Strategy engines:** EXP-001 runs the 15m breakout with AI routing. EXP-002 runs the [trend sleeves engine](docs/trend-sleeves-engine.md). Both are PAPER only.
 
 **Feature development is frozen. The PAPER campaign is next:** 500 USDT of PAPER capital, checkpoints at day 7/30/60/90, and a target of 200–300 completed trades. See the [campaign runbook](docs/paper-500-campaign-runbook.md) and the [development train](docs/development-train.md).
 

@@ -101,8 +101,11 @@ EXPERIMENT_FIELDS = {
     "cost_fx",
     "fee_schedule_version",
     "stale_feed_blocks_entries",
+    "strategy_engine",
+    "label",
+    "sleeves",
 }
-OPERATIONAL_EXPERIMENT_FIELDS = ("market_data_retention_days", "ai_budget", "cost_fx")
+OPERATIONAL_EXPERIMENT_FIELDS = ("market_data_retention_days", "ai_budget", "cost_fx", "label")
 INTENT_FIELDS = {
     "schema_version",
     "action",
@@ -225,6 +228,9 @@ def default_experiment_config() -> dict[str, Any]:
         "cost_fx": None,
         "fee_schedule_version": "paper-fees.v1",
         "stale_feed_blocks_entries": True,
+        "strategy_engine": "breakout_15m",
+        "sleeves": None,
+        "label": None,
     }
 
 
@@ -245,6 +251,15 @@ def validate_experiment_config(value: Any) -> dict[str, Any]:
     config["cost_fx"] = validate_fx_policy(config["cost_fx"])
     if config["fee_schedule_version"] not in FEE_SCHEDULE_VERSIONS:
         raise PaperTradingError("fee_schedule_version is unsupported")
+    label = config["label"]
+    if label is not None and (not isinstance(label, str) or not re.fullmatch(r"[A-Za-z0-9][A-Za-z0-9 ._-]{0,39}", label)):
+        raise PaperTradingError("label must be 1-40 letters, digits, spaces, dots, dashes or underscores")
+    if config["strategy_engine"] not in {"breakout_15m", "sleeves_v1"}:
+        raise PaperTradingError("strategy_engine must be breakout_15m or sleeves_v1")
+    if config["strategy_engine"] == "sleeves_v1" or config["sleeves"] is not None:
+        from .sleeves import validate_sleeves
+
+        config["sleeves"] = validate_sleeves(config["sleeves"] or {})
     if not isinstance(config["stale_feed_blocks_entries"], bool):
         raise PaperTradingError("stale_feed_blocks_entries must be boolean")
     symbols = config["symbols"]

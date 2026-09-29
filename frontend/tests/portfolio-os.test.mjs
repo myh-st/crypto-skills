@@ -577,3 +577,32 @@ test("campaign panel shows day, trade progress, checkpoint, capital, budget, and
   assert.match(renderCampaign({ experiment_id: "EXP-001", manifest_version: null, min_days: 90, checkpoint: "PRE_DAY_7", target_trades: 200, fx: { configured: true, usdt_per_usd: 1.0005 } }), /manifest freezes on Start/);
   assert.equal(renderCampaign(null), "");
 });
+
+test("campaign panel lists each trend sleeve with its PnL and long/short book", () => {
+  const html = renderCampaign({ experiment_id: "EXP-001", label: "EXP-002", engine: "sleeves_v1", manifest_version: 1, elapsed_days: 1, min_days: 90, checkpoint: "PRE_DAY_7",
+    completed_trades: 3, target_trades: 200, capital_usdt: { perpetual: 500, spot: 0 }, fx: { configured: true, usdt_per_usd: 1.0005 },
+    sleeves: { engine: "sleeves_v1", universe: ["BTCUSDT"], last_tick: { boundary: "2026-09-29T08:00:00Z", blocked: [], combined_drawdown: 0.021 },
+      sleeves: [
+        { sleeve: "donchian", enabled: true, leverage: 3, equity_usdt: 170.5, pnl_usdt: 3.83, long: ["NEARUSDT"], short: [] },
+        { sleeve: "tsmom", enabled: true, leverage: 2, equity_usdt: 160.1, pnl_usdt: -6.56, long: ["BTCUSDT"], short: ["ENAUSDT", "<b>"] },
+        { sleeve: "xsmom", enabled: false, leverage: 2, equity_usdt: 166.67, pnl_usdt: 0, long: [], short: [] },
+      ] } });
+  assert.match(html, /EXP-002 campaign · trend sleeves/);
+  assert.match(html, /Donchian 4h breakout/);
+  assert.match(html, /\+3\.83/);
+  assert.match(html, /-6\.56|−6\.56/);
+  assert.match(html, /ENA/);
+  assert.match(html, /\(off\)/);
+  assert.match(html, /drawdown 2\.1%/);
+  assert.doesNotMatch(html, /<b>/);
+});
+
+test("positions name the owning sleeve so a long and a short on one coin read clearly", async () => {
+  const { renderUnifiedPositions, sleeveTag } = await import("../modules/components/positionsTable.js");
+  const base = { status: "open", market_type: "perpetual", display_symbol: "BTC/USDT Perp", leverage: 2, quantity: 0.001, notional_usdt: 84,
+    entry_price: 84000, mark_price: 84000, unrealized_pnl_usdt: 0, management_mode: "AUTO_PAPER", position_ref: "p" };
+  const html = renderUnifiedPositions([{ ...base, side: "long", cohort: "sleeve-ts" }, { ...base, side: "short", cohort: "sleeve-xs" }]);
+  assert.match(html, />TS</);
+  assert.match(html, />XS</);
+  assert.equal(sleeveTag("primary"), "");
+});

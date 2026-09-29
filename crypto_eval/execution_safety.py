@@ -722,19 +722,31 @@ def reconcile_ledgers(store: Any, experiment_id: str, *, tolerance: float = 1e-6
 
     problems: list[dict[str, Any]] = []
     q = store._query
-    wallet = q("SELECT * FROM wallets WHERE experiment_id=? AND cohort='primary'", (experiment_id,))
-    if wallet:
+    from .sleeves import capital_cohorts
+
+    experiment = q("SELECT config_json FROM experiments WHERE experiment_id=?", (experiment_id,))
+    cohorts = capital_cohorts(json.loads(experiment[0]["config_json"])) if experiment else ["primary"]
+    for cohort in cohorts:
+        wallet = q("SELECT * FROM wallets WHERE experiment_id=? AND cohort=?", (experiment_id, cohort))
+        if not wallet:
+            continue
         starting = float(wallet[0]["starting_balance"])
         realized = q(
             "SELECT COALESCE(SUM(realized_gross),0) AS g, COALESCE(SUM(entry_fee),0) AS ef, COALESCE(SUM(exit_fees),0) AS xf, "
-            "COALESCE(SUM(funding_paid),0) AS fu FROM positions WHERE experiment_id=? AND cohort='primary'",
-            (experiment_id,),
+            "COALESCE(SUM(funding_paid),0) AS fu FROM positions WHERE experiment_id=? AND cohort=?",
+            (experiment_id, cohort),
         )[0]
-        expected = starting + float(realized["g"]) - float(realized["ef"]) - float(realized["xf"]) - float(realized["fu"])
+        transfers = q(
+            "SELECT COALESCE(SUM(CASE WHEN to_cohort=? THEN amount ELSE 0 END),0) - "
+            "COALESCE(SUM(CASE WHEN from_cohort=? THEN amount ELSE 0 END),0) AS net FROM wallet_transfers WHERE experiment_id=?",
+            (cohort, cohort, experiment_id),
+        )[0]
+        expected = (starting + float(realized["g"]) - float(realized["ef"]) - float(realized["xf"]) - float(realized["fu"])
+                    + float(transfers["net"]))
         # Entry fees of still-open positions are deducted at fill; realized_gross covers partial exits.
         if abs(expected - float(wallet[0]["cash_balance"])) > max(tolerance, 1e-6):
-            problems.append({"ledger": "perp_wallet", "expected": expected, "actual": float(wallet[0]["cash_balance"])})
-        for position in q("SELECT * FROM positions WHERE experiment_id=? AND cohort='primary'", (experiment_id,)):
+            problems.append({"ledger": "perp_wallet", "cohort": cohort, "expected": expected, "actual": float(wallet[0]["cash_balance"])})
+        for position in q("SELECT * FROM positions WHERE experiment_id=? AND cohort=?", (experiment_id, cohort)):
             fills = q("SELECT side, quantity FROM fills WHERE position_id=?", (position["position_id"],))
             opened = sum(float(f["quantity"]) for f in fills if f["side"] == ("buy" if position["side"] == "long" else "sell"))
             closed = sum(float(f["quantity"]) for f in fills if f["side"] != ("buy" if position["side"] == "long" else "sell"))

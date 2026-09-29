@@ -72,6 +72,7 @@ from .portfolio_store import PORTFOLIO_SCHEMA
 from .execution_safety import KILL_RANK, SAFETY_SCHEMA, classify_market, suspect_print
 from .spot_lifecycle import LIFECYCLE_SCHEMA
 from .promotion import PROMOTION_SCHEMA
+from .sleeves import SLEEVE_SCHEMA
 from .resilience import (
     DB_SCHEMA_VERSION,
     RESILIENCE_SCHEMA,
@@ -519,8 +520,11 @@ class RiskEngine:
                     "market intent entry moved beyond the volatility-adjusted tolerance",
                 )
         stop_distance = abs(entry - stop)
-        if stop_distance <= 0 or stop_distance / entry > 0.25:
-            return RiskDecision(False, "STOP_DISTANCE", "stop distance is invalid or exceeds 25% of entry")
+        # 25% for strategy entries. Only an engine's internal risk config may widen it (the sleeves
+        # engine's catastrophe stop), never beyond 45%; the liquidation check below still applies.
+        max_stop = min(0.45, float(config.get("max_stop_distance_pct", 0.25)))
+        if stop_distance <= 0 or stop_distance / entry > max_stop:
+            return RiskDecision(False, "STOP_DISTANCE", f"stop distance is invalid or exceeds {max_stop:.0%} of entry")
         risk_budget = max(0.0, equity) * config["risk_per_trade"]
         fee_drag_per_unit = entry * (2 * config["taker_fee_rate"] + 2 * config["slippage_bps"] / 10_000)
         unit_risk = stop_distance + fee_drag_per_unit
@@ -837,6 +841,7 @@ class PaperStore:
         self._db.executescript(LIFECYCLE_SCHEMA)
         self._db.executescript(RESILIENCE_SCHEMA)
         self._db.executescript(PROMOTION_SCHEMA)
+        self._db.executescript(SLEEVE_SCHEMA)
 
     def _migrate_schema(self) -> None:
         with self._lock:
@@ -2782,7 +2787,9 @@ class PaperStore:
         data_origin: str,
         slippage_cost: float = 0.0,
         order_key: str | None = None,
+        cohorts: set[str] | None = None,
     ) -> dict[str, Any]:
+        allowed_cohorts = cohorts or {"primary"}
         if not risk.allowed or not risk.reduce_only:
             return {"accepted": False, "filled_quantity": 0.0, "reason": risk.reason}
         with self.transaction() as db:
@@ -2797,7 +2804,7 @@ class PaperStore:
                     "AND cohort='primary' AND status='open' ORDER BY opened_at LIMIT 1",
                     (experiment_id, intent.symbol, intent.side),
                 ).fetchone()
-            if row is None or row["cohort"] != "primary":
+            if row is None or row["cohort"] not in allowed_cohorts:
                 return {"accepted": False, "filled_quantity": 0.0, "reason": "position no longer open"}
             quantity = min(float(risk.quantity), float(row["quantity"]))
             if quantity <= 0:
@@ -2806,7 +2813,7 @@ class PaperStore:
             inserted = db.execute(
                 "INSERT OR IGNORE INTO orders(order_id, experiment_id, cycle_id, position_id, symbol, "
                 "cohort, side, order_type, reduce_only, quantity, filled_quantity, limit_price, status, "
-                "risk_json, created_at, updated_at) VALUES(?, ?, ?, ?, ?, 'primary', ?, 'market', 1, ?, 0, NULL, "
+                "risk_json, created_at, updated_at) VALUES(?, ?, ?, ?, ?, ?, ?, 'market', 1, ?, 0, NULL, "
                 "'open', ?, ?, ?)",
                 (
                     order_id,
@@ -2814,6 +2821,7 @@ class PaperStore:
                     row["cycle_id"],
                     row["position_id"],
                     row["symbol"],
+                    row["cohort"],
                     "sell" if row["side"] == "long" else "buy",
                     quantity,
                     _json(risk.to_dict()),
@@ -2848,7 +2856,7 @@ class PaperStore:
                 experiment_id,
                 row["cycle_id"],
                 row["symbol"],
-                "primary",
+                row["cohort"],
                 risk.to_dict(),
             )
             return {
@@ -3358,6 +3366,16 @@ class PaperRuntime:
         self._gate_provider: GateUsdtFuturesMarketDataProvider | None = None
         self.store.cost_ledger._clock = self._clock
         self.resilience = ResilienceLedger(self.store, self._clock)
+
+    @property
+    def sleeves(self) -> Any:
+        """Trend sleeves engine (strategy_engine == 'sleeves_v1')."""
+
+        if getattr(self, "_sleeves", None) is None:
+            from .sleeves import SleeveEngine
+
+            self._sleeves = SleeveEngine(self)
+        return self._sleeves
 
     @property
     def governance(self) -> Any:
@@ -5758,6 +5776,14 @@ class PaperScheduler:
                               detail={"slot": slot, "late_seconds": lateness})
         res.record_slot(experiment_id, slot, "ATTEMPTED", {"symbols": config["symbols"]})
         outcomes: dict[str, str] = {}
+        if config.get("strategy_engine") == "sleeves_v1":
+            try:
+                result = self.runtime.sleeves.tick(now)
+                outcomes["sleeves"] = str(result.get("status"))
+            except PaperTradingError as exc:
+                outcomes["sleeves"] = f"error: {str(exc)[:80]}"
+            res.record_slot(experiment_id, slot, "DONE", {"outcomes": outcomes})
+            return {"status": "ran", "slot": slot, "missed": len(gap), "outcomes": outcomes}
         for symbol in config["symbols"]:
             if self._shutdown.is_set():
                 outcomes[symbol] = "shutdown"
