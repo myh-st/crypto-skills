@@ -112,7 +112,8 @@ test("coin list: exits then buys first, next level is the nearest change, rows a
   const html = renderCoinTable(coins);
   assert.match(html, /href="#\/cotrader\/NEWC"[^]*cot-verdict--buy[^]*เริ่มซื้อ/);
   assert.match(html, /href="#\/cotrader\/EXITC"[^]*cot-verdict--sell[^]*ขายออก/);
-  assert.match(html, /Trim below[^]*90\.00/);
+  assert.match(html, /ขายครึ่ง &lt;[^]*90\.00/);
+  assert.match(html, /ตัดขาดทุน &lt;[^]*70\.00/);
   assert.match(html, /No Jev score yet/);
   assert.doesNotMatch(renderCoinTable([coin(HOSTILE, "FULL")]), /<img/);
   assert.match(renderCoinTable([]), /No coins yet/);
@@ -187,4 +188,21 @@ test("add levels mention the volume needed", () => {
   c.ladder.action.add_volume_min_usdt = 1250000;
   const html = renderNextStepsTh({ coins: [c] });
   assert.match(html, /ถ้าปิดวันเหนือ 10\.20 และวอลุ่ม ≥ \$1\.25M ให้เติมเป็นเต็มไม้/);
+});
+
+import { planLevels, renderSrCell } from "../modules/components/cotraderTable.js";
+
+test("support / resistance cell and the plan's buy / sell-half / cut-loss prices", () => {
+  const html = renderSrCell({ support: [{ price: 90.25, distance: -0.0975, touches: 2, kind: "swing" }],
+    resistance: [{ price: 120, distance: 0.2, touches: 1, kind: "recent_high" }], lookback_days: 180, at_high: false });
+  assert.match(html, /ต้าน<\/span> 120\.00 <span class="cot-cell-sub">\+20\.0%<\/span> <span class="cot-cell-sub">\(จุดสูงล่าสุด\)/);
+  assert.match(html, /รับ<\/span> 90\.25 <span class="cot-cell-sub">-9\.8% · 2×/);
+  assert.match(renderSrCell({ support: [], resistance: [], at_high: true }), /ทำจุดสูงสุดใหม่/);
+  assert.match(renderSrCell(null), /—/);
+  const full = planLevels(coin("A", "FULL", "HOLD", { price: 100, trim: 95, exit: 70 }));
+  assert.deepEqual(full.map((x) => x.kind), ["trim", "exit"]);
+  const starter = planLevels(coin("A", "STARTER", "HOLD", { price: 100, add: 104, exit: 80 }));
+  assert.deepEqual(starter.map((x) => x.kind), ["add", "exit"]);
+  const out = planLevels({ ...coin("A", "OUT"), price: 10, trend_line_next: 11 });
+  assert.deepEqual(out.map((x) => [x.kind, x.price]), [["buy", 11]]);
 });

@@ -56,6 +56,7 @@ from crypto_eval.spot_cotrader import (
     signal_rows,
     sizing_weights,
     state_events,
+    support_resistance,
 )
 
 ROOT = Path(__file__).resolve().parents[1]
@@ -1456,3 +1457,38 @@ class VolumeConfirmedAddTests(unittest.TestCase):
         self.assertFalse(rows[-1]["volume_ok"])
         self.assertIsNone(rows[-1]["add_volume_min"])
         self.assertEqual(rows[-1]["ladder"], "STARTER")
+
+
+
+class SupportResistanceTests(unittest.TestCase):
+    def bars(self, highs_lows):
+        return [{"t": i * DAY, "o": (h + l) / 2, "h": h, "l": l, "c": (h + l) / 2, "v": 1.0}
+                for i, (h, l) in enumerate(highs_lows)]
+
+    def test_nearest_zones_below_and_above_with_touches(self):
+        # a range: swing highs near 110 (twice) and swing lows near 90 (twice), price now 100
+        path = [(99, 94), (98, 93), (100, 95), (104, 98), (110, 103), (104, 99), (100, 94), (96, 90), (99, 93), (103, 97),
+                (109.5, 102), (104, 98), (99, 93), (95, 90.5), (98, 94), (101, 96), (102, 98), (101, 97)]
+        sr = support_resistance(self.bars(path), 100.0)
+        self.assertEqual(len(sr["support"]), 1)
+        self.assertAlmostEqual(sr["support"][0]["price"], 90.25, places=6)
+        self.assertEqual(sr["support"][0]["touches"], 2)
+        self.assertAlmostEqual(sr["resistance"][0]["price"], 109.75, places=6)
+        self.assertEqual(sr["resistance"][0]["touches"], 2)
+        self.assertLess(sr["support"][0]["distance"], 0)
+        self.assertGreater(sr["resistance"][0]["distance"], 0)
+        self.assertFalse(sr["at_high"])
+
+    def test_the_newest_bars_can_never_be_a_pivot(self):
+        path = [(100, 95)] * 10 + [(90, 80), (120, 100)]  # a fresh spike in the last bars
+        sr = support_resistance(self.bars(path), 105.0)
+        # the unconfirmed 120 high is not a swing level yet; it only shows as the recent-high hurdle
+        self.assertEqual([(z["price"], z["kind"]) for z in sr["resistance"]], [(120, "recent_high")])
+        self.assertTrue(all(zone["price"] != 80 for zone in sr["support"]))
+
+    def test_new_high_has_no_resistance_and_missing_price_is_none(self):
+        path = [(100 + i, 95 + i) for i in range(20)]
+        sr = support_resistance(self.bars(path), 130.0)
+        self.assertEqual(sr["resistance"], [])
+        self.assertTrue(sr["at_high"])
+        self.assertIsNone(support_resistance(self.bars(path), None))
