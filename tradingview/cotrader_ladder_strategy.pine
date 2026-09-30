@@ -14,6 +14,10 @@ retLen = input.int(60, "Momentum lookback (days)", minval = 2, group = grpRule)
 smaLen = input.int(100, "Trend average (SMA days)", minval = 3, group = grpRule)
 hiLen = input.int(20, "Add on an N-day closing high", minval = 2, group = grpRule)
 emaLen = input.int(20, "Trim on a close below EMA", minval = 2, group = grpRule)
+useVol = input.bool(true, "ADD needs volume (a breakout on above-average volume)", group = grpRule)
+volMult = input.float(1.5, "  volume >= this x its average", minval = 1.0, step = 0.1, group = grpRule)
+volLen = input.int(20, "  volume average (days)", minval = 2, group = grpRule)
+autoTf = input.bool(true, "Auto-adjust to the chart timeframe (same number of DAYS)", group = grpRule)
 
 grpSize = "Sizing (spot, % of equity)"
 starterPct = input.float(25.0, "STARTER size %", minval = 1, maxval = 100, group = grpSize) / 100.0
@@ -22,18 +26,28 @@ fullPct = input.float(100.0, "FULL size %", minval = 1, maxval = 100, group = gr
 grpRange = "Backtest window"
 startTime = input.time(timestamp("01 Jan 2022 00:00 +0000"), "Start", group = grpRange)
 
+float barsPerDay = autoTf ? 86400.0 / timeframe.in_seconds(timeframe.period) : 1.0
+int retN = math.max(2, int(math.round(retLen * barsPerDay)))
+int smaN = math.max(3, int(math.round(smaLen * barsPerDay)))
+int hiN_ = math.max(2, int(math.round(hiLen * barsPerDay)))
+int emaN = math.max(2, int(math.round(emaLen * barsPerDay)))
+int volN = math.max(2, int(math.round(volLen * barsPerDay)))
+
 emaSeeded(float src, int len) =>
     var float e = na
     float alpha = 2.0 / (len + 1)
     e := na(e) ? src : alpha * src + (1 - alpha) * e
     e
 
-float ret60 = close / close[retLen] - 1
-float sma = ta.sma(close, smaLen)
+float ret60 = close / close[retN] - 1
+float sma = ta.sma(close, smaN)
 bool ready = not na(ret60) and not na(sma)
 bool ruleOn = ready and ret60 > 0 and close > sma
-float ema = emaSeeded(close, emaLen)
-bool hiN = close >= ta.highest(close, hiLen)
+float ema = emaSeeded(close, emaN)
+float qv = volume * close  // quote volume (USDT)
+float qvAvg = ta.sma(qv, volN)
+bool volOk = not useVol or (qvAvg > 0 and qv >= volMult * qvAvg)
+bool hiN = close >= ta.highest(close, hiN_) and volOk
 
 var bool full = false
 int ladder = 0
@@ -55,7 +69,7 @@ bool changed = ladder != prevLadder and prevLadder != 0 and ladder != 0
 string act = not changed ? "" : ladder == 1 ? "S" : ladder == 3 ? "A" : prevLadder == 3 ? "T" : "B"
 
 bgcolor(ladder == 3 ? color.new(#10b981, 88) : ladder == 2 ? color.new(#4f8bff, 90) : na, title = "Ladder state")
-plot(math.max(close[retLen - 1], math.sum(close, smaLen - 1) / (smaLen - 1)), "Trend line (next close)", color = color.new(#4f8bff, 0), linewidth = 2, offset = 1)
+plot(math.max(close[retN - 1], math.sum(close, smaN - 1) / (smaN - 1)), "Trend line (next close)", color = color.new(#4f8bff, 0), linewidth = 2, offset = 1)
 
 // Rebalance to the ladder's target only when the ladder changes (like the app's B/A/T/S actions).
 // On the first bar of the window, sync to the current ladder so an ongoing trend is not skipped.

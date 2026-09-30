@@ -3,12 +3,12 @@
 // backend already computed. No AI text is used here, so it is always available and never billed.
 import { escapeHtml } from "../format.js";
 import { num } from "./ui.js";
-import { fmtPrice, fmtUsdt } from "./cotraderBits.js";
+import { fmtCompactUsd, fmtPrice, fmtUsdt } from "./cotraderBits.js";
 import { ladderOf } from "./cotraderLadder.js";
 
 const ACTION_TH = {
   BUY_STARTER: (b) => `เริ่มซื้อ ${b} ครึ่งไม้`,
-  ADD: (b) => `เติม ${b} เป็นเต็มไม้ (เทรนด์แรง เบรคจุดสูงสุด 20 วัน)`,
+  ADD: (b) => `เติม ${b} เป็นเต็มไม้ (เบรคจุดสูงสุด 20 วัน พร้อมวอลุ่มหนุน)`,
   TRIM: (b) => `ลด ${b} กลับเหลือครึ่งไม้ (หลุด EMA20 แต่เทรนด์ยังขึ้น)`,
   SELL_ALL: (b) => `ขาย ${b} ทั้งหมด ถือเงินสด (หลุดเทรนด์)`,
 };
@@ -34,7 +34,7 @@ export function nearestTriggers(coins, limit = 3) {
     if (!l || price === null || price <= 0) continue;
     const candidates = [];
     if (l.state === "FULL" && l.trimBelow !== null) candidates.push({ kind: "trim", price: l.trimBelow });
-    if ((l.state === "STARTER" || l.state === "OUT") && l.addAbove !== null) candidates.push({ kind: "add", price: l.addAbove });
+    if ((l.state === "STARTER" || l.state === "OUT") && l.addAbove !== null) candidates.push({ kind: "add", price: l.addAbove, volume: l.addVolumeMin });
     if (l.state !== "OUT" && l.exitBelow !== null) candidates.push({ kind: "exit", price: l.exitBelow });
     for (const c of candidates) out.push({ base: baseOf(coin), ...c, move: c.price / price - 1 });
   }
@@ -43,7 +43,7 @@ export function nearestTriggers(coins, limit = 3) {
 
 const TRIGGER_TH = {
   trim: (t) => `${t.base}: ถ้าปิดวันต่ำกว่า ${fmtPrice(t.price)} ให้ลดเหลือครึ่งไม้`,
-  add: (t) => `${t.base}: ถ้าปิดวันเหนือ ${fmtPrice(t.price)} ให้เติมเป็นเต็มไม้`,
+  add: (t) => `${t.base}: ถ้าปิดวันเหนือ ${fmtPrice(t.price)}${t.volume ? ` และวอลุ่ม ≥ ${fmtCompactUsd(t.volume)}` : ""} ให้เติมเป็นเต็มไม้`,
   exit: (t) => `${t.base}: ถ้าปิดวันต่ำกว่า ${fmtPrice(t.price)} ให้ขายทั้งหมด`,
 };
 

@@ -198,6 +198,16 @@ export function unavailableHtml(error) {
   return `<div class="panel cot-unavailable"><h2>Co-Trader data unavailable</h2><p class="muted">${escapeHtml(error?.message || "Request failed")}. Nothing is simulated.</p></div>`;
 }
 
+/** Compact USD amount for volumes: 1.25M, 830K. */
+export function fmtCompactUsd(value) {
+  const n = num(value);
+  if (n === null) return "—";
+  if (n >= 1e9) return `$${(n / 1e9).toFixed(2)}B`;
+  if (n >= 1e6) return `$${(n / 1e6).toFixed(2)}M`;
+  if (n >= 1e3) return `$${(n / 1e3).toFixed(0)}K`;
+  return `$${n.toFixed(0)}`;
+}
+
 /**
  * Bounded lists: rows past `visible` get class "cot-extra" (hidden until expanded) and this
  * button toggles the container's `is-expanded`. Returns "" when nothing is hidden.

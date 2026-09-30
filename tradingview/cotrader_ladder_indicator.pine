@@ -18,6 +18,10 @@ retLen = input.int(60, "Momentum lookback (days)", minval = 2, group = grpRule, 
 smaLen = input.int(100, "Trend average (SMA days)", minval = 3, group = grpRule, display = display.none)
 hiLen = input.int(20, "Add on an N-day closing high", minval = 2, group = grpRule, display = display.none)
 emaLen = input.int(20, "Trim on a close below EMA", minval = 2, group = grpRule, display = display.none)
+useVol = input.bool(true, "ADD needs volume (a breakout on above-average volume)", group = grpRule, display = display.none)
+volMult = input.float(1.5, "  volume >= this x its average", minval = 1.0, step = 0.1, group = grpRule, display = display.none)
+volLen = input.int(20, "  volume average (days)", minval = 2, group = grpRule, display = display.none)
+autoTf = input.bool(true, "Auto-adjust to the chart timeframe (same number of DAYS)", group = grpRule, display = display.none)
 nearPct = input.float(3.0, "Warn when within this % of a level", minval = 0.1, step = 0.5, group = grpRule, display = display.none) / 100.0
 
 grpShow = "Display"
@@ -46,17 +50,30 @@ pct(float x) =>
 price(float x) =>
     na(x) ? "—" : str.tostring(x, format.mintick)
 
+// Lengths are in DAYS. With auto-adjust on, they become the same span in bars on any timeframe
+// (e.g. 60 days = 360 bars on 4h); tested: 4h/12h/3D then behave like 1D, while fixed bar counts
+// on 4h or 1W do not work.
+float barsPerDay = autoTf ? 86400.0 / timeframe.in_seconds(timeframe.period) : 1.0
+int retN = math.max(2, int(math.round(retLen * barsPerDay)))
+int smaN = math.max(3, int(math.round(smaLen * barsPerDay)))
+int hiN_ = math.max(2, int(math.round(hiLen * barsPerDay)))
+int emaN = math.max(2, int(math.round(emaLen * barsPerDay)))
+int volN = math.max(2, int(math.round(volLen * barsPerDay)))
+
 // ─────────────────────────────────────────────────────────────── rule and ladder
-float ret60 = close / close[retLen] - 1
-float sma = ta.sma(close, smaLen)
+float ret60 = close / close[retN] - 1
+float sma = ta.sma(close, smaN)
 bool ready = not na(ret60) and not na(sma)
 bool up = ret60 > 0
 bool above = close > sma
 string ruleState = not ready ? "—" : up and above ? "HOLD" : not up and not above ? "CASH" : "WATCH"
 bool ruleOn = ready and up and above
 
-float ema = emaSeeded(close, emaLen)
-bool hiN = close >= ta.highest(close, hiLen)
+float ema = emaSeeded(close, emaN)
+float qv = volume * close  // quote volume (USDT)
+float qvAvg = ta.sma(qv, volN)
+bool volOk = not useVol or (qvAvg > 0 and qv >= volMult * qvAvg)
+bool hiN = close >= ta.highest(close, hiN_) and volOk
 
 // 0 = not enough history, 1 = OUT, 2 = STARTER, 3 = FULL
 var bool full = false
@@ -80,8 +97,10 @@ string act = not changed ? "" : ladder == 1 ? "S" : ladder == 3 ? "A" : prevLadd
 
 // Levels for the NEXT daily close (the app's trend_line_next / add_above / trim_below):
 //   ret60 > 0 tomorrow  <=> close > close[retLen - 1];  close > SMA tomorrow <=> close > sum(last smaLen-1)/(smaLen-1)
-float trendLine = math.max(close[retLen - 1], math.sum(close, smaLen - 1) / (smaLen - 1))
-float addAbove = ta.highest(close, hiLen - 1)
+float trendLine = math.max(close[retN - 1], math.sum(close, smaN - 1) / (smaN - 1))
+float addAbove = ta.highest(close, hiN_ - 1)
+// the next bar's quote volume V confirms iff V >= m * (sum of the latest volN-1 + V) / volN
+float addVolMin = useVol ? volMult * math.sum(qv, volN - 1) / (volN - volMult) : na
 float trimBelow = ema
 
 // ─────────────────────────────────────────────────────────────── plots
@@ -118,6 +137,7 @@ int L = ladder[k]
 string A = act[k]
 float lvTrend = trendLine[k]
 float lvAdd = addAbove[k]
+float lvVol = addVolMin[k]
 float lvTrim = trimBelow[k]
 float moveTrim = lvTrim / close - 1
 float moveAdd = lvAdd / close - 1
@@ -132,7 +152,7 @@ if A == "B"
     vColor := color.new(#10b981, 0)
 else if A == "A"
     verdict := "▲ ซื้อเพิ่ม"
-    detail := "เติมเป็นเต็มไม้ (เบรคจุดสูงสุด " + str.tostring(hiLen) + " วัน)"
+    detail := "เติมเป็นเต็มไม้ (เบรคจุดสูงสุด " + str.tostring(hiLen) + " วัน พร้อมวอลุ่ม)"
     vColor := color.new(#047857, 0)
 else if A == "T"
     verdict := "▼ ลดครึ่ง"
@@ -164,14 +184,14 @@ tablePos = switch panelPos
     "bottom_left" => position.bottom_left
     => position.top_right
 
-var table panel = table.new(tablePos, 2, 5, bgcolor = color.new(#111827, 15), frame_color = color.new(#1f2a3c, 0), frame_width = 1, border_color = color.new(#1f2a3c, 0), border_width = 0)
+var table panel = table.new(tablePos, 2, 6, bgcolor = color.new(#111827, 15), frame_color = color.new(#1f2a3c, 0), frame_width = 1, border_color = color.new(#1f2a3c, 0), border_width = 0)
 
 // Compact panel: one headline (what to do) plus only the levels that matter for the current state.
 if showPanel and barstate.islast
-    table.clear(panel, 0, 0, 1, 4)
+    table.clear(panel, 0, 0, 1, 5)
     color fg = color.new(#e2e8f0, 0)
     color muted = color.new(#94a3b8, 0)
-    string note = timeframe.isdaily and timeframe.multiplier == 1 ? "ตัดสินใจตอนแท่งวันปิด 07:00 น. · ไม่ใช่คำแนะนำการลงทุน" : "⚠ ใช้กับกราฟ 1D เท่านั้น"
+    string note = timeframe.isdaily and timeframe.multiplier == 1 ? "ตัดสินใจตอนแท่งวันปิด 07:00 น. · ไม่ใช่คำแนะนำการลงทุน" : autoTf ? "TF นี้ปรับเป็นจำนวนวันเท่าเดิมแล้ว · ทดสอบดีที่สุดบน 1D · ไม่ใช่คำแนะนำการลงทุน" : "⚠ ตั้งค่าเป็นจำนวนแท่ง: ใช้กับกราฟ 1D เท่านั้น"
     table.cell(panel, 0, 0, verdict + "  ·  " + detail, text_color = color.white, bgcolor = vColor, text_size = headSize, text_halign = text.align_left, tooltip = note)
     table.merge_cells(panel, 0, 0, 1, 0)
     int row = 1
@@ -183,6 +203,10 @@ if showPanel and barstate.islast
         table.cell(panel, 0, row, "ซื้อเพิ่มถ้าปิด ≥", text_color = muted, text_size = rowSize, text_halign = text.align_left)
         table.cell(panel, 1, row, price(lvAdd) + " (" + pct(moveAdd) + ")", text_color = fg, text_size = rowSize, text_halign = text.align_right)
         row += 1
+        if useVol and not na(lvVol)
+            table.cell(panel, 0, row, "  + วอลุ่มวันนั้น ≥", text_color = muted, text_size = rowSize, text_halign = text.align_left)
+            table.cell(panel, 1, row, "$" + str.tostring(lvVol, format.volume), text_color = fg, text_size = rowSize, text_halign = text.align_right)
+            row += 1
     if L >= 1
         table.cell(panel, 0, row, L == 1 ? "เริ่มซื้อถ้าปิด >" : "ขายหมดถ้าปิด <", text_color = muted, text_size = rowSize, text_halign = text.align_left)
         table.cell(panel, 1, row, price(lvTrend) + " (" + pct(moveTrend) + ")", text_color = fg, text_size = rowSize, text_halign = text.align_right)

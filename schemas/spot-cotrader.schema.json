@@ -657,6 +657,13 @@
                 "number",
                 "null"
               ]
+            },
+            "add_volume_min_usdt": {
+              "type": [
+                "number",
+                "null"
+              ],
+              "minimum": 0
             }
           },
           "additionalProperties": false

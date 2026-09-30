@@ -35,7 +35,7 @@ export function verdictOf(coin) {
   const make = (key, detail, near = false) => ({ key, ...VERDICTS[key], detail, near });
   if (l.fresh) {
     if (l.action === "BUY_STARTER") return make("buy", "ซื้อครึ่งไม้ (เทรนด์เพิ่งเริ่ม)");
-    if (l.action === "ADD") return make("add", "เติมเป็นเต็มไม้ (เบรคจุดสูงสุด 20 วัน)");
+    if (l.action === "ADD") return make("add", "เติมเป็นเต็มไม้ (เบรคพร้อมวอลุ่มหนุน)");
     if (l.action === "TRIM") return make("trim", "ขายครึ่งหนึ่ง เหลือครึ่งไม้");
     if (l.action === "SELL_ALL") return make("sell", "ขายทั้งหมด ถือเงินสด");
   }
@@ -47,7 +47,7 @@ export function verdictOf(coin) {
   if (l.state === "STARTER") {
     const move = moveTo(l.addAbove);
     return move !== null && Math.abs(move) <= NEAR_MOVE
-      ? make("hold", `ครึ่งไม้ · ใกล้จุดซื้อเพิ่ม (${pctText(move)})`, true) : make("hold", "ครึ่งไม้ · รอเบรคค่อยซื้อเพิ่ม");
+      ? make("hold", `ครึ่งไม้ · ใกล้จุดซื้อเพิ่ม (${pctText(move)}, ต้องมีวอลุ่มหนุน)`, true) : make("hold", "ครึ่งไม้ · รอเบรคพร้อมวอลุ่มค่อยซื้อเพิ่ม");
   }
   const move = moveTo(num(coin?.trend_line_next));
   return move !== null && Math.abs(move) <= NEAR_MOVE
