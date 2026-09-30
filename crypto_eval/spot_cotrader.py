@@ -54,6 +54,10 @@ MARKET_COIN = "__market__"
 DEFAULT_UNIVERSE = ("BTC", "ETH", "NEAR", "SEI", "SUI", "AVAX", "ENA")
 STATES = ("HOLD", "CASH", "WATCH")
 LADDER_STATES = ("OUT", "STARTER", "FULL")
+# ADD needs volume: a 20-day closing high on quote volume >= 1.5x the 20-day average (research: Sharpe
+# 0.92 -> 1.11 and max drawdown 35% -> 29% on 7 Gate coins 2024-2026; 15/15 nearby settings improved).
+ADD_VOLUME_MULT = 1.5
+ADD_VOLUME_WINDOW = 20
 LADDER_SLOTS = {"OUT": 0.0, "STARTER": 0.5, "FULL": 2.0}
 LADDER_CODES = {"BUY_STARTER": "B", "ADD": "A", "TRIM": "T", "SELL_ALL": "S"}
 CDC_ZONES = ("green", "blue", "yellow", "red")
@@ -286,6 +290,7 @@ def signal_rows(candles: list[Any]) -> list[dict[str, Any]]:
     bars = _candle_rows(candles)
     times = [bar["t"] for bar in bars]
     closes = [bar["c"] for bar in bars]
+    quote_volumes = [bar["v"] * bar["c"] for bar in bars]  # Gate candle volume is in the base coin
     ema20 = ema_series(closes, 20)
     ohlc4 = [(bar["o"] + bar["h"] + bar["l"] + bar["c"]) / 4 for bar in bars]
     ap = ema_series(ohlc4, 2)
@@ -313,6 +318,18 @@ def signal_rows(candles: list[Any]) -> list[dict[str, Any]]:
         hi20 = close >= max(closes[i - 19 : i + 1]) if _contiguous(times, i, 19) else None
         # Tomorrow's close is a 20-day closing high iff it is >= the highest of the latest 19 closes.
         add_above = max(closes[i - 18 : i + 1]) if _contiguous(times, i, 18) else None
+        # Volume confirmation for ADD: today's quote volume >= ADD_VOLUME_MULT x its 20-day average.
+        # Unknown volume (a zero average) never confirms: the ladder then stays at STARTER.
+        volume_ok = None
+        add_volume_min = None
+        if _contiguous(times, i, ADD_VOLUME_WINDOW - 1):
+            window = quote_volumes[i - ADD_VOLUME_WINDOW + 1 : i + 1]
+            average = sum(window) / ADD_VOLUME_WINDOW
+            volume_ok = average > 0 and quote_volumes[i] >= ADD_VOLUME_MULT * average
+            # Tomorrow's volume V confirms iff V >= m * (sum of the latest 19 + V) / 20.
+            latest = sum(quote_volumes[i - ADD_VOLUME_WINDOW + 2 : i + 1])
+            add_volume_min = (ADD_VOLUME_MULT * latest / (ADD_VOLUME_WINDOW - ADD_VOLUME_MULT)) if latest > 0 else None
+        breakout = bool(hi20) and bool(volume_ok) if hi20 is not None else None
         zone = None
         if i >= 26:
             bull = fast[i] > slow[i]
@@ -330,7 +347,10 @@ def signal_rows(candles: list[Any]) -> list[dict[str, Any]]:
             "trend_line_next": trend_line,
             "ema20": ema20[i],
             "hi20": hi20,
+            "volume_ok": volume_ok,
+            "breakout": breakout,
             "add_above": add_above,
+            "add_volume_min": add_volume_min,
             "cdc": zone,
         })
     ladder = ladder_states(rows)
@@ -353,7 +373,7 @@ def ladder_states(rows: list[dict[str, Any]]) -> list[str | None]:
             out.append("OUT")
             full = False
             continue
-        if row["hi20"]:
+        if row.get("breakout", row["hi20"]):  # a 20-day closing high confirmed by volume
             full = True
         if row["c"] < row["ema20"]:
             full = False
@@ -677,7 +697,7 @@ def rule_action(state: str | None, held: bool | None, trend_line: float | None, 
 
 LADDER_TEXT = {
     "BUY_STARTER": "Rule turned on: buy a starter position (half a slot).",
-    "ADD": "20-day closing high in an uptrend: add up to the full position (two slots).",
+    "ADD": "20-day closing high on volume >= 1.5x the 20-day average in an uptrend: add up to the full position (two slots).",
     "TRIM": "Cut back to starter, trend still up (the close fell below EMA20).",
     "SELL_ALL": "Rule turned off: sell the whole position.",
 }
@@ -1839,6 +1859,8 @@ class SpotCoTrader:
                     "delta_usdt": _r(delta, 2),
                     "delta_qty": _r(delta / price, 8) if delta is not None and price else None,
                     "add_above": _r(last["add_above"], 10) if ladder_state != "FULL" else None,
+                    # ADD also needs the day's quote volume (USDT) at or above this level
+                    "add_volume_min_usdt": _r(last.get("add_volume_min"), 0) if ladder_state != "FULL" else None,
                     "trim_below": _r(last["ema20"], 10) if ladder_state == "FULL" else None,
                     "exit_below": _r(trend, 10) if ladder_state != "OUT" else None,
                 },

@@ -380,3 +380,15 @@ to the user's own scheduled Claude routine (Claude Code desktop scheduled task o
   the scorecard tracks Claude's stances separately.
 - The routine only runs while the Claude desktop app is running and the Mac is awake; a missed
   morning simply leaves yesterday's narration (the rule, ladder and Jev still update on their own).
+
+
+## Volume-confirmed ADD (since 2026-09-30)
+
+STARTER → FULL now needs a 20-day closing high **and** that day's quote volume (base volume × close)
+at or above `ADD_VOLUME_MULT` (1.5) × its 20-day average (`ADD_VOLUME_WINDOW`). Unknown volume never
+confirms, so the ladder then stays at STARTER. The ladder action exposes `add_volume_min_usdt`: the
+next close's quote volume that would confirm, derived exactly as `m × sum(latest 19) / (20 − m)`.
+Evidence (7 Gate coins, 2024-01 to 2026-09, spot, ≤100% invested, 0.25%/side): Sharpe 0.92 → 1.11,
+max drawdown 35% → 29%, better in both halves; all 15 nearby settings (1.0–2.5× over 10/20/50 days)
+improved on the base. Other factors tried and rejected: rising volume trend, OBV slope, a BTC-trend
+filter for alts, inverse-volatility sizing. The TradingView scripts use the same rule.

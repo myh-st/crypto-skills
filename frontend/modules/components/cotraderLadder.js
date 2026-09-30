@@ -6,7 +6,7 @@
 // "—" instead of breaking the page.
 import { escapeHtml } from "../format.js";
 import { num } from "./ui.js";
-import { fmtPct, fmtPrice, fmtQty, fmtUsdt, isoDate } from "./cotraderBits.js";
+import { fmtCompactUsd, fmtPct, fmtPrice, fmtQty, fmtUsdt, isoDate } from "./cotraderBits.js";
 
 export const LADDER_STATES = {
   OUT: { label: "OUT", size: "", glyph: "○", tone: "out" },
@@ -58,6 +58,7 @@ export function ladderOf(coin) {
     deltaUsdt: num(pick(a.delta_usdt, l.delta_usdt)),
     deltaQty: num(pick(a.delta_qty, l.delta_qty)),
     addAbove: num(pick(levels.add_above, a.add_above, l.add_above)),
+    addVolumeMin: num(pick(levels.add_volume_min_usdt, a.add_volume_min_usdt, l.add_volume_min_usdt)),
     trimBelow: num(pick(levels.trim_below, a.trim_below, l.trim_below)),
     exitBelow: num(pick(levels.exit_below, a.exit_below, l.exit_below, coin?.trend_line_next)),
   };
@@ -122,10 +123,11 @@ export function renderLadderDetail(coin) {
       <div><dt>Target</dt><dd>${escapeHtml(weight === null ? "—" : `${weight} slot${weight === 1 ? "" : "s"}`)}</dd></div>
       <div><dt>Ladder change</dt><dd>${escapeHtml(ladderDeltaText(ladder, coin.base))}</dd></div>
       ${levelRow("Add above", ladder.addAbove, coin.price, "away")}
+      ${ladder.addVolumeMin === null ? "" : `<div><dt>…with volume ≥</dt><dd>${escapeHtml(fmtCompactUsd(ladder.addVolumeMin))} <span class="muted">(1.5× the 20-day average)</span></dd></div>`}
       ${levelRow("Trim below", ladder.trimBelow, coin.price, "away")}
       ${levelRow("Exit below", ladder.exitBelow, coin.price, "away")}
     </dl>
-    <p class="muted small">Starter = ½ slot; FULL = 2 slots on a 20-day closing high; back to starter on a close below EMA20. Levels act on the daily close only.</p>
+    <p class="muted small">Starter = ½ slot; FULL = 2 slots on a 20-day closing high with volume ≥ 1.5× its 20-day average; back to starter on a close below EMA20. Levels act on the daily close only.</p>
   </div>`;
 }
 

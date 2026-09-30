@@ -181,3 +181,10 @@ test("long ledgers are bounded with a show-all control", () => {
   const journal = Array.from({ length: 7 }, (_, i) => ({ id: `j${i}`, at: `2026-09-${10 + i}T00:00:00Z`, action: "hold" }));
   assert.match(renderJournalList(journal), /Show all 7 decisions/);
 });
+
+test("add levels mention the volume needed", () => {
+  const c = coin("VOL", "STARTER", "HOLD", { price: 10, add: 10.2, exit: 8 });
+  c.ladder.action.add_volume_min_usdt = 1250000;
+  const html = renderNextStepsTh({ coins: [c] });
+  assert.match(html, /ถ้าปิดวันเหนือ 10\.20 และวอลุ่ม ≥ \$1\.25M ให้เติมเป็นเต็มไม้/);
+});

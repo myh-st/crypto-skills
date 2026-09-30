@@ -1413,3 +1413,46 @@ class ClaudeRoutineTests(CoTraderCase):
         self.assertEqual(status, 200, out)
         status, out, _ = EndpointTests.call(self, base_url, "/api/cotrader/routine/publish", {**body, "data_cutoff": "x"})
         self.assertEqual(status, 400)
+
+
+class VolumeConfirmedAddTests(unittest.TestCase):
+    """ADD (STARTER -> FULL) needs a 20-day closing high on quote volume >= 1.5x its 20-day average."""
+
+    def series(self, spike_at=None, spike=3.0, n=160):
+        closes = [100 * (1.004 ** i) for i in range(n)]  # a steady uptrend: every close is a 20-day high
+        candles = candles_from(closes)
+        for i, candle in enumerate(candles):
+            candle["v"] = 1000.0 * (spike if i == spike_at else 1.0)
+        return candles
+
+    def test_breakout_without_volume_stays_starter(self):
+        rows = signal_rows(self.series())
+        self.assertTrue(rows[-1]["hi20"])
+        self.assertFalse(rows[-1]["volume_ok"])
+        self.assertEqual(rows[-1]["ladder"], "STARTER")
+
+    def test_breakout_with_volume_adds_to_full(self):
+        rows = signal_rows(self.series(spike_at=140))
+        self.assertTrue(rows[140]["volume_ok"])
+        self.assertEqual(rows[139]["ladder"], "STARTER")
+        self.assertEqual(rows[140]["ladder"], "FULL")
+        self.assertEqual(rows[-1]["ladder"], "FULL")  # sticky until a close below EMA20
+
+    def test_add_volume_min_is_the_exact_threshold_for_the_next_close(self):
+        candles = self.series()
+        rows = signal_rows(candles)
+        level = rows[-2]["add_volume_min"]
+        base_needed = level / candles[-1]["c"]
+        for factor, expected in ((1.0001, True), (0.9999, False)):
+            trial = [dict(c) for c in candles]
+            trial[-1]["v"] = base_needed * factor
+            self.assertEqual(signal_rows(trial)[-1]["volume_ok"], expected)
+
+    def test_unknown_volume_never_confirms(self):
+        candles = self.series()
+        for candle in candles:
+            candle["v"] = 0.0
+        rows = signal_rows(candles)
+        self.assertFalse(rows[-1]["volume_ok"])
+        self.assertIsNone(rows[-1]["add_volume_min"])
+        self.assertEqual(rows[-1]["ladder"], "STARTER")
