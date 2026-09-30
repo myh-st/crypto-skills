@@ -3400,3 +3400,27 @@ a, button, summary, [role="button"], .cot-row, .cot-chip, .cot-regime-link { cur
 .cot-detail-action { display: flex; flex-direction: column; align-items: flex-end; gap: 4px; }
 @media (max-width: 900px) { .cot-detail-action { align-items: flex-start; } }
 .cot-source--claude { background: var(--color-caution-bg); color: var(--color-caution-text); }
+
+/* coin list: support/resistance + plan columns */
+.cot-row { grid-template-columns: minmax(120px, 1.1fr) minmax(100px, .9fr) minmax(150px, 1.3fr) minmax(150px, 1.3fr) minmax(180px, 1.5fr) minmax(170px, 1.3fr) 20px; }
+.cot-cell--sr, .cot-cell--next { gap: 3px; }
+.cot-sr-line, .cot-plan-line { display: flex; align-items: baseline; gap: 6px; flex-wrap: wrap; font-variant-numeric: tabular-nums; }
+.cot-sr-tag { display: inline-block; min-width: 30px; padding: 0 6px; border-radius: 6px; font-size: 11px; font-weight: 600; text-align: center; }
+.cot-sr-tag--r { background: var(--color-negative-bg); color: var(--color-negative-text); }
+.cot-sr-tag--s { background: var(--color-positive-bg); color: var(--color-positive-text); }
+.cot-plan-line strong { color: var(--color-ink); }
+.cot-plan-line--exit .cot-cell-label { color: var(--color-negative-text); }
+.cot-plan-line--trim .cot-cell-label { color: var(--color-caution-text); }
+.cot-plan-line--add .cot-cell-label, .cot-plan-line--buy .cot-cell-label { color: var(--color-positive-text); }
+@media (max-width: 1100px) {
+  .cot-row:not(.cot-row--head) { grid-template-columns: 1fr auto; grid-template-areas: "coin price" "ladder ladder" "sr next" "ai ai"; gap: 8px 12px; }
+  .cot-row--head { display: none; }
+  .cot-cell--coin { grid-area: coin; }
+  .cot-cell--price { grid-area: price; align-items: flex-end; text-align: right; }
+  .cot-cell--ladder { grid-area: ladder; flex-direction: row; align-items: center; gap: 8px; flex-wrap: wrap; }
+  .cot-cell--sr { grid-area: sr; }
+  .cot-cell--next { grid-area: next; align-items: flex-end; text-align: right; }
+  .cot-cell--next .cot-plan-line { justify-content: flex-end; }
+  .cot-cell--ai { grid-area: ai; }
+  .cot-cell--go { display: none; }
+}

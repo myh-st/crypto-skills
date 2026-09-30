@@ -1088,6 +1088,97 @@
             "string",
             "null"
           ]
+        },
+        "sr": {
+          "type": [
+            "object",
+            "null"
+          ],
+          "required": [
+            "support",
+            "resistance",
+            "lookback_days",
+            "at_high"
+          ],
+          "properties": {
+            "support": {
+              "type": "array",
+              "items": {
+                "type": "object",
+                "required": [
+                  "price",
+                  "touches",
+                  "distance"
+                ],
+                "properties": {
+                  "price": {
+                    "type": "number"
+                  },
+                  "touches": {
+                    "type": "integer",
+                    "minimum": 1
+                  },
+                  "distance": {
+                    "type": [
+                      "number",
+                      "null"
+                    ]
+                  },
+                  "kind": {
+                    "type": "string",
+                    "enum": [
+                      "swing",
+                      "recent_high"
+                    ]
+                  }
+                },
+                "additionalProperties": false
+              },
+              "maxItems": 2
+            },
+            "resistance": {
+              "type": "array",
+              "items": {
+                "type": "object",
+                "required": [
+                  "price",
+                  "touches",
+                  "distance"
+                ],
+                "properties": {
+                  "price": {
+                    "type": "number"
+                  },
+                  "touches": {
+                    "type": "integer",
+                    "minimum": 1
+                  },
+                  "distance": {
+                    "type": [
+                      "number",
+                      "null"
+                    ]
+                  },
+                  "kind": {
+                    "type": "string",
+                    "enum": [
+                      "swing",
+                      "recent_high"
+                    ]
+                  }
+                },
+                "additionalProperties": false
+              },
+              "maxItems": 2
+            },
+            "lookback_days": {
+              "type": "integer"
+            },
+            "at_high": {
+              "type": "boolean"
+            }
+          },
+          "additionalProperties": false
         }
       },
       "additionalProperties": false
@@ -2150,6 +2241,97 @@
             "luna",
             "claude_routine"
           ]
+        },
+        "sr": {
+          "type": [
+            "object",
+            "null"
+          ],
+          "required": [
+            "support",
+            "resistance",
+            "lookback_days",
+            "at_high"
+          ],
+          "properties": {
+            "support": {
+              "type": "array",
+              "items": {
+                "type": "object",
+                "required": [
+                  "price",
+                  "touches",
+                  "distance"
+                ],
+                "properties": {
+                  "price": {
+                    "type": "number"
+                  },
+                  "touches": {
+                    "type": "integer",
+                    "minimum": 1
+                  },
+                  "distance": {
+                    "type": [
+                      "number",
+                      "null"
+                    ]
+                  },
+                  "kind": {
+                    "type": "string",
+                    "enum": [
+                      "swing",
+                      "recent_high"
+                    ]
+                  }
+                },
+                "additionalProperties": false
+              },
+              "maxItems": 2
+            },
+            "resistance": {
+              "type": "array",
+              "items": {
+                "type": "object",
+                "required": [
+                  "price",
+                  "touches",
+                  "distance"
+                ],
+                "properties": {
+                  "price": {
+                    "type": "number"
+                  },
+                  "touches": {
+                    "type": "integer",
+                    "minimum": 1
+                  },
+                  "distance": {
+                    "type": [
+                      "number",
+                      "null"
+                    ]
+                  },
+                  "kind": {
+                    "type": "string",
+                    "enum": [
+                      "swing",
+                      "recent_high"
+                    ]
+                  }
+                },
+                "additionalProperties": false
+              },
+              "maxItems": 2
+            },
+            "lookback_days": {
+              "type": "integer"
+            },
+            "at_high": {
+              "type": "boolean"
+            }
+          },
+          "additionalProperties": false
         }
       },
       "additionalProperties": false

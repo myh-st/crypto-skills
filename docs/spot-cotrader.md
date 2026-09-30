@@ -392,3 +392,14 @@ Evidence (7 Gate coins, 2024-01 to 2026-09, spot, ≤100% invested, 0.25%/side):
 max drawdown 35% → 29%, better in both halves; all 15 nearby settings (1.0–2.5× over 10/20/50 days)
 improved on the base. Other factors tried and rejected: rising volume trend, OBV slope, a BTC-trend
 filter for alts, inverse-volatility sizing. The TradingView scripts use the same rule.
+
+
+## Support / resistance (coin list)
+
+Each coin carries `sr`: up to two support and two resistance zones from swing highs/lows of the last
+180 closed daily bars (a swing needs 3 closed bars on each side, so the newest bars never count;
+highs and lows are pooled; zones within 1.5% merge and `touches` counts them). When no confirmed
+swing sits above the price, the recent high is shown as the first hurdle (`kind: "recent_high"`).
+The coin list shows the nearest resistance and support next to the plan's own decision prices
+(start/add above, sell half below, cut loss below), which remain the rule's actual triggers on the
+daily close.

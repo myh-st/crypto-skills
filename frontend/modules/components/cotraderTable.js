@@ -9,7 +9,6 @@ import { ladderHint, ladderOf } from "./cotraderLadder.js";
 import { agreementBadge, jevScore, miniBar } from "./cotraderAi.js";
 import { icon } from "./icons.js";
 
-const NEXT_LABEL = { trim: "Trim below", add: "Add above", exit: "Exit below" };
 const NEAR_MOVE = 0.03; // within 3% of the level that would change the ladder
 
 // One plain-Thai verdict per coin: what to do now. Deterministic from the ladder (never from AI text).
@@ -91,10 +90,46 @@ export function sortCoins(coins) {
   return (coins || []).map((c, i) => ({ c, i })).sort((a, b) => rank(a.c) - rank(b.c) || a.i - b.i).map(({ c }) => c);
 }
 
+function pctShort(move) {
+  return move === null || move === undefined ? "" : `${move >= 0 ? "+" : ""}${(move * 100).toFixed(1)}%`;
+}
+
+/** Nearest support / resistance zones (from swing highs/lows) as two compact lines. */
+export function renderSrCell(sr) {
+  if (!sr) return '<span class="cot-cell-sub">—</span>';
+  const zone = (z) => `${escapeHtml(fmtPrice(z.price))} <span class="cot-cell-sub">${escapeHtml(pctShort(z.distance))}${z.touches > 1 ? ` · ${escapeHtml(z.touches)}×` : ""}</span>`;
+  const r = sr.resistance?.[0];
+  const sp = sr.support?.[0];
+  const res = r ? `${zone(r)}${r.kind === "recent_high" ? ' <span class="cot-cell-sub">(จุดสูงล่าสุด)</span>' : ""}` : sr.at_high ? '<span class="cot-cell-sub">ทำจุดสูงสุดใหม่</span>' : '<span class="cot-cell-sub">—</span>';
+  const sup = sp ? zone(sp) : '<span class="cot-cell-sub">—</span>';
+  return `<span class="cot-sr-line"><span class="cot-sr-tag cot-sr-tag--r">ต้าน</span> ${res}</span>
+    <span class="cot-sr-line"><span class="cot-sr-tag cot-sr-tag--s">รับ</span> ${sup}</span>`;
+}
+
+/** The system's own decision prices for the current state: where to buy / sell half / cut the loss. */
+export function planLevels(coin) {
+  const l = ladderOf(coin);
+  const price = num(coin?.price);
+  if (!l || !l.state) return [];
+  const move = (level) => (price && level ? level / price - 1 : null);
+  const out = [];
+  if (l.state === "OUT" && num(coin?.trend_line_next) !== null) out.push({ kind: "buy", label: "เริ่มซื้อ >", price: num(coin.trend_line_next) });
+  if (l.state === "STARTER" && l.addAbove !== null) out.push({ kind: "add", label: "ซื้อเพิ่ม >", price: l.addAbove });
+  if (l.state === "FULL" && l.trimBelow !== null) out.push({ kind: "trim", label: "ขายครึ่ง <", price: l.trimBelow });
+  if (l.state !== "OUT" && l.exitBelow !== null) out.push({ kind: "exit", label: "ตัดขาดทุน <", price: l.exitBelow });
+  return out.map((x) => ({ ...x, move: move(x.price) }));
+}
+
+export function renderPlanCell(coin) {
+  const levels = planLevels(coin);
+  if (!levels.length) return '<span class="cot-cell-sub">—</span>';
+  return levels.map((x) => `<span class="cot-plan-line cot-plan-line--${x.kind}" title="ราคาปิดรายวัน"><span class="cot-cell-label">${escapeHtml(x.label)}</span>
+    <strong>${escapeHtml(fmtPrice(x.price))}</strong> <span class="cot-cell-sub">${escapeHtml(pctShort(x.move))}</span></span>`).join("");
+}
+
 export function renderCoinRow(coin) {
   const base = baseOf(coin);
   const l = ladderOf(coin);
-  const next = nextLevel(coin);
   const verdict = verdictOf(coin);
   const hint = ladderHint(l);
   const jev = coin?.jev;
@@ -107,9 +142,8 @@ export function renderCoinRow(coin) {
       <span class="cot-cell-sub">${pctChange(coin?.change_24h)} 24h</span></span>
     <span class="cot-cell cot-cell--ladder">${unavailable ? `<span class="cot-cell-sub">${escapeHtml(unavailable)}</span>` : `${verdictPill(verdict)}
       <span class="cot-cell-sub${verdict?.near ? " cot-near" : ""}" lang="th">${escapeHtml(verdict?.detail || hint || "")}</span>`}</span>
-    <span class="cot-cell cot-cell--next">${next ? `<span class="cot-cell-label">${escapeHtml(NEXT_LABEL[next.kind])}</span>
-      <strong>${escapeHtml(fmtPrice(next.price))}</strong>
-      <span class="cot-cell-sub">${next.move === null ? "" : `${escapeHtml((next.move * 100).toFixed(1))}% away`}</span>` : '<span class="cot-cell-sub">—</span>'}</span>
+    <span class="cot-cell cot-cell--sr">${renderSrCell(coin?.sr)}</span>
+    <span class="cot-cell cot-cell--next">${renderPlanCell(coin)}</span>
     <span class="cot-cell cot-cell--ai">${jev ? `${miniBar("Trend", jevScore(jev, "trend_strength"), "trend")}${miniBar("Risk", jevScore(jev, "reversal_risk"), "risk")}${agreementBadge(jev.rule_agreement)}` : '<span class="cot-cell-sub">No Jev score yet</span>'}</span>
     <span class="cot-cell cot-cell--go">${icon("chevron")}</span>
   </a></li>`;
@@ -159,7 +193,7 @@ export function renderCoinTable(coins, { view = "all" } = {}) {
   }
   return `${renderCoinFilters(coins, active)}${status}<div class="cot-table" role="region" aria-label="Coins">
     <div class="cot-row cot-row--head" aria-hidden="true">
-      <span>Coin</span><span>Price</span><span lang="th">ทำอะไร</span><span>Next level</span><span>Jev (AI)</span><span></span>
+      <span lang="th">เหรียญ</span><span lang="th">ราคา</span><span lang="th">ทำอะไร</span><span lang="th">แนวต้าน / แนวรับ</span><span lang="th" title="เทียบกับราคาปิดรายวัน (07:00 น.)">จุดซื้อ / ขาย / ตัดขาดทุน (ราคาปิดวัน)</span><span>Jev (AI)</span><span></span>
     </div>
     <ul class="cot-list">${sortCoins(shown).map(renderCoinRow).join("")}</ul>
   </div>`;

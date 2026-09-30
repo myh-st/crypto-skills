@@ -359,6 +359,50 @@ def signal_rows(candles: list[Any]) -> list[dict[str, Any]]:
     return rows
 
 
+SR_LOOKBACK_DAYS = 180
+SR_WING = 3          # a swing high/low must be the extreme of 3 closed bars on each side
+SR_MERGE = 0.015     # levels within 1.5% of each other are one zone
+
+
+def support_resistance(rows: list[dict[str, Any]], price: float | None,
+                       lookback: int = SR_LOOKBACK_DAYS) -> dict[str, Any] | None:
+    """Nearest support and resistance zones from swing highs/lows of the last `lookback` closed bars.
+
+    Point-in-time safe: a swing needs SR_WING closed bars after it, so the newest bars can never be
+    a pivot. Highs and lows are pooled (a broken resistance becomes support). Zones closer than
+    SR_MERGE are merged; `touches` counts the swings in a zone. Returns up to two zones each side."""
+
+    window = rows[-lookback:]
+    if price is None or len(window) < 2 * SR_WING + 1:
+        return None
+    pivots: list[float] = []
+    for i in range(SR_WING, len(window) - SR_WING):
+        highs = [bar["h"] for bar in window[i - SR_WING : i + SR_WING + 1]]
+        lows = [bar["l"] for bar in window[i - SR_WING : i + SR_WING + 1]]
+        if window[i]["h"] == max(highs) and window[i - 1]["h"] < window[i]["h"]:
+            pivots.append(window[i]["h"])
+        if window[i]["l"] == min(lows) and window[i - 1]["l"] > window[i]["l"]:
+            pivots.append(window[i]["l"])
+    zones: list[list[float]] = []
+    for level in sorted(pivots):
+        if zones and level <= zones[-1][0] * (1 + SR_MERGE):
+            zones[-1].append(level)
+        else:
+            zones.append([level])
+    merged = [{"price": sum(zone) / len(zone), "touches": len(zone)} for zone in zones]
+    support = sorted((z for z in merged if z["price"] < price * 0.998), key=lambda z: -z["price"])[:2]
+    resistance = sorted((z for z in merged if z["price"] > price * 1.002), key=lambda z: z["price"])[:2]
+    top = max(bar["h"] for bar in window)
+    if not resistance and top > price * 1.002:
+        # no confirmed swing above yet (e.g. just after a rally): the recent high is the first hurdle
+        resistance = [{"price": top, "touches": 1, "kind": "recent_high"}]
+    def view(zone: dict[str, Any]) -> dict[str, Any]:
+        return {"price": _r(zone["price"], 10), "touches": zone["touches"], "distance": _r(zone["price"] / price - 1),
+                "kind": zone.get("kind", "swing")}
+    return {"support": [view(z) for z in support], "resistance": [view(z) for z in resistance],
+            "lookback_days": lookback, "at_high": price >= top * 0.998}
+
+
 def ladder_states(rows: list[dict[str, Any]]) -> list[str | None]:
     """OUT / STARTER / FULL per closed bar (sticky FULL until a close below EMA20 or the rule is off)."""
 
@@ -1895,6 +1939,7 @@ class SpotCoTrader:
             "ladder_state": ladder_state,
             "ladder": ladder,
             "cdc": None if not last or last["cdc"] is None else {"zone": last["cdc"], "since": _since(rows, "cdc")},
+            "sr": support_resistance(rows, price if price is not None else (last["close"] if last else None)),
             "jev": self._jev_view(self._latest_ok(base, "jev")),
             "data_through": _iso(last["close_ts"]) if last else None,
             "unavailable_reason": reason,
