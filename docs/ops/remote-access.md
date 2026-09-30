@@ -26,11 +26,19 @@ You do these steps yourself; they involve your account.
 Run these once. The settings persist in Tailscale. `serve` is tailnet-only; never use `funnel`.
 
 ```bash
-TS=/Applications/Tailscale.app/Contents/MacOS/Tailscale
-$TS serve --bg --https=443  http://127.0.0.1:8765    # EXP-001
-$TS serve --bg --https=8443 http://127.0.0.1:8768    # EXP-002
+TS=/Applications/Tailscale.app/Contents/MacOS/Tailscale   # or `tailscale` from Homebrew
+$TS serve --bg --https=443 http://127.0.0.1:8771     # Spot Co-Trader (the main app)
 $TS serve status
+# optional, the futures lab:
+# $TS serve --bg --https=8443 http://127.0.0.1:8765  # EXP-001
+# $TS serve --bg --https=8444 http://127.0.0.1:8768  # EXP-002
 ```
+
+Current setup (2026-09-30): only the Co-Trader is published, at
+`https://macbook-air--myh.tail554a7c.ts.net/` → `127.0.0.1:8771`, with
+`PAPER_TRUSTED_ORIGINS=https://macbook-air--myh.tail554a7c.ts.net` in
+`~/Library/LaunchAgents/com.cryptoskills.paper-cotrader.plist`. Verified: a remote GET returns 200,
+a POST from that origin returns 200, and a POST with any other `Origin` is refused (400).
 
 Then tell each server which proxy origin to trust. Without this, the page loads but every button
 is refused as a cross-origin request.
@@ -62,6 +70,8 @@ From the phone, with Tailscale connected, open:
 - The allowlist is empty by default, so only same-origin loopback requests pass.
 - To turn remote access off, run `$TS serve reset`, or disconnect Tailscale.
 - Anyone signed in to your tailnet can operate the consoles. Keep the tailnet to your own
-  devices, and don't share the Mac node with others.
+  devices, and don't share the Mac node with others. Tagged devices (servers) in the tailnet can
+  reach it too unless a Tailscale ACL restricts them; restrict port 443 on this Mac to your own
+  user if the tailnet contains machines you don't control.
 - Everything is still PAPER. Real-money execution stays disabled regardless of how the console is
   reached.
