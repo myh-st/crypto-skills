@@ -28,6 +28,7 @@ showSma = input.bool(false, "SMA", group = grpShow, display = display.none)
 showBg = input.bool(true, "Shade the ladder state", group = grpShow, display = display.none)
 showMarks = input.bool(true, "B / A / T / S markers", group = grpShow, display = display.none)
 showPanel = input.bool(true, "Thai verdict panel", group = grpShow, display = display.none)
+panelSize = input.string("Small", "Panel size", options = ["Small", "Medium", "Large"], group = grpShow, display = display.none)
 panelPos = input.string("top_right", "Panel position", options = ["top_right", "top_left", "bottom_right", "bottom_left"], group = grpShow, display = display.none)
 cdcBars = input.bool(false, "Colour bars by CDC Action Zone (reference only)", group = grpShow, display = display.none)
 
@@ -143,7 +144,7 @@ else if A == "S"
     vColor := color.new(#dc2626, 0)
 else if L == 3
     verdict := "■ ถือต่อ"
-    detail := math.abs(moveTrim) <= nearPct ? "เต็มไม้ · ใกล้จุดลด (" + pct(moveTrim) + ")" : "เต็มไม้"
+    detail := math.abs(moveTrim) <= nearPct ? "เต็มไม้ · ใกล้จุดลด (" + pct(moveTrim) + ")" : "เต็มไม้ ไม่ต้องซื้อเพิ่ม"
     vColor := math.abs(moveTrim) <= nearPct ? color.new(#d97706, 0) : color.new(#155eef, 0)
 else if L == 2
     verdict := "■ ถือต่อ"
@@ -154,34 +155,40 @@ else if L == 1
     detail := math.abs(moveTrend) <= nearPct ? "ยังไม่ซื้อ · ใกล้สัญญาณซื้อ (" + pct(moveTrend) + ")" : "ยังไม่ซื้อ ถือเงินสด"
     vColor := color.new(#64748b, 0)
 
+headSize = panelSize == "Large" ? size.large : panelSize == "Medium" ? size.normal : size.small
+rowSize = panelSize == "Small" ? size.small : size.normal
+
 tablePos = switch panelPos
     "top_left" => position.top_left
     "bottom_right" => position.bottom_right
     "bottom_left" => position.bottom_left
     => position.top_right
 
-var table panel = table.new(tablePos, 2, 8, bgcolor = color.new(#111827, 8), frame_color = color.new(#1f2a3c, 0), frame_width = 1, border_color = color.new(#1f2a3c, 0), border_width = 1)
+var table panel = table.new(tablePos, 2, 5, bgcolor = color.new(#111827, 15), frame_color = color.new(#1f2a3c, 0), frame_width = 1, border_color = color.new(#1f2a3c, 0), border_width = 0)
 
+// Compact panel: one headline (what to do) plus only the levels that matter for the current state.
 if showPanel and barstate.islast
+    table.clear(panel, 0, 0, 1, 4)
     color fg = color.new(#e2e8f0, 0)
     color muted = color.new(#94a3b8, 0)
-    table.cell(panel, 0, 0, verdict, text_color = color.white, bgcolor = vColor, text_size = size.large, text_halign = text.align_center)
-    table.merge_cells(panel, 0, 0, 1, 0)
-    table.cell(panel, 0, 1, detail, text_color = fg, text_size = size.normal)
-    table.merge_cells(panel, 0, 1, 1, 1)
-    table.cell(panel, 0, 2, "ไม้ตอนนี้", text_color = muted, text_halign = text.align_left)
-    table.cell(panel, 1, 2, L == 3 ? "เต็มไม้ (FULL)" : L == 2 ? "ครึ่งไม้ (STARTER)" : L == 1 ? "เงินสด (OUT)" : "—", text_color = fg, text_halign = text.align_right)
-    table.cell(panel, 0, 3, "กฎรายวัน", text_color = muted, text_halign = text.align_left)
-    table.cell(panel, 1, 3, ruleState[k] + "  (60d " + pct(ret60[k]) + ")", text_color = fg, text_halign = text.align_right)
-    table.cell(panel, 0, 4, L == 3 ? "ลดถ้าปิดต่ำกว่า" : "ลดไม้", text_color = muted, text_halign = text.align_left)
-    table.cell(panel, 1, 4, L == 3 ? price(lvTrim) + "  (" + pct(moveTrim) + ")" : "ไม่มี (ยังไม่เต็มไม้)", text_color = fg, text_halign = text.align_right)
-    table.cell(panel, 0, 5, L == 2 ? "ซื้อเพิ่มถ้าปิด ≥" : L == 3 ? "เติมไม้" : "ซื้อเพิ่ม", text_color = muted, text_halign = text.align_left)
-    table.cell(panel, 1, 5, L == 2 ? price(lvAdd) + "  (" + pct(moveAdd) + ")" : L == 3 ? "เต็มแล้ว" : "หลังเริ่มซื้อ", text_color = fg, text_halign = text.align_right)
-    table.cell(panel, 0, 6, L == 1 ? "ซื้อได้ถ้าปิดเหนือ" : "ขายหมดถ้าปิดต่ำกว่า", text_color = muted, text_halign = text.align_left)
-    table.cell(panel, 1, 6, price(lvTrend) + "  (" + pct(moveTrend) + ")", text_color = fg, text_halign = text.align_right)
     string note = timeframe.isdaily and timeframe.multiplier == 1 ? "ตัดสินใจตอนแท่งวันปิด 07:00 น. · ไม่ใช่คำแนะนำการลงทุน" : "⚠ ใช้กับกราฟ 1D เท่านั้น"
-    table.cell(panel, 0, 7, note, text_color = muted, text_size = size.small)
-    table.merge_cells(panel, 0, 7, 1, 7)
+    table.cell(panel, 0, 0, verdict + "  ·  " + detail, text_color = color.white, bgcolor = vColor, text_size = headSize, text_halign = text.align_left, tooltip = note)
+    table.merge_cells(panel, 0, 0, 1, 0)
+    int row = 1
+    if L == 3
+        table.cell(panel, 0, row, "ลดครึ่งถ้าปิด <", text_color = muted, text_size = rowSize, text_halign = text.align_left)
+        table.cell(panel, 1, row, price(lvTrim) + " (" + pct(moveTrim) + ")", text_color = fg, text_size = rowSize, text_halign = text.align_right)
+        row += 1
+    if L == 2
+        table.cell(panel, 0, row, "ซื้อเพิ่มถ้าปิด ≥", text_color = muted, text_size = rowSize, text_halign = text.align_left)
+        table.cell(panel, 1, row, price(lvAdd) + " (" + pct(moveAdd) + ")", text_color = fg, text_size = rowSize, text_halign = text.align_right)
+        row += 1
+    if L >= 1
+        table.cell(panel, 0, row, L == 1 ? "เริ่มซื้อถ้าปิด >" : "ขายหมดถ้าปิด <", text_color = muted, text_size = rowSize, text_halign = text.align_left)
+        table.cell(panel, 1, row, price(lvTrend) + " (" + pct(moveTrend) + ")", text_color = fg, text_size = rowSize, text_halign = text.align_right)
+        row += 1
+    table.cell(panel, 0, row, "กฎ " + ruleState[k] + " · 60d " + pct(ret60[k]), text_color = muted, text_size = size.tiny, text_halign = text.align_left, tooltip = note)
+    table.merge_cells(panel, 0, row, 1, row)
 
 // One dynamic alert per closed bar with the Thai verdict (create the alert with "Any alert() function call").
 if barstate.isconfirmed and act != ""
