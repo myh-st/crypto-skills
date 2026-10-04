@@ -232,6 +232,12 @@ reference needed for the request:
 | multi-timeframe chart, volume, momentum, volatility, patterns | `references/technical-analysis.md` |
 | CVD, taker flow, footprint, imbalance, absorption, execution quality | `references/order-flow.md` |
 | futures, OI, funding, basis, liquidations, leverage | `references/derivatives.md` |
+| spot/perp transmission, arbitrage, liquidity, market-impact reasoning | `references/market-microstructure.md` |
+| squeeze, leverage flush, liquidation maps, leverage reset | `references/liquidation-dynamics.md` |
+| ETF/ETP/treasury underlying flows and liquid-float effects | `references/institutional-flows.md` |
+| derivatives-aware state classification | `references/market-state-classifier.md` |
+| source selection, freshness, conflicts, NOT_VERIFIED rules | `references/data-source-quality.md` |
+| dated SUI/AVAX/SEI/PYTH squeeze examples | `references/squeeze-case-studies.md` |
 | options IV, skew, term structure, expiry | `references/options.md` |
 | on-chain flows, holders, stablecoin liquidity | `references/on-chain.md` |
 | relative strength, macro, event calendar | `references/market-context.md` |
@@ -698,8 +704,9 @@ The internal committee may perform a deep multi-pass analysis, but **internal co
 Unless the user explicitly asks for a deep dive, report, full reasoning, committee transcript, or detailed breakdown:
 
 - Put the decision first.
-- Prefer 5-10 concise bullets or a compact table.
-- Target roughly 120-250 words for a normal market question.
+- Prefer 3-5 concise bullets or one compact table.
+- For a current single-asset market question, default to a Daily Update of roughly 80-160 words.
+- Use 160-250 words only when the user asks a broader comparison, portfolio decision, or extra explanation.
 - Avoid narrating every indicator checked.
 - Mention only signals that materially affect the decision.
 - Prefer exact price zones, invalidation, targets, horizon, and conditions over generic commentary.
@@ -707,6 +714,50 @@ Unless the user explicitly asks for a deep dive, report, full reasoning, committ
 - Keep source citations compact and attach them only to claims that need them.
 
 The analysis may be extensive; the explanation should not be.
+
+## Daily Update mode — default for current single-asset questions
+
+When the user asks what an asset looks like today, whether it is buyable now, where support is,
+or what the current squeeze/flush setup looks like, use this compact shape by default:
+
+~~~text
+ASSET/PAIR — STATE | Bias: Bullish / Neutral / Bearish
+
+Price: current
+Key zone: support → resistance
+Flow: one short line on Spot / OI / Funding / liquidation state
+Today: BUY / DCA / WAIT / HOLD / REDUCE + exact trigger
+Invalidation: one level or condition
+Watch: one event/level that matters next
+~~~
+
+Rules:
+
+- Aim for 6-9 short lines, normally 80-160 words.
+- Put the actionable conclusion in the first two lines.
+- Show only 2-4 price levels that affect today's decision.
+- Summarize OI/funding/spot/liquidation in one compact Flow line when relevant.
+- Do not print the internal Bull/Bear committee, full evidence ledger, source hierarchy, or all
+  indicators unless requested.
+- Do not include a three-scenario table unless uncertainty materially changes the action.
+- Do not repeat background facts from prior updates unless they changed.
+- Mention ETF/unlock/macro only when it can affect the current decision window.
+- Prefer WAIT over filling space with weak signals.
+- Keep uncertainty explicit: NOT_VERIFIED or data incomplete is better than a long guess.
+- If the user asks for a deep dive, switch to the detailed format in section 32B.
+
+Example:
+
+~~~text
+SUI/USDT — WAIT_FOR_BREAKOUT_CONFIRMATION | Bias: Bullish
+
+Price: $1.18
+Key zone: $1.16-1.17 support → $1.20-1.22 resistance
+Flow: leverage elevated; upside is healthier only if spot volume confirms.
+Today: DCA only on a confirmed flush/reclaim, or add after a 4H close above resistance.
+Invalidation: support loss with OI flat/up + persistent spot selling.
+Watch: OI reset on dips; spot volume on breakout.
+~~~
 
 ## Default decision-first order
 
@@ -814,7 +865,11 @@ Visuals must support the decision, not decorate the response.
 
 # 32. Default Human Output Format
 
-Use this concise format by default unless the user explicitly asks for detailed analysis.
+For current single-asset questions, use **Daily Update mode in section 31A first**.
+
+Use the decision format below when the user asks for an execution plan, multiple entry zones,
+position sizing, payoff math, or a comparison that needs more structure. Do not automatically
+expand a simple daily market question into this full format.
 
 ## Decision
 
@@ -1141,6 +1196,12 @@ When this skill is used from the repository checkout, load only the companion re
 - [Technical Analysis](references/technical-analysis.md) for structure, volume, momentum, volatility, or chart patterns.
 - [Order Flow](references/order-flow.md) for CVD, taker flow, footprint, imbalance, absorption, or execution quality.
 - [Derivatives](references/derivatives.md) for futures, OI, funding, basis, liquidations, or leverage.
+- [Market Microstructure](references/market-microstructure.md) for spot/perp transmission, arbitrage, liquidity, market impact, or large-participant reasoning.
+- [Liquidation Dynamics](references/liquidation-dynamics.md) for squeeze/flush, heatmaps, leverage resets, and liquidation-level questions.
+- [Institutional Flows](references/institutional-flows.md) for ETF/ETP/treasury creations, AUM interpretation, staking, and liquid-float effects.
+- [Market State Classifier](references/market-state-classifier.md) for derivatives-aware state labels and evidence/invalidation rules.
+- [Data Source Quality](references/data-source-quality.md) for source hierarchy, freshness, metric definitions, conflicts, and NOT_VERIFIED handling.
+- [Squeeze Case Studies](references/squeeze-case-studies.md) for dated SUI/AVAX/SEI/PYTH examples; never treat case-study snapshots as live data.
 - [Options](references/options.md) for IV, skew, term structure, or expiry risk.
 - [On-Chain](references/on-chain.md) for holder, exchange-flow, stablecoin, or chain-specific metrics.
 - [Market Context](references/market-context.md) for relative strength, macro, rotation, or events.
