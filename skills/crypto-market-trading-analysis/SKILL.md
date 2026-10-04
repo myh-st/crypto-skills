@@ -232,6 +232,12 @@ reference needed for the request:
 | multi-timeframe chart, volume, momentum, volatility, patterns | `references/technical-analysis.md` |
 | CVD, taker flow, footprint, imbalance, absorption, execution quality | `references/order-flow.md` |
 | futures, OI, funding, basis, liquidations, leverage | `references/derivatives.md` |
+| spot/perp transmission, arbitrage, liquidity, market-impact reasoning | `references/market-microstructure.md` |
+| squeeze, leverage flush, liquidation maps, leverage reset | `references/liquidation-dynamics.md` |
+| ETF/ETP/treasury underlying flows and liquid-float effects | `references/institutional-flows.md` |
+| derivatives-aware state classification | `references/market-state-classifier.md` |
+| source selection, freshness, conflicts, NOT_VERIFIED rules | `references/data-source-quality.md` |
+| dated SUI/AVAX/SEI/PYTH squeeze examples | `references/squeeze-case-studies.md` |
 | options IV, skew, term structure, expiry | `references/options.md` |
 | on-chain flows, holders, stablecoin liquidity | `references/on-chain.md` |
 | relative strength, macro, event calendar | `references/market-context.md` |
@@ -1141,6 +1147,12 @@ When this skill is used from the repository checkout, load only the companion re
 - [Technical Analysis](references/technical-analysis.md) for structure, volume, momentum, volatility, or chart patterns.
 - [Order Flow](references/order-flow.md) for CVD, taker flow, footprint, imbalance, absorption, or execution quality.
 - [Derivatives](references/derivatives.md) for futures, OI, funding, basis, liquidations, or leverage.
+- [Market Microstructure](references/market-microstructure.md) for spot/perp transmission, arbitrage, liquidity, market impact, or large-participant reasoning.
+- [Liquidation Dynamics](references/liquidation-dynamics.md) for squeeze/flush, heatmaps, leverage resets, and liquidation-level questions.
+- [Institutional Flows](references/institutional-flows.md) for ETF/ETP/treasury creations, AUM interpretation, staking, and liquid-float effects.
+- [Market State Classifier](references/market-state-classifier.md) for derivatives-aware state labels and evidence/invalidation rules.
+- [Data Source Quality](references/data-source-quality.md) for source hierarchy, freshness, metric definitions, conflicts, and NOT_VERIFIED handling.
+- [Squeeze Case Studies](references/squeeze-case-studies.md) for dated SUI/AVAX/SEI/PYTH examples; never treat case-study snapshots as live data.
 - [Options](references/options.md) for IV, skew, term structure, or expiry risk.
 - [On-Chain](references/on-chain.md) for holder, exchange-flow, stablecoin, or chain-specific metrics.
 - [Market Context](references/market-context.md) for relative strength, macro, rotation, or events.
